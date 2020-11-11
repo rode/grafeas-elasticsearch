@@ -9,7 +9,6 @@ grafeas:
     # CORS configuration (optional)
     cors_allowed_origins:
       # - "http://example.net"
-  storage_type: mongodb
+  storage_type: elasticsearch
   mongodb:
-    uri: "mongodb://localhost:27017"
-    database: "default"
+    uri: "db://localhost:9200"

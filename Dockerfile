@@ -1,7 +1,5 @@
 FROM golang:1.15 as builder
 
-RUN apt-get update
-
 COPY . /go/src/github.com/liatrio/grafeas-elasticsearch/
 WORKDIR /go/src/github.com/liatrio/grafeas-elasticsearch
 

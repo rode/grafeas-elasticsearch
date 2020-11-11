@@ -1,8 +1,5 @@
 FROM golang:1.15 as builder
 
-# RUN apt-get update && \
-#     apt-get install -y openjdk-8-jdk
-
 RUN apt-get update
 
 COPY . /go/src/github.com/liatrio/grafeas-elasticsearch/

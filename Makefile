@@ -26,6 +26,6 @@ generate:
 	tar xf grafeas/grafeas.tgz -C grafeas
 
 clean: generate
-	go clean ./...
+	go clean /...
 	rm -rf $(CLEAN)
 	rm -rf test grafeas

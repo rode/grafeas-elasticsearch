@@ -2,7 +2,12 @@ package storage
 
 import (
 	"context"
+	"crypto/tls"
+	"encoding/json"
 	"fmt"
+	"log"
+	"net"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -27,7 +32,6 @@ type Occurrence struct {
 // Elasticsearch is...
 type Elasticsearch struct {
 	*elasticsearch.Client
-	PaginationKey string
 }
 
 // ElasticsearchStorageTypeProvider is...
@@ -44,6 +48,16 @@ func ElasticsearchStorageTypeProvider(storageType string, storageConfig *grafeas
 	}
 
 	s := NewElasticsearchStore(&storeConfig)
+
+	var r map[string]interface{}
+	info, err := s.Client.Info()
+	if err != nil {
+		log.Fatal(err)
+	}
+	json.NewDecoder(info.Body).Decode(&r)
+
+	fmt.Printf("ES Server version: %v\n", r["version"].(map[string]interface{})["number"])
+
 	storage := &storage.Storage{
 		Ps: s,
 		Gs: s,
@@ -54,7 +68,29 @@ func ElasticsearchStorageTypeProvider(storageType string, storageConfig *grafeas
 
 // NewElasticsearchStore is...
 func NewElasticsearchStore(config *config.ElasticsearchConfig) *Elasticsearch {
-	return &Elasticsearch{}
+	cfg := elasticsearch.Config{
+		Addresses: []string{
+			"http://localhost:9200",
+		},
+		Username: "grafeas",
+		Password: "grafeas",
+		Transport: &http.Transport{
+			MaxIdleConnsPerHost:   10,
+			ResponseHeaderTimeout: time.Second,
+			DialContext:           (&net.Dialer{Timeout: time.Second}).DialContext,
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS11,
+			},
+		},
+	}
+
+	c, err := elasticsearch.NewClient(cfg)
+	if err != nil {
+		log.Print("Could not create ES client")
+		return nil
+	}
+
+	return &Elasticsearch{Client: c}
 }
 
 // CreateProject adds the specified project to the store

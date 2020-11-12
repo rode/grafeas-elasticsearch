@@ -1,14 +1,10 @@
 grafeas:
   api:
-    # Endpoint address
     address: "0.0.0.0:8080"
-    # PKI configuration (optional)
     cafile:
     keyfile:
     certfile:
-    # CORS configuration (optional)
     cors_allowed_origins:
-      # - "http://example.net"
   storage_type: elasticsearch
-  mongodb:
+  elasticsearch:
     uri: "db://localhost:9200"

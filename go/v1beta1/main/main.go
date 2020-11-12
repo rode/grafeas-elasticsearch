@@ -15,7 +15,7 @@ func main() {
 	}
 
 	// register a new storage type using the key 'mongodb'
-	err = grafeasStorage.RegisterStorageTypeProvider("mongodb", storage.ElasticsearchStorageTypeProvider)
+	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", storage.ElasticsearchStorageTypeProvider)
 
 	if err != nil {
 		log.Panicf("Error when registering my new storage, %s", err)

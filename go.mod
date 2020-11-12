@@ -9,6 +9,7 @@ require (
 	github.com/grafeas/grafeas v0.1.6
 	github.com/pelletier/go-toml v1.7.0 // indirect
 	github.com/stretchr/testify v1.6.1 // indirect
+	go.uber.org/zap v1.10.0
 	golang.org/x/text v0.3.3 // indirect
 	google.golang.org/protobuf v1.25.0
 )

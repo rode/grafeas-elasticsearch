@@ -1,31 +1,16 @@
-.PHONY: build fmt test vet clean generate
-
-SRC = $(shell find . -type f -name '*.go' -not -path "./grafeas/grafeas/*")
-CLEAN := *~
-
-.EXPORT_ALL_VARIABLES:
+.PHONY: test fmtcheck vet fmt
+GOFMT_FILES?=$$(find . -name '*.go' | grep -v proto)
 
 GO111MODULE=on
 
-build: vet fmt generate
-	go build -v ./...
+fmtcheck:
+	lineCount=$(shell gofmt -l -s $(GOFMT_FILES) | wc -l | tr -d ' ') && exit $$lineCount
 
-# http://golang.org/cmd/go/#hdr-Run_gofmt_on_package_sources
 fmt:
-	@gofmt -l -w $(SRC)
+	gofmt -w -s $(GOFMT_FILES)
 
-test: generate
-	@go test -v ./...
+vet:
+	go vet ./...
 
-vet: generate
-	@go vet ./...
-
-generate:
-	mkdir -p grafeas
-	bash -c "if [ ! -f grafeas/grafeas.tgz ]; then curl https://github.com/grafeas/grafeas/releases/download/v0.1.3/grafeas-0.1.3.tar.gz -o grafeas/grafeas.tgz -L; fi"
-	tar xf grafeas/grafeas.tgz -C grafeas
-
-clean: generate
-	go clean /...
-	rm -rf $(CLEAN)
-	rm -rf test grafeas
+test: fmtcheck vet
+	go test ./... -coverprofile=coverage.txt -covermode atomic

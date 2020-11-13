@@ -1,14 +1,16 @@
 version: "3"
 services:
   server:
-    build: "./"
+    build:
+      dockerfile: "./local/Dockerfile"
+      context: "."
     ports:
       - "8080:8080"
     command: sh -c './wait-for.sh db:9200 -t 60 -- /grafeas-server'
     depends_on:
       - db
   db:
-    build: "elasticsearch"
+    build: "./local/elasticsearch"
     ports:
       - "9200:9200"
       - "9300:9300"

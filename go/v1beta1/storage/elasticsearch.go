@@ -19,12 +19,12 @@ import (
 
 // ElasticsearchStorage is...
 type ElasticsearchStorage struct {
-	esClient elasticsearch.Client
+	esClient *elasticsearch.Client
 	logger   *zap.Logger
 }
 
 // NewElasticsearchStore is...
-func NewElasticsearchStore(client elasticsearch.Client, logger *zap.Logger) *ElasticsearchStorage {
+func NewElasticsearchStore(client *elasticsearch.Client, logger *zap.Logger) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
 		esClient: client,
 		logger:   logger,

@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"flag"
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/grafeas/grafeas/go/v1beta1/server"
 	grafeasStorage "github.com/grafeas/grafeas/go/v1beta1/storage"
@@ -10,7 +11,11 @@ import (
 	"log"
 )
 
+var elasticsearchHost string
+
 func main() {
+	flag.StringVar(&elasticsearchHost, "elasticsearch-host", "http://db:9200", "the host to use to connect to grafeas")
+
 	err := grafeasStorage.RegisterDefaultStorageTypeProviders()
 	if err != nil {
 		log.Panicf("Error when registering storage type providers, %s", err)
@@ -21,7 +26,7 @@ func main() {
 		log.Fatalf("failed to create logger: %v", err)
 	}
 
-	esClient, err := createESClient(logger)
+	esClient, err := createESClient(logger, elasticsearchHost)
 	if err != nil {
 		logger.Fatal("failed to connect to Elasticsearch", zap.NamedError("error", err))
 	}
@@ -40,10 +45,10 @@ func main() {
 	}
 }
 
-func createESClient(logger *zap.Logger) (elasticsearch.Client, error) {
+func createESClient(logger *zap.Logger, elastisearchEndpoint string) (elasticsearch.Client, error) {
 	c, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{
-			"http://db:9200",
+			elastisearchEndpoint,
 		},
 		Username: "grafeas",
 		Password: "grafeas",

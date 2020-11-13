@@ -4,7 +4,7 @@ services:
     build: "./"
     ports:
       - "8080:8080"
-    command: sh -c './wait-for.sh db:9200 -t 30 -- /grafeas-server'
+    command: sh -c './wait-for.sh db:9200 -t 60 -- /grafeas-server'
     depends_on:
       - db
   db:

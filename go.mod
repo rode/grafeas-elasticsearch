@@ -12,5 +12,12 @@ require (
 	github.com/pelletier/go-toml v1.7.0 // indirect
 	github.com/stretchr/testify v1.6.1 // indirect
 	go.uber.org/zap v1.10.0
+	google.golang.org/grpc v1.33.1
+	google.golang.org/grpc/examples v0.0.0-20201112215255-90f1b3ee835b // indirect
 	google.golang.org/protobuf v1.25.0
+)
+
+replace (
+	github.com/grpc-ecosystem/grpc-gateway v1.9.0 => github.com/grpc-ecosystem/grpc-gateway v1.11.0
+	github.com/grpc-ecosystem/grpc-gateway v1.9.6 => github.com/grpc-ecosystem/grpc-gateway v1.11.0
 )

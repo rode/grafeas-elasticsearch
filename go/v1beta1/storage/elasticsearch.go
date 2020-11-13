@@ -2,10 +2,11 @@ package storage
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"github.com/elastic/go-elasticsearch/v7"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"net/http"
 	"strconv"
 	"time"
@@ -35,6 +36,9 @@ func NewElasticsearchStore(client *elasticsearch.Client, logger *zap.Logger) *El
 
 // ElasticsearchStorageTypeProvider is...
 func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType string, storageConfig *grafeasConfig.StorageConfiguration) (*storage.Storage, error) {
+	log := es.logger.Named("ElasticsearchStorageTypeProvider")
+	log.Info("registering elasticsearch storage")
+
 	if storageType != "elasticsearch" {
 		return nil, fmt.Errorf("unknown storage type %s, must be 'elasticsearch'", storageType)
 	}
@@ -54,13 +58,18 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 
 // CreateProject adds the specified project to the store
 func (es *ElasticsearchStorage) CreateProject(ctx context.Context, pID string, p *prpb.Project) (*prpb.Project, error) {
+	log := es.logger.Named("CreateProject")
 	res, err := es.client.Indices.Create(pID)
 	if err != nil {
-		return nil, err
+		log.Error("error creating index", zap.NamedError("error", err))
+		return nil, status.Error(codes.Internal, "failed to create index in elasticsearch")
 	}
 
-	if res.StatusCode != http.StatusCreated {
-		return nil, errors.New("could not create index")
+	log.Debug("elasticsearch response", zap.Any("res", res))
+
+	if res.StatusCode != http.StatusOK {
+		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
+		return nil, status.Error(codes.Internal, "unexpected response from elasticsearch when creating index")
 	}
 
 	return &prpb.Project{

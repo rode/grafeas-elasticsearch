@@ -2,9 +2,11 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/elastic/go-elasticsearch/v7"
 	"go.uber.org/zap"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -19,15 +21,15 @@ import (
 
 // ElasticsearchStorage is...
 type ElasticsearchStorage struct {
-	esClient *elasticsearch.Client
-	logger   *zap.Logger
+	client *elasticsearch.Client
+	logger *zap.Logger
 }
 
 // NewElasticsearchStore is...
 func NewElasticsearchStore(client *elasticsearch.Client, logger *zap.Logger) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
-		esClient: client,
-		logger:   logger,
+		client: client,
+		logger: logger,
 	}
 }
 
@@ -44,17 +46,26 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 		return nil, fmt.Errorf("unable to create ElasticsearchConfig, %s", err)
 	}
 
-	s := &storage.Storage{
+	return &storage.Storage{
 		Ps: es,
 		Gs: es,
-	}
-
-	return s, nil
+	}, nil
 }
 
 // CreateProject adds the specified project to the store
 func (es *ElasticsearchStorage) CreateProject(ctx context.Context, pID string, p *prpb.Project) (*prpb.Project, error) {
-	return nil, nil
+	res, err := es.client.Indices.Create(pID)
+	if err != nil {
+		return nil, err
+	}
+
+	if res.StatusCode != http.StatusCreated {
+		return nil, errors.New("could not create index")
+	}
+
+	return &prpb.Project{
+		Name: pID,
+	}, nil
 }
 
 // DeleteProject deletes the project with the given pID from the store

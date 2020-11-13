@@ -20,14 +20,14 @@ import (
 // ElasticsearchStorage is...
 type ElasticsearchStorage struct {
 	esClient elasticsearch.Client
-	logger	*zap.Logger
+	logger   *zap.Logger
 }
 
 // NewElasticsearchStore is...
 func NewElasticsearchStore(client elasticsearch.Client, logger *zap.Logger) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
 		esClient: client,
-		logger: logger,
+		logger:   logger,
 	}
 }
 
@@ -43,9 +43,6 @@ func (pg *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 	if err != nil {
 		return nil, fmt.Errorf("unable to create ElasticsearchConfig, %s", err)
 	}
-
-	//s := NewElasticsearchStore(&storeConfig)
-
 
 	s := &storage.Storage{
 		Ps: pg,

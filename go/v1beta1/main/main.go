@@ -26,28 +26,27 @@ func main() {
 		logger.Fatal("failed to connect to Elasticsearch", zap.NamedError("error", err))
 	}
 
-	elasticsearchStorage := storage.NewElasticsearchStore(esClient, logger)
+	elasticsearchStorage := storage.NewElasticsearchStore(esClient, logger.Named("Elasticsearch Store"))
 
-	// register a new storage type using the key 'mongodb'
+	// register a new storage type using the key 'elasticsearch'
 	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", elasticsearchStorage.ElasticsearchStorageTypeProvider)
-
 	if err != nil {
-		log.Panicf("Error when registering my new storage, %s", err)
+		logger.Fatal("Error when registering my new storage", zap.NamedError("error", err))
 	}
 
 	err = server.StartGrafeas()
 	if err != nil {
-		logger.Fatal("Failed to start Grafeas server...")
+		logger.Fatal("Failed to start Grafeas server...", zap.NamedError("error", err))
 	}
 }
 
 func createESClient(logger *zap.Logger) (elasticsearch.Client, error) {
 	c, err := elasticsearch.NewClient(elasticsearch.Config{
-		Addresses:             []string{
+		Addresses: []string{
 			"http://db:9200",
 		},
-		Username:              "grafeas",
-		Password:              "grafeas",
+		Username: "grafeas",
+		Password: "grafeas",
 	})
 
 	if err != nil {

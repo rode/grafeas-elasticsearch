@@ -45,32 +45,32 @@ func main() {
 	}
 }
 
-func createESClient(logger *zap.Logger, elastisearchEndpoint string) (elasticsearch.Client, error) {
+func createESClient(logger *zap.Logger, elasticsearchEndpoint string) (*elasticsearch.Client, error) {
 	c, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{
-			elastisearchEndpoint,
+			elasticsearchEndpoint,
 		},
 		Username: "grafeas",
 		Password: "grafeas",
 	})
 
 	if err != nil {
-		return elasticsearch.Client{}, err
+		return nil, err
 	}
 
 	res, err := c.Info()
 	if err != nil {
-		return elasticsearch.Client{}, err
+		return nil, err
 	}
 
 	var r map[string]interface{}
 	if err := json.NewDecoder(res.Body).Decode(&r); err != nil {
-		return elasticsearch.Client{}, err
+		return nil, err
 	}
 
 	logger.Debug("Successful Elasticsearch connection", zap.String("ES Server version", r["version"].(map[string]interface{})["number"].(string)))
 
-	return *c, nil
+	return c, nil
 }
 
 func createLogger(debug bool) (*zap.Logger, error) {

@@ -32,7 +32,7 @@ func NewElasticsearchStore(client elasticsearch.Client, logger *zap.Logger) *Ela
 }
 
 // ElasticsearchStorageTypeProvider is...
-func (pg *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType string, storageConfig *grafeasConfig.StorageConfiguration) (*storage.Storage, error) {
+func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType string, storageConfig *grafeasConfig.StorageConfiguration) (*storage.Storage, error) {
 	if storageType != "elasticsearch" {
 		return nil, fmt.Errorf("unknown storage type %s, must be 'elasticsearch'", storageType)
 	}
@@ -45,111 +45,111 @@ func (pg *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 	}
 
 	s := &storage.Storage{
-		Ps: pg,
-		Gs: pg,
+		Ps: es,
+		Gs: es,
 	}
 
 	return s, nil
 }
 
 // CreateProject adds the specified project to the store
-func (pg *ElasticsearchStorage) CreateProject(ctx context.Context, pID string, p *prpb.Project) (*prpb.Project, error) {
+func (es *ElasticsearchStorage) CreateProject(ctx context.Context, pID string, p *prpb.Project) (*prpb.Project, error) {
 	return nil, nil
 }
 
 // DeleteProject deletes the project with the given pID from the store
-func (pg *ElasticsearchStorage) DeleteProject(ctx context.Context, pID string) error {
+func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, pID string) error {
 	return nil
 }
 
 // GetProject returns the project with the given pID from the store
-func (pg *ElasticsearchStorage) GetProject(ctx context.Context, pID string) (*prpb.Project, error) {
+func (es *ElasticsearchStorage) GetProject(ctx context.Context, pID string) (*prpb.Project, error) {
 	return nil, nil
 }
 
 // ListProjects returns up to pageSize number of projects beginning at pageToken (or from
 // start if pageToken is the empty string).
-func (pg *ElasticsearchStorage) ListProjects(ctx context.Context, filter string, pageSize int, pageToken string) ([]*prpb.Project, string, error) {
-	//id := decryptInt64(pageToken, pg.PaginationKey, 0)
+func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string, pageSize int, pageToken string) ([]*prpb.Project, string, error) {
+	//id := decryptInt64(pageToken, es.PaginationKey, 0)
 	//TODO
 	return nil, "", nil
 }
 
 // CreateNote adds the specified note
-func (pg *ElasticsearchStorage) CreateNote(ctx context.Context, pID, nID, uID string, n *pb.Note) (*pb.Note, error) {
+func (es *ElasticsearchStorage) CreateNote(ctx context.Context, pID, nID, uID string, n *pb.Note) (*pb.Note, error) {
 	return nil, nil
 }
 
 // BatchCreateNotes batch creates the specified notes in memstore.
-func (pg *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, pID, uID string, notes map[string]*pb.Note) ([]*pb.Note, []error) {
+func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, pID, uID string, notes map[string]*pb.Note) ([]*pb.Note, []error) {
 	return nil, nil
 }
 
 // DeleteNote deletes the note with the given pID and nID
-func (pg *ElasticsearchStorage) DeleteNote(ctx context.Context, pID, nID string) error {
+func (es *ElasticsearchStorage) DeleteNote(ctx context.Context, pID, nID string) error {
 	return nil
 }
 
 // UpdateNote updates the existing note with the given pID and nID
-func (pg *ElasticsearchStorage) UpdateNote(ctx context.Context, pID, nID string, n *pb.Note, mask *fieldmaskpb.FieldMask) (*pb.Note, error) {
+func (es *ElasticsearchStorage) UpdateNote(ctx context.Context, pID, nID string, n *pb.Note, mask *fieldmaskpb.FieldMask) (*pb.Note, error) {
 	return nil, nil
 }
 
 // GetNote returns the note with project (pID) and note ID (nID)
-func (pg *ElasticsearchStorage) GetNote(ctx context.Context, pID, nID string) (*pb.Note, error) {
+func (es *ElasticsearchStorage) GetNote(ctx context.Context, pID, nID string) (*pb.Note, error) {
 	return nil, nil
 }
 
 // CreateOccurrence adds the specified occurrence
-func (pg *ElasticsearchStorage) CreateOccurrence(ctx context.Context, pID, uID string, o *pb.Occurrence) (*pb.Occurrence, error) {
+func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, pID, uID string, o *pb.Occurrence) (*pb.Occurrence, error) {
 	return nil, nil
 }
 
 // BatchCreateOccurrences batch creates the specified occurrences in Elasticsearch.
-func (pg *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, pID string, uID string, occs []*pb.Occurrence) ([]*pb.Occurrence, []error) {
+func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, pID string, uID string, occs []*pb.Occurrence) ([]*pb.Occurrence, []error) {
 	return nil, nil
 }
 
 // DeleteOccurrence deletes the occurrence with the given pID and oID
-func (pg *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, pID, oID string) error {
+func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, pID, oID string) error {
 	return nil
 }
 
 // UpdateOccurrence updates the existing occurrence with the given projectID and occurrenceID
-func (pg *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, pID, oID string, o *pb.Occurrence, mask *fieldmaskpb.FieldMask) (*pb.Occurrence, error) {
+func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, pID, oID string, o *pb.Occurrence, mask *fieldmaskpb.FieldMask) (*pb.Occurrence, error) {
 	return nil, nil
 }
 
 // GetOccurrence returns the occurrence with pID and oID
-func (pg *ElasticsearchStorage) GetOccurrence(ctx context.Context, pID, oID string) (*pb.Occurrence, error) {
+func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, pID, oID string) (*pb.Occurrence, error) {
 	return nil, nil
 }
 
 // ListOccurrences returns up to pageSize number of occurrences for this project beginning
 // at pageToken, or from start if pageToken is the empty string.
-func (pg *ElasticsearchStorage) ListOccurrences(ctx context.Context, pID, filter, pageToken string, pageSize int32) ([]*pb.Occurrence, string, error) {
+func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, pID, filter, pageToken string, pageSize int32) ([]*pb.Occurrence, string, error) {
 	return nil, "", nil
 }
 
 // GetOccurrenceNote gets the note for the specified occurrence from PostgreSQL.
-func (pg *ElasticsearchStorage) GetOccurrenceNote(ctx context.Context, pID, oID string) (*pb.Note, error) {
+func (es *ElasticsearchStorage) GetOccurrenceNote(ctx context.Context, pID, oID string) (*pb.Note, error) {
 	return nil, nil
 }
 
 // ListNotes returns up to pageSize number of notes for this project (pID) beginning
 // at pageToken (or from start if pageToken is the empty string).
-func (pg *ElasticsearchStorage) ListNotes(ctx context.Context, pID, filter, pageToken string, pageSize int32) ([]*pb.Note, string, error) {
+func (es *ElasticsearchStorage) ListNotes(ctx context.Context, pID, filter, pageToken string, pageSize int32) ([]*pb.Note, string, error) {
 	return nil, "", nil
 }
 
 // ListNoteOccurrences returns up to pageSize number of occurrences on the particular note (nID)
 // for this project (pID) projects beginning at pageToken (or from start if pageToken is the empty string).
-func (pg *ElasticsearchStorage) ListNoteOccurrences(ctx context.Context, pID, nID, filter, pageToken string, pageSize int32) ([]*pb.Occurrence, string, error) {
+func (es *ElasticsearchStorage) ListNoteOccurrences(ctx context.Context, pID, nID, filter, pageToken string, pageSize int32) ([]*pb.Occurrence, string, error) {
 	return nil, "", nil
 }
 
 // GetVulnerabilityOccurrencesSummary gets a summary of vulnerability occurrences from storage.
-func (pg *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.Context, projectID, filter string) (*pb.VulnerabilityOccurrencesSummary, error) {
+func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.Context, projectID, filter string) (*pb.VulnerabilityOccurrencesSummary, error) {
 	return &pb.VulnerabilityOccurrencesSummary{}, nil
 }
 

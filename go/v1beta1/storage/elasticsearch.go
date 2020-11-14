@@ -73,7 +73,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, pID string, p
 	}
 
 	return &prpb.Project{
-		Name: pID,
+		Name: fmt.Sprintf("projects/%s", pID),
 	}, nil
 }
 

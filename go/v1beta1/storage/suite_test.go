@@ -16,12 +16,22 @@ func TestStoragePackage(t *testing.T) {
 }
 
 var _ = BeforeSuite(func() {
-	logger, _ = zap.NewDevelopment()
+	logger = zap.NewNop()
 })
 
 type mockEsTransport struct {
+	receivedPerformRequest  *http.Request
+	preparedPerformResponse *http.Response
+	expectedError           error
 }
 
-func (m *mockEsTransport) Perform(*http.Request) (*http.Response, error) {
-	return nil, nil
+func (m *mockEsTransport) Perform(req *http.Request) (*http.Response, error) {
+	m.receivedPerformRequest = req
+
+	// if we have a prepared response, send it. otherwise, return nil
+	if m.preparedPerformResponse != nil {
+		return m.preparedPerformResponse, m.expectedError
+	}
+
+	return nil, m.expectedError
 }

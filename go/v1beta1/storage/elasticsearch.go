@@ -5,6 +5,9 @@ import (
 	"fmt"
 	"github.com/elastic/go-elasticsearch/v7"
 	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -19,20 +22,23 @@ import (
 
 // ElasticsearchStorage is...
 type ElasticsearchStorage struct {
-	esClient *elasticsearch.Client
-	logger   *zap.Logger
+	client *elasticsearch.Client
+	logger *zap.Logger
 }
 
 // NewElasticsearchStore is...
 func NewElasticsearchStore(client *elasticsearch.Client, logger *zap.Logger) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
-		esClient: client,
-		logger:   logger,
+		client: client,
+		logger: logger,
 	}
 }
 
 // ElasticsearchStorageTypeProvider is...
 func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType string, storageConfig *grafeasConfig.StorageConfiguration) (*storage.Storage, error) {
+	log := es.logger.Named("ElasticsearchStorageTypeProvider")
+	log.Info("registering elasticsearch storage")
+
 	if storageType != "elasticsearch" {
 		return nil, fmt.Errorf("unknown storage type %s, must be 'elasticsearch'", storageType)
 	}
@@ -44,17 +50,31 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 		return nil, fmt.Errorf("unable to create ElasticsearchConfig, %s", err)
 	}
 
-	s := &storage.Storage{
+	return &storage.Storage{
 		Ps: es,
 		Gs: es,
-	}
-
-	return s, nil
+	}, nil
 }
 
 // CreateProject adds the specified project to the store
 func (es *ElasticsearchStorage) CreateProject(ctx context.Context, pID string, p *prpb.Project) (*prpb.Project, error) {
-	return nil, nil
+	log := es.logger.Named("CreateProject")
+	res, err := es.client.Indices.Create(pID)
+	if err != nil {
+		log.Error("error creating index", zap.NamedError("error", err))
+		return nil, status.Error(codes.Internal, "failed to create index in elasticsearch")
+	}
+
+	log.Debug("elasticsearch response", zap.Any("res", res))
+
+	if res.StatusCode != http.StatusOK {
+		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
+		return nil, status.Error(codes.Internal, "unexpected response from elasticsearch when creating index")
+	}
+
+	return &prpb.Project{
+		Name: fmt.Sprintf("projects/%s", pID),
+	}, nil
 }
 
 // DeleteProject deletes the project with the given pID from the store

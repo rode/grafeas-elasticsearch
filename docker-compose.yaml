@@ -6,10 +6,12 @@ services:
       context: "."
     ports:
       - "8080:8080"
-    command: sh -c './wait-for.sh db:9200 -t 60 -- /grafeas-server'
+    volumes:
+      - ./local:/local
+    command: sh -c './wait-for.sh elasticsearch:9200 -t 60 -- /grafeas-server --elasticsearch-host http://elasticsearch:9200 --config /local/config.yaml'
     depends_on:
-      - db
-  db:
+      - elasticsearch
+  elasticsearch:
     build: "./local/elasticsearch"
     ports:
       - "9200:9200"
@@ -18,3 +20,11 @@ services:
       - discovery.type=single-node
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     mem_limit: 1GB
+  kibana:
+    image: bitnami/kibana:7.9.3
+    ports:
+    - 5601:5601
+    environment:
+      - KIBANA_ELASTICSEARCH_URL=elasticsearch
+    depends_on:
+      - elasticsearch

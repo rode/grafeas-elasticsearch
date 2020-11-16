@@ -14,7 +14,8 @@ import (
 var elasticsearchHost string
 
 func main() {
-	flag.StringVar(&elasticsearchHost, "elasticsearch-host", "http://db:9200", "the host to use to connect to grafeas")
+	flag.StringVar(&elasticsearchHost, "elasticsearch-host", "http://elasticsearch:9200", "the host to use to connect to grafeas")
+	flag.Parse()
 
 	err := grafeasStorage.RegisterDefaultStorageTypeProviders()
 	if err != nil {
@@ -31,7 +32,7 @@ func main() {
 		logger.Fatal("failed to connect to Elasticsearch", zap.NamedError("error", err))
 	}
 
-	elasticsearchStorage := storage.NewElasticsearchStore(esClient, logger.Named("Elasticsearch Store"))
+	elasticsearchStorage := storage.NewElasticsearchStore(esClient, logger.Named("ElasticsearchStore"))
 
 	// register a new storage type using the key 'elasticsearch'
 	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", elasticsearchStorage.ElasticsearchStorageTypeProvider)

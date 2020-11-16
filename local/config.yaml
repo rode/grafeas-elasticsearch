@@ -7,4 +7,4 @@ grafeas:
     cors_allowed_origins:
   storage_type: elasticsearch
   elasticsearch:
-    uri: "db://localhost:9200"
+    uri: "http://elasticsearch:9200"

@@ -1,15 +1,19 @@
 package storage
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
-	"github.com/elastic/go-elasticsearch/v7"
-	"go.uber.org/zap"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/elastic/go-elasticsearch/v7"
+	"github.com/golang/protobuf/ptypes"
+	"go.uber.org/zap"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/fernet/fernet-go"
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
@@ -122,11 +126,63 @@ func (es *ElasticsearchStorage) GetNote(ctx context.Context, pID, nID string) (*
 
 // CreateOccurrence adds the specified occurrence
 func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, pID, uID string, o *pb.Occurrence) (*pb.Occurrence, error) {
-	return nil, nil
+	log := es.logger.Named("CreateOccurrence")
+	json, err := json.Marshal(o)
+	reader := bytes.NewReader(json)
+
+	if o.CreateTime == nil {
+		o.CreateTime = ptypes.TimestampNow()
+	}
+
+	res, err := es.client.Index(pID, reader)
+	if err != nil {
+		log.Error("error creating occurrence", zap.NamedError("error", err))
+		return nil, status.Error(codes.Internal, "failed to create occurrence in elasticsearch")
+	}
+
+	log.Debug("elasticsearch response", zap.Any("res", res))
+
+	if res.StatusCode != http.StatusCreated {
+		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
+		return nil, status.Error(codes.Internal, "unexpected response from elasticsearch when creating occurrence")
+	}
+
+	return o, nil
 }
 
 // BatchCreateOccurrences batch creates the specified occurrences in Elasticsearch.
 func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, pID string, uID string, occs []*pb.Occurrence) ([]*pb.Occurrence, []error) {
+	log := es.logger.Named("BatchCreateOccurrence")
+
+	b := []byte(`{ "index" : { "_index" : "rode"} }\n`)
+
+	fullArray := b
+	for _, occ := range occs {
+		json, _ := json.Marshal(occ)
+		objectBytes := []byte(json)
+		indexOccurrence := append(b, objectBytes...)
+		fullArray = append(fullArray, indexOccurrence...)
+		fullArray = append(fullArray, byte('\n'))
+
+	}
+
+	body := bytes.NewReader(fullArray)
+	res, err := es.client.Bulk(body)
+
+	if err != nil {
+		log.Error("error creating occurrence", zap.NamedError("error", err))
+		return nil, []error{status.Error(codes.Internal, "failed to create occurrence in elasticsearch")}
+	}
+
+	log.Debug("elasticsearch response", zap.Any("res", res))
+	s := string(fullArray)
+	log.Debug("elastic payload", zap.Any("ES payload", s))
+
+	if res.StatusCode != http.StatusCreated {
+		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
+		return nil, []error{status.Error(codes.Internal, "unexpected response from elasticsearch when creating occurrence")}
+	}
+
 	return nil, nil
 }
 

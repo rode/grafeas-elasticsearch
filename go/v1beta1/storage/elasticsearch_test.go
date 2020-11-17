@@ -46,10 +46,21 @@ var _ = Describe("elasticsearch storage", func() {
 
 				expectedProject, err = elasticsearchStorage.CreateProject(ctx, pID, project)
 			})
-			It("should return a new Grafeas project", func() {
 
-				Expect(err).ToNot(HaveOccurred())
+			It("should have performed a PUT Request", func() {
+				Expect(transport.receivedPerformRequest.Method).To(Equal("PUT"))
+			})
+
+			It("should have created an index at a path matching the PID", func() {
+				Expect(transport.receivedPerformRequest.URL.Path).To(Equal(fmt.Sprintf("/%s", pID)))
+			})
+
+			It("should return a new Grafeas project", func() {
 				Expect(expectedProject.Name).To(Equal("projects/rode"))
+			})
+
+			It("should return without an error", func() {
+				Expect(err).ToNot(HaveOccurred())
 			})
 		})
 

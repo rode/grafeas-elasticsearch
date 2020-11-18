@@ -154,29 +154,33 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, pID, uID s
 func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, pID string, uID string, occs []*pb.Occurrence) ([]*pb.Occurrence, []error) {
 	log := es.logger.Named("BatchCreateOccurrence")
 
-	b := []byte(`{ "index" : { "_index" : "rode"} }\n`)
+	var buf bytes.Buffer
 
-	fullArray := b
+	// Prepare payload
+	metadata := []byte(fmt.Sprintf(`{ "index" : { "_index" : "%s"} }%s`, pID, "\n"))
+
+	// Encode occurrences to JSON
 	for _, occ := range occs {
-		json, _ := json.Marshal(occ)
-		objectBytes := []byte(json)
-		indexOccurrence := append(b, objectBytes...)
-		fullArray = append(fullArray, indexOccurrence...)
-		fullArray = append(fullArray, byte('\n'))
+		data, err := json.Marshal(occ)
+		if err != nil {
+			log.Error("Cannot encode occurrence", zap.Any(occ.Name, err))
+		}
 
+		data = append(data, "\n"...)
+		buf.Grow(len(metadata) + len(data))
+		buf.Write(metadata)
+		buf.Write(data)
 	}
 
-	body := bytes.NewReader(fullArray)
-	res, err := es.client.Bulk(body)
+	log.Debug("Bulk payload", zap.Any("es bulk payload", bytes.NewReader(buf.Bytes())))
 
+	res, err := es.client.Bulk(bytes.NewReader(buf.Bytes()))
 	if err != nil {
 		log.Error("error creating occurrence", zap.NamedError("error", err))
 		return nil, []error{status.Error(codes.Internal, "failed to create occurrence in elasticsearch")}
 	}
 
 	log.Debug("elasticsearch response", zap.Any("res", res))
-	s := string(fullArray)
-	log.Debug("elastic payload", zap.Any("ES payload", s))
 
 	if res.StatusCode != http.StatusCreated {
 		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))

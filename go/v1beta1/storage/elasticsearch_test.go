@@ -8,6 +8,8 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
+	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
+	"github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	pb "github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 	. "github.com/onsi/ginkgo"
@@ -85,7 +87,16 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			uID = "sonarqubeMetric"
-			newOccurrence = &pb.Occurrence{}
+			newOccurrence = &pb.Occurrence{
+				Name: "projects/rode/testOccurrence",
+				Resource: &grafeas_go_proto.Resource{
+					Name: "test/repo",
+					Uri:  "test/repo",
+				},
+				NoteName:    "projects/notes_project/notes/sonarqube",
+				Kind:        common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
+				Remediation: "test",
+			}
 		})
 
 		When("elasticsearch creates a new document", func() {
@@ -97,8 +108,8 @@ var _ = Describe("elasticsearch storage", func() {
 				expectedOccurrence, err = elasticsearchStorage.CreateOccurrence(ctx, pID, uID, newOccurrence)
 			})
 
-			It("should perform a PUT request", func() {
-				Expect(transport.receivedPerformRequest.Method).To(Equal("PUT"))
+			It("should perform a POST request", func() {
+				Expect(transport.receivedPerformRequest.Method).To(Equal("POST"))
 			})
 
 			It("should have created an index at a path matching the PID", func() {

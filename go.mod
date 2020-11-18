@@ -3,6 +3,7 @@ module github.com/liatrio/grafeas-elasticsearch
 go 1.15
 
 require (
+	github.com/brianvoe/gofakeit/v5 v5.10.1
 	github.com/elastic/go-elasticsearch/v7 v7.5.1-0.20201104130636-152864b47d96
 	github.com/fernet/fernet-go v0.0.0-20180830025343-9eac43b88a5e
 	github.com/golang/protobuf v1.4.2

@@ -172,7 +172,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, pID 
 		buf.Write(data)
 	}
 
-	log.Debug("Bulk payload", zap.Any("es bulk payload", bytes.NewReader(buf.Bytes())))
+	log.Debug("Bulk payload", zap.Any("es bulk payload", string(buf.Bytes())))
 
 	res, err := es.client.Bulk(bytes.NewReader(buf.Bytes()))
 	if err != nil {
@@ -180,14 +180,12 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, pID 
 		return nil, []error{status.Error(codes.Internal, "failed to create occurrence in elasticsearch")}
 	}
 
-	log.Debug("elasticsearch response", zap.Any("res", res))
-
-	if res.StatusCode != http.StatusCreated {
+	if res.StatusCode != http.StatusOK {
 		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
 		return nil, []error{status.Error(codes.Internal, "unexpected response from elasticsearch when creating occurrence")}
 	}
 
-	return nil, nil
+	return occs, nil
 }
 
 // DeleteOccurrence deletes the occurrence with the given pID and oID

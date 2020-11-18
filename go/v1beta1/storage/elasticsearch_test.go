@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/brianvoe/gofakeit/v5"
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
@@ -14,6 +15,7 @@ import (
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var _ = Describe("elasticsearch storage", func() {
@@ -88,14 +90,14 @@ var _ = Describe("elasticsearch storage", func() {
 		BeforeEach(func() {
 			uID = "sonarqubeMetric"
 			newOccurrence = &pb.Occurrence{
-				Name: "projects/rode/testOccurrence",
+				Name: gofakeit.LetterN(10),
 				Resource: &grafeas_go_proto.Resource{
-					Name: "test/repo",
-					Uri:  "test/repo",
+					Uri: gofakeit.LetterN(10),
 				},
-				NoteName:    "projects/notes_project/notes/sonarqube",
+				NoteName:    gofakeit.LetterN(10),
 				Kind:        common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
-				Remediation: "test",
+				Remediation: gofakeit.LetterN(10),
+				Details:     nil,
 			}
 		})
 
@@ -108,7 +110,7 @@ var _ = Describe("elasticsearch storage", func() {
 				expectedOccurrence, err = elasticsearchStorage.CreateOccurrence(ctx, pID, uID, newOccurrence)
 			})
 
-			It("should perform a POST request", func() {
+			It("should perform a PUT request", func() {
 				Expect(transport.receivedPerformRequest.Method).To(Equal("POST"))
 			})
 
@@ -137,58 +139,66 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("Creating a batch of Grafeas occurrences", func() {
-		var ()
+	Context("creating a batch of Grafeas occurrences", func() {
+		var (
+			uID                 string
+			err                 []error
+			newOccurrences      []*pb.Occurrence
+			expectedOccurrences []*pb.Occurrence
+		)
 
 		BeforeEach(func() {
-
+			for i := 1; i <= gofakeit.Number(2, 20); i++ {
+				newOccurrences = append(newOccurrences, &pb.Occurrence{
+					Name: gofakeit.LetterN(10),
+					Resource: &grafeas_go_proto.Resource{
+						Uri: gofakeit.LetterN(10),
+					},
+					NoteName:    gofakeit.LetterN(10),
+					Kind:        common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
+					Remediation: gofakeit.LetterN(10),
+					CreateTime:  timestamppb.New(gofakeit.Date()),
+					UpdateTime:  timestamppb.New(gofakeit.Date()),
+					Details:     nil,
+				})
+			}
 		})
 
 		When("elastic search successfully creates new documents", func() {
 			BeforeEach(func() {
+				transport.preparedPerformResponse = &http.Response{
+					StatusCode: 200,
+				}
 
+				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, pID, uID, newOccurrences)
 			})
 
-			It("", func() {
+			It("should have performed a POST request", func() {
+				Expect(transport.receivedPerformRequest.Method).To(Equal("POST"))
+			})
 
+			It("should have created an index at a path matching the PID", func() {
+				Expect(transport.receivedPerformRequest.URL.Path).To(Equal("/_bulk"))
+			})
+
+			It("should return a Grafeas occurrence", func() {
+				Expect(expectedOccurrences).To(Equal(newOccurrences))
+			})
+
+			It("should return without an error", func() {
+				Expect(err).To(BeEmpty())
 			})
 		})
 
 		When("elastic search fails to create new documents", func() {
 			BeforeEach(func() {
+				transport.expectedError = errors.New("failed to create new documents")
 
+				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, pID, uID, newOccurrences)
 			})
 
-			It("", func() {
-
-			})
-		})
-	})
-
-	Context("Deleting a Grafeas occurrence", func() {
-		var ()
-
-		BeforeEach(func() {
-
-		})
-
-		When("elasticsearch successfully removes a document", func() {
-			BeforeEach(func() {
-
-			})
-
-			It("", func() {
-
-			})
-		})
-
-		When("elasticsearch fails to remove a document", func() {
-			BeforeEach(func() {
-
-			})
-
-			It("", func() {
-
+			It("should return an error", func() {
+				Expect(err).ToNot(BeEmpty())
 			})
 		})
 	})

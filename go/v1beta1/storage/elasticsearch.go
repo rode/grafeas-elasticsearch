@@ -191,6 +191,25 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, pID 
 
 // DeleteOccurrence deletes the occurrence with the given pID and oID
 func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, pID, oID string) error {
+	log := es.logger.Named("DeleteOccurrence")
+
+	queryField := fmt.Sprintf("projects/%s/occurrences/%s", pID, oID)
+	query := []byte(fmt.Sprintf(`{ "query" : { "match" : { "name" :"%s" } } }`, queryField))
+	reader := bytes.NewReader(query)
+	res, err := es.client.DeleteByQuery([]string{pID}, reader)
+
+	if err != nil {
+		log.Error("error deleting occurrence", zap.NamedError("error", err))
+		return status.Error(codes.Internal, "failed to delete occurrence in elasticsearch")
+	}
+
+	log.Debug("elasticsearch response", zap.Any("res", res))
+
+	if res.StatusCode != http.StatusCreated {
+		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
+		return status.Error(codes.Internal, "unexpected response from elasticsearch when deleting occurrence")
+	}
+
 	return nil
 }
 

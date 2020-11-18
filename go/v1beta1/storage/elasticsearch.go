@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v7"
@@ -206,6 +207,73 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, pID, oID stri
 // ListOccurrences returns up to pageSize number of occurrences for this project beginning
 // at pageToken, or from start if pageToken is the empty string.
 func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, pID, filter, pageToken string, pageSize int32) ([]*pb.Occurrence, string, error) {
+	log := es.logger.Named("ListOccurrences")
+
+	var (
+		os   []*pb.Occurrence
+		body strings.Builder
+	)
+
+	log.Debug("Project ID", zap.String("pID", pID))
+
+	body.WriteString("{\n")
+
+	if filter == "" {
+		body.WriteString(`"query" : { "match_all" : {} },`)
+	} else {
+		body.WriteString(filter)
+	}
+
+	body.WriteString(fmt.Sprintf(`"size": %d`, pageSize))
+	body.WriteString("\n}")
+
+	res, err := es.client.Search(
+		es.client.Search.WithIndex(pID),
+		es.client.Search.WithBody(strings.NewReader(body.String())),
+	)
+	if err != nil {
+		log.Error("Failed to retrieve documents from Elasticsearch", zap.Error(err))
+		return nil, "", err
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		//log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
+		var e map[string]interface{}
+		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
+			fmt.Printf("Error parsing the response body: %s", err)
+		} else {
+			// Print the response status and error information.
+			fmt.Printf("[%s] %s: %s",
+				res.Status(),
+				e["error"].(map[string]interface{})["type"],
+				e["error"].(map[string]interface{})["reason"],
+			)
+		}
+	}
+
+	var searchResults esSearchResponse
+	if err := json.NewDecoder(res.Body).Decode(&searchResults); err != nil {
+		return nil, "", err
+	}
+
+	log.Debug("ES Search hits", zap.Any("Total Hits", searchResults.Hits.Total.Value))
+
+	for _, hit := range searchResults.Hits.Hits {
+		log.Debug("Occurrence Hit", zap.String("Occ RAW", fmt.Sprintf("%+v", string(hit.Source))))
+
+		occ := &pb.Occurrence{}
+		err := json.Unmarshal(hit.Source, &occ)
+		if err != nil {
+			log.Error("Failed to convert _doc to occurrence", zap.Error(err))
+			return nil, "", err
+		}
+
+		log.Debug("Occurrence Hit", zap.String("Occ", fmt.Sprintf("%+v", occ)))
+
+		os = append(os, occ)
+	}
+
 	return nil, "", nil
 }
 
@@ -259,4 +327,19 @@ func decryptInt64(encrypted string, key string, defaultValue int64) int64 {
 		return defaultValue
 	}
 	return decryptedValue
+}
+
+type esSearchResponse struct {
+	Took int
+	Hits struct {
+		Total struct {
+			Value int
+		}
+		Hits []struct {
+			ID         string          `json:"_id"`
+			Source     json.RawMessage `json:"_source"`
+			Highlights json.RawMessage `json:"highlight"`
+			Sort       []interface{}   `json:"sort"`
+		}
+	}
 }

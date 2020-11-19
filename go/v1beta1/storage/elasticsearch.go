@@ -12,7 +12,10 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/google/cel-go/common"
+	"github.com/google/cel-go/parser"
 	"go.uber.org/zap"
+	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
@@ -223,6 +226,39 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, pID, oID stri
 	return nil, nil
 }
 
+// ParseExpression to parse and create a query
+func ParseExpression(expression *expr.Expr, query map[string]interface{}) map[string]interface{} {
+
+	if expression == nil {
+		return query
+	}
+	switch expression.ExprKind.(type) {
+	case *expr.Expr_IdentExpr: // name
+		identifier := expression.GetIdentExpr().Name
+		query[identifier] = "holder"
+		fmt.Println(identifier)
+		ParseExpression(nil, query)
+
+	// Logic for formulating left side of db query in squirrel query
+	case *expr.Expr_ConstExpr: // "abc"
+		constExpr := expression.GetConstExpr().GetStringValue()
+		fmt.Println(constExpr)
+		query["name"] = constExpr
+		ParseExpression(nil, query)
+	// Logic for formulating right side of db query in squirrel query
+	case *expr.Expr_CallExpr: //name = "abc"
+		function := expression.GetCallExpr().GetFunction() // =
+		fmt.Println(function)
+		// add function to the squirrel query
+		ParseExpression(expression.GetCallExpr().Args[0], query)
+		ParseExpression(expression.GetCallExpr().Args[1], query)
+
+	default:
+		return query
+	}
+	return query
+}
+
 // ListOccurrences returns up to pageSize number of occurrences for this project beginning
 // at pageToken, or from start if pageToken is the empty string.
 func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, pID, filter, pageToken string, pageSize int32) ([]*pb.Occurrence, string, error) {
@@ -238,6 +274,16 @@ func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, pID, filter
 	body.WriteString("{\n")
 
 	if filter == "" {
+		parsedExpr, _ := parser.Parse(common.NewStringSource(filter, ""))
+		// function := parsedExpr.GetExpr().GetCallExpr().GetFunction()
+		expression := parsedExpr.GetExpr()
+		query := map[string]interface{}{
+			"query": map[string]interface{}{
+				"match": map[string]interface{}{},
+			},
+		}
+		query = ParseExpression(expression, query)
+
 		body.WriteString(`"query" : { "match_all" : {} },`)
 	} else {
 		body.WriteString(filter)
@@ -304,13 +350,83 @@ func (es *ElasticsearchStorage) GetOccurrenceNote(ctx context.Context, pID, oID 
 // ListNotes returns up to pageSize number of notes for this project (pID) beginning
 // at pageToken (or from start if pageToken is the empty string).
 func (es *ElasticsearchStorage) ListNotes(ctx context.Context, pID, filter, pageToken string, pageSize int32) ([]*pb.Note, string, error) {
-	return nil, "", nil
-}
+	log := es.logger.Named("ListNotes")
+	log.Debug("Project ID", zap.String("pID", pID))
 
-// ListNoteOccurrences returns up to pageSize number of occurrences on the particular note (nID)
-// for this project (pID) projects beginning at pageToken (or from start if pageToken is the empty string).
-func (es *ElasticsearchStorage) ListNoteOccurrences(ctx context.Context, pID, nID, filter, pageToken string, pageSize int32) ([]*pb.Occurrence, string, error) {
+	var (
+		os   []*pb.Occurrence
+		body strings.Builder
+	)
+
+	body.WriteString("{\n")
+
+	if filter != "" {
+		parsedExpr, _ := parser.Parse(common.NewStringSource(filter, ""))
+		// function := parsedExpr.GetExpr().GetCallExpr().GetFunction()
+		expression := parsedExpr.GetExpr()
+		query := map[string]interface{}{
+			"query": map[string]interface{}{
+				"match": map[string]interface{}{},
+			},
+		}
+		query["match"] = ParseExpression(expression, map[string]interface{}{})
+		body.WriteString(fmt.Sprintf("%v", query))
+	} else {
+		body.WriteString(filter)
+	}
+
+	body.WriteString(fmt.Sprintf(`"size": %d`, pageSize))
+	body.WriteString("\n}")
+
+	res, err := es.client.Search(
+		es.client.Search.WithIndex(pID),
+		es.client.Search.WithBody(strings.NewReader(body.String())),
+	)
+	if err != nil {
+		log.Error("Failed to retrieve documents from Elasticsearch", zap.Error(err))
+		return nil, "", err
+	}
+	defer res.Body.Close()
+
+	if res.IsError() {
+		//log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
+		var e map[string]interface{}
+		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
+			fmt.Printf("Error parsing the response body: %s", err)
+		} else {
+			// Print the response status and error information.
+			fmt.Printf("[%s] %s: %s",
+				res.Status(),
+				e["error"].(map[string]interface{})["type"],
+				e["error"].(map[string]interface{})["reason"],
+			)
+		}
+	}
+
+	var searchResults esSearchResponse
+	if err := json.NewDecoder(res.Body).Decode(&searchResults); err != nil {
+		return nil, "", err
+	}
+
+	log.Debug("ES Search hits", zap.Any("Total Hits", searchResults.Hits.Total.Value))
+
+	for _, hit := range searchResults.Hits.Hits {
+		log.Debug("Occurrence Hit", zap.String("Occ RAW", fmt.Sprintf("%+v", string(hit.Source))))
+
+		occ := &pb.Occurrence{}
+		err := json.Unmarshal(hit.Source, &occ)
+		if err != nil {
+			log.Error("Failed to convert _doc to occurrence", zap.Error(err))
+			return nil, "", err
+		}
+
+		log.Debug("Occurrence Hit", zap.String("Occ", fmt.Sprintf("%+v", occ)))
+
+		os = append(os, occ)
+	}
+
 	return nil, "", nil
+
 }
 
 // GetVulnerabilityOccurrencesSummary gets a summary of vulnerability occurrences from storage.

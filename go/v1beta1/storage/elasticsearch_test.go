@@ -15,7 +15,6 @@ import (
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var _ = Describe("elasticsearch storage", func() {
@@ -81,16 +80,7 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			newOccurrence = &pb.Occurrence{
-				Name: gofakeit.LetterN(10),
-				Resource: &grafeas_go_proto.Resource{
-					Uri: gofakeit.LetterN(10),
-				},
-				NoteName:    gofakeit.LetterN(10),
-				Kind:        common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
-				Remediation: gofakeit.LetterN(10),
-				Details:     nil,
-			}
+			newOccurrence = createTestOccurrenceStruct()
 		})
 
 		When("elasticsearch creates a new document", func() {
@@ -134,18 +124,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			for i := 1; i <= gofakeit.Number(2, 20); i++ {
-				newOccurrences = append(newOccurrences, &pb.Occurrence{
-					Name: gofakeit.LetterN(10),
-					Resource: &grafeas_go_proto.Resource{
-						Uri: gofakeit.LetterN(10),
-					},
-					NoteName:    gofakeit.LetterN(10),
-					Kind:        common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
-					Remediation: gofakeit.LetterN(10),
-					CreateTime:  timestamppb.New(gofakeit.Date()),
-					UpdateTime:  timestamppb.New(gofakeit.Date()),
-					Details:     nil,
-				})
+				newOccurrences = append(newOccurrences, createTestOccurrenceStruct())
 			}
 		})
 
@@ -184,4 +163,58 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 	})
+
+	Context("deleting a Grafeas occurrence", func() {
+		var (
+			objectId string
+			err      error
+		)
+
+		BeforeEach(func() {
+			objectId = gofakeit.LetterN(8)
+		})
+
+		When("elasticsearch successfully deletes the document", func() {
+			BeforeEach(func() {
+				transport.preparedPerformResponse = &http.Response{
+					StatusCode: 200,
+				}
+
+				err = elasticsearchStorage.DeleteOccurrence(ctx, projectId, "")
+				Expect(err).ToNot(HaveOccurred())
+			})
+
+			It("should have send the correct HTTP request", func() {
+				Expect(transport.receivedPerformRequest.Method).To(Equal("POST"))
+				Expect(transport.receivedPerformRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/%s", projectId, "_delete_by_query")))
+			})
+
+		})
+
+		When("elasticsearch fails to create new documents", func() {
+			BeforeEach(func() {
+				transport.expectedError = errors.New("failed to create new documents")
+
+				err = elasticsearchStorage.DeleteOccurrence(ctx, projectId, objectId)
+			})
+
+			It("should return an error", func() {
+				Expect(err).To(HaveOccurred())
+			})
+		})
+	})
+
 })
+
+func createTestOccurrenceStruct() (occurrence *pb.Occurrence) {
+	return &pb.Occurrence{
+		Name: gofakeit.LetterN(10),
+		Resource: &grafeas_go_proto.Resource{
+			Uri: gofakeit.LetterN(10),
+		},
+		NoteName:    gofakeit.LetterN(10),
+		Kind:        common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
+		Remediation: gofakeit.LetterN(10),
+		Details:     nil,
+	}
+}

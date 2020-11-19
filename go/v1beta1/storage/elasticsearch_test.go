@@ -22,7 +22,7 @@ var _ = Describe("elasticsearch storage", func() {
 	var (
 		elasticsearchStorage *ElasticsearchStorage
 		transport            *mockEsTransport
-		pID                  string
+		projectId            string
 		ctx                  context.Context
 		project              *prpb.Project
 		expectedProject      *prpb.Project
@@ -34,44 +34,38 @@ var _ = Describe("elasticsearch storage", func() {
 		transport.expectedError = nil
 		mockEsClient := &elasticsearch.Client{Transport: transport, API: esapi.New(transport)}
 
-		pID = "rode"
+		projectId = "rode"
 		ctx = context.Background()
-		project = &prpb.Project{Name: "projects/rode"}
+		project = &prpb.Project{Name: fmt.Sprintf("projects/%s", projectId)}
 
 		elasticsearchStorage = NewElasticsearchStore(mockEsClient, logger)
 	})
 
-	Context("Creating a new Grafeas project", func() {
+	Context("creating a new Grafeas project", func() {
 		When("elasticsearch successfully creates a new index", func() {
 			BeforeEach(func() {
 				transport.preparedPerformResponse = &http.Response{
 					StatusCode: 200,
 				}
 
-				expectedProject, err = elasticsearchStorage.CreateProject(ctx, pID, project)
+				expectedProject, err = elasticsearchStorage.CreateProject(ctx, projectId, project)
+				Expect(err).ToNot(HaveOccurred())
 			})
 
-			It("should have performed a PUT Request", func() {
+			It("should have send the correct HTTP request", func() {
 				Expect(transport.receivedPerformRequest.Method).To(Equal("PUT"))
-			})
-
-			It("should have created an index at a path matching the PID", func() {
-				Expect(transport.receivedPerformRequest.URL.Path).To(Equal(fmt.Sprintf("/%s", pID)))
+				Expect(transport.receivedPerformRequest.URL.Path).To(Equal(fmt.Sprintf("/%s", projectId)))
 			})
 
 			It("should return a new Grafeas project", func() {
 				Expect(expectedProject.Name).To(Equal("projects/rode"))
-			})
-
-			It("should return without an error", func() {
-				Expect(err).ToNot(HaveOccurred())
 			})
 		})
 
 		When("elasticsearch unsuccessfully creates a new index", func() {
 			BeforeEach(func() {
 				transport.expectedError = errors.New("failed to create new index")
-				_, err = elasticsearchStorage.CreateProject(ctx, pID, project)
+				_, err = elasticsearchStorage.CreateProject(ctx, projectId, project)
 			})
 
 			It("should return an error", func() {
@@ -80,15 +74,13 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("Creating a new Grafeas occurrence", func() {
+	Context("creating a new Grafeas occurrence", func() {
 		var (
-			uID                string
 			newOccurrence      *pb.Occurrence
 			expectedOccurrence *pb.Occurrence
 		)
 
 		BeforeEach(func() {
-			uID = "sonarqubeMetric"
 			newOccurrence = &pb.Occurrence{
 				Name: gofakeit.LetterN(10),
 				Resource: &grafeas_go_proto.Resource{
@@ -107,30 +99,24 @@ var _ = Describe("elasticsearch storage", func() {
 					StatusCode: 201,
 				}
 
-				expectedOccurrence, err = elasticsearchStorage.CreateOccurrence(ctx, pID, uID, newOccurrence)
+				expectedOccurrence, err = elasticsearchStorage.CreateOccurrence(ctx, projectId, "", newOccurrence)
+				Expect(err).ToNot(HaveOccurred())
 			})
 
-			It("should perform a PUT request", func() {
+			It("should have send the correct HTTP request", func() {
 				Expect(transport.receivedPerformRequest.Method).To(Equal("POST"))
-			})
-
-			It("should have created an index at a path matching the PID", func() {
-				Expect(transport.receivedPerformRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", pID)))
+				Expect(transport.receivedPerformRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", projectId)))
 			})
 
 			It("should return a Grafeas occurrence", func() {
 				Expect(expectedOccurrence).To(Equal(newOccurrence))
-			})
-
-			It("should return without an error", func() {
-				Expect(err).ToNot(HaveOccurred())
 			})
 		})
 
 		When("elasticsearch fails to create a new document", func() {
 			BeforeEach(func() {
 				transport.expectedError = errors.New("failed to create new document")
-				_, err = elasticsearchStorage.CreateProject(ctx, pID, project)
+				_, err = elasticsearchStorage.CreateOccurrence(ctx, projectId, "", newOccurrence)
 			})
 
 			It("should return an error", func() {
@@ -141,7 +127,6 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("creating a batch of Grafeas occurrences", func() {
 		var (
-			uID                 string
 			err                 []error
 			newOccurrences      []*pb.Occurrence
 			expectedOccurrences []*pb.Occurrence
@@ -164,20 +149,17 @@ var _ = Describe("elasticsearch storage", func() {
 			}
 		})
 
-		When("elastic search successfully creates new documents", func() {
+		When("elasticsearch successfully creates new documents", func() {
 			BeforeEach(func() {
 				transport.preparedPerformResponse = &http.Response{
 					StatusCode: 200,
 				}
 
-				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, pID, uID, newOccurrences)
+				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, projectId, "", newOccurrences)
 			})
 
-			It("should have performed a POST request", func() {
+			It("should have send the correct HTTP request", func() {
 				Expect(transport.receivedPerformRequest.Method).To(Equal("POST"))
-			})
-
-			It("should have created an index at a path matching the PID", func() {
 				Expect(transport.receivedPerformRequest.URL.Path).To(Equal("/_bulk"))
 			})
 
@@ -190,11 +172,11 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 
-		When("elastic search fails to create new documents", func() {
+		When("elasticsearch fails to create new documents", func() {
 			BeforeEach(func() {
 				transport.expectedError = errors.New("failed to create new documents")
 
-				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, pID, uID, newOccurrences)
+				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, projectId, "", newOccurrences)
 			})
 
 			It("should return an error", func() {

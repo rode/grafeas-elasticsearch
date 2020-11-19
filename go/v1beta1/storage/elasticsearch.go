@@ -175,7 +175,7 @@ func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, pID, filter
 }
 
 // CreateOccurrence adds the specified occurrence
-func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, pID, uID string, o *pb.Occurrence) (*pb.Occurrence, error) {
+func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId, userId string, o *pb.Occurrence) (*pb.Occurrence, error) {
 	log := es.logger.Named("CreateOccurrence")
 	json, err := json.Marshal(o)
 	reader := bytes.NewReader(json)
@@ -184,7 +184,7 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, pID, uID s
 		o.CreateTime = ptypes.TimestampNow()
 	}
 
-	res, err := es.client.Index(pID, reader)
+	res, err := es.client.Index(projectId, reader)
 	if err != nil {
 		log.Error("error creating occurrence", zap.NamedError("error", err))
 		return nil, status.Error(codes.Internal, "failed to create occurrence in elasticsearch")

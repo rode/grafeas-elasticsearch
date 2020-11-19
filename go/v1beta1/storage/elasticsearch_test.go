@@ -51,7 +51,7 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(err).ToNot(HaveOccurred())
 			})
 
-			It("should have send the correct HTTP request", func() {
+			It("should have sent the correct HTTP request", func() {
 				Expect(transport.receivedPerformRequest.Method).To(Equal("PUT"))
 				Expect(transport.receivedPerformRequest.URL.Path).To(Equal(fmt.Sprintf("/%s", projectId)))
 			})
@@ -93,7 +93,7 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(err).ToNot(HaveOccurred())
 			})
 
-			It("should have send the correct HTTP request", func() {
+			It("should have sent the correct HTTP request", func() {
 				Expect(transport.receivedPerformRequest.Method).To(Equal("POST"))
 				Expect(transport.receivedPerformRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", projectId)))
 			})
@@ -137,7 +137,7 @@ var _ = Describe("elasticsearch storage", func() {
 				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, projectId, "", newOccurrences)
 			})
 
-			It("should have send the correct HTTP request", func() {
+			It("should have sent the correct HTTP request", func() {
 				Expect(transport.receivedPerformRequest.Method).To(Equal("POST"))
 				Expect(transport.receivedPerformRequest.URL.Path).To(Equal("/_bulk"))
 			})
@@ -184,16 +184,16 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(err).ToNot(HaveOccurred())
 			})
 
-			It("should have send the correct HTTP request", func() {
+			It("should have sent the correct HTTP request", func() {
 				Expect(transport.receivedPerformRequest.Method).To(Equal("POST"))
 				Expect(transport.receivedPerformRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/%s", projectId, "_delete_by_query")))
 			})
 
 		})
 
-		When("elasticsearch fails to create new documents", func() {
+		When("elasticsearch fails to delete documents", func() {
 			BeforeEach(func() {
-				transport.expectedError = errors.New("failed to create new documents")
+				transport.expectedError = errors.New("failed to delete documents")
 
 				err = elasticsearchStorage.DeleteOccurrence(ctx, projectId, objectId)
 			})

@@ -259,7 +259,7 @@ func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, pID, oID s
 
 	log.Debug("elasticsearch response", zap.Any("res", res))
 
-	if res.StatusCode != http.StatusCreated {
+	if res.StatusCode != http.StatusOK {
 		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
 		return status.Error(codes.Internal, "unexpected response from elasticsearch when deleting occurrence")
 	}

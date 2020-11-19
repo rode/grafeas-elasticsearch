@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io/ioutil"
 	"net/http"
 
+	"github.com/Jeffail/gabs/v2"
 	"github.com/brianvoe/gofakeit/v5"
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
@@ -43,7 +45,7 @@ var _ = Describe("elasticsearch storage", func() {
 	Context("creating a new Grafeas project", func() {
 		When("elasticsearch successfully creates a new index", func() {
 			BeforeEach(func() {
-				transport.preparedPerformResponse = &http.Response{
+				transport.preparedHttpResponse = &http.Response{
 					StatusCode: 200,
 				}
 
@@ -52,8 +54,16 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedPerformRequest.Method).To(Equal("PUT"))
-				Expect(transport.receivedPerformRequest.URL.Path).To(Equal(fmt.Sprintf("/%s", projectId)))
+				Expect(transport.receivedHttpRequest.Method).To(Equal("PUT"))
+				Expect(transport.receivedHttpRequest.URL.Path).To(Equal(fmt.Sprintf("/%s", projectId)))
+
+				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequest.Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				parsed, err := gabs.ParseJSON(requestBody)
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(parsed.Path("mappings._meta.type").Data().(string)).To(BeEquivalentTo("grafeas-project"))
 			})
 
 			It("should return a new Grafeas project", func() {
@@ -85,7 +95,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch creates a new document", func() {
 			BeforeEach(func() {
-				transport.preparedPerformResponse = &http.Response{
+				transport.preparedHttpResponse = &http.Response{
 					StatusCode: 201,
 				}
 
@@ -94,8 +104,8 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedPerformRequest.Method).To(Equal("POST"))
-				Expect(transport.receivedPerformRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", projectId)))
+				Expect(transport.receivedHttpRequest.Method).To(Equal("POST"))
+				Expect(transport.receivedHttpRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", projectId)))
 			})
 
 			It("should return a Grafeas occurrence", func() {
@@ -130,7 +140,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch successfully creates new documents", func() {
 			BeforeEach(func() {
-				transport.preparedPerformResponse = &http.Response{
+				transport.preparedHttpResponse = &http.Response{
 					StatusCode: 200,
 				}
 
@@ -138,8 +148,8 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedPerformRequest.Method).To(Equal("POST"))
-				Expect(transport.receivedPerformRequest.URL.Path).To(Equal("/_bulk"))
+				Expect(transport.receivedHttpRequest.Method).To(Equal("POST"))
+				Expect(transport.receivedHttpRequest.URL.Path).To(Equal("/_bulk"))
 			})
 
 			It("should return a Grafeas occurrence", func() {
@@ -176,7 +186,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch successfully deletes the document", func() {
 			BeforeEach(func() {
-				transport.preparedPerformResponse = &http.Response{
+				transport.preparedHttpResponse = &http.Response{
 					StatusCode: 200,
 				}
 
@@ -185,8 +195,8 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedPerformRequest.Method).To(Equal("POST"))
-				Expect(transport.receivedPerformRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/%s", projectId, "_delete_by_query")))
+				Expect(transport.receivedHttpRequest.Method).To(Equal("POST"))
+				Expect(transport.receivedHttpRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/%s", projectId, "_delete_by_query")))
 			})
 
 		})

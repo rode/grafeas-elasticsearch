@@ -57,16 +57,35 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 	}, nil
 }
 
-// CreateProject adds the specified project to the store
-func (es *ElasticsearchStorage) CreateProject(ctx context.Context, pID string, p *prpb.Project) (*prpb.Project, error) {
+// CreateProject creates an ElasticSearch index representing the Grafeas Project.
+// The index is created with a "type" metadata field in order to identify this index as a Grafeas Project.
+// Indicies without this piece of metadata are assumed to have been created outside of Grafeas.
+func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId string, p *prpb.Project) (*prpb.Project, error) {
 	log := es.logger.Named("CreateProject")
-	res, err := es.client.Indices.Create(pID)
+
+	var indexCreateBuffer bytes.Buffer
+	indexCreateBody := map[string]interface{}{
+		"mappings": map[string]interface{}{
+			"_meta": map[string]interface{}{
+				"type": "grafeas-project",
+			},
+		},
+	}
+	if err := json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody); err != nil {
+		log.Error("error encoding index create body", zap.NamedError("error", err))
+		return nil, status.Error(codes.Internal, "failed encoding index create body")
+	}
+
+	res, err := es.client.Indices.Create(
+		projectId,
+		es.client.Indices.Create.WithBody(&indexCreateBuffer),
+		es.client.Indices.Create.WithContext(ctx),
+	)
 	if err != nil {
 		log.Error("error creating index", zap.NamedError("error", err))
 		return nil, status.Error(codes.Internal, "failed to create index in elasticsearch")
 	}
-
-	log.Debug("elasticsearch response", zap.Any("res", res))
+	log.Debug("elasticsearch create index response", zap.Any("res", res))
 
 	if res.StatusCode != http.StatusOK {
 		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
@@ -74,7 +93,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, pID string, p
 	}
 
 	return &prpb.Project{
-		Name: fmt.Sprintf("projects/%s", pID),
+		Name: fmt.Sprintf("projects/%s", projectId),
 	}, nil
 }
 

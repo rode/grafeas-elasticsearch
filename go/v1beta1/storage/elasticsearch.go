@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/Jeffail/gabs/v2"
+	"io/ioutil"
 	"net/http"
 	"strings"
 
@@ -74,8 +76,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 		},
 	}
 	if err := json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody); err != nil {
-		log.Error("error encoding index create body", zap.NamedError("error", err))
-		return nil, status.Error(codes.Internal, "failed encoding index create body")
+		return nil, createError(log, "error encoding elasticsearch index create body", err)
 	}
 
 	res, err := es.client.Indices.Create(
@@ -84,15 +85,13 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 		es.client.Indices.Create.WithContext(ctx),
 	)
 	if err != nil {
-		log.Error("error creating index", zap.NamedError("error", err))
-		return nil, status.Error(codes.Internal, "failed to create index in elasticsearch")
+		return nil, createError(log, "error creating index in elasticsearch", err)
 	}
 
 	log.Debug("elasticsearch create index response", zap.Any("res", res))
 
 	if res.StatusCode != http.StatusOK {
-		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
-		return nil, status.Error(codes.Internal, "unexpected response from elasticsearch when creating index")
+		return nil, createError(log, "got unexpected status code from elasticsearch", nil, zap.Int("status", res.StatusCode))
 	}
 
 	return &prpb.Project{
@@ -133,8 +132,7 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectID, ob
 		},
 	}
 	if err := json.NewEncoder(&getDocumentBuffer).Encode(getDocumentBody); err != nil {
-		log.Error("error encoding get document body", zap.NamedError("error", err))
-		return nil, status.Error(codes.Internal, "failed get document body")
+		return nil, createError(log, "error encoding elasticsearch get document body", err)
 	}
 
 	res, err := es.client.Search(
@@ -143,15 +141,13 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectID, ob
 		es.client.Search.WithBody(&getDocumentBuffer),
 	)
 	if err != nil {
-		log.Error("error retrieving occurrence", zap.NamedError("error", err))
-		return nil, status.Error(codes.Internal, "failed to get occurrence from elasticsearch")
+		return nil, createError(log, "error retrieving occurrence from elasticsearch", err)
 	}
 	if res.StatusCode != http.StatusOK {
-		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
-		return nil, status.Error(codes.Internal, "unexpected response from elasticsearch when retrieving occurrence")
+		return nil, createError(log, "got unexpected status code from elasticsearch", nil, zap.Int("status", res.StatusCode))
 	}
 
-	log.Debug("elasticsearch response", zap.Any("res", res))
+	log.Debug("elasticsearch response", zap.Any("response", res))
 
 	getDocumentResponse := &esSearchResponse{}
 	if err := json.NewDecoder(res.Body).Decode(&getDocumentResponse); err != nil {
@@ -245,25 +241,43 @@ func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, pID, filter
 // CreateOccurrence adds the specified occurrence
 func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectID, userID string, o *pb.Occurrence) (*pb.Occurrence, error) {
 	log := es.logger.Named("CreateOccurrence")
-	json, err := json.Marshal(o)
-	reader := bytes.NewReader(json)
 
 	if o.CreateTime == nil {
 		o.CreateTime = ptypes.TimestampNow()
 	}
 
-	res, err := es.client.Index(projectID, reader)
+	m := jsonpb.Marshaler{}
+	str, err := m.MarshalToString(o)
 	if err != nil {
-		log.Error("error creating occurrence", zap.NamedError("error", err))
-		return nil, status.Error(codes.Internal, "failed to create occurrence in elasticsearch")
+		return nil, createError(log, "error marshalling occurrence to json", err)
 	}
 
-	log.Debug("elasticsearch response", zap.Any("res", res))
+	res, err := es.client.Index(
+		projectID,
+		bytes.NewReader([]byte(str)),
+		es.client.Index.WithContext(ctx),
+	)
+	if err != nil {
+		return nil, createError(log, "error creating occurrence in elasticsearch", err)
+	}
 
 	if res.StatusCode != http.StatusCreated {
-		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
-		return nil, status.Error(codes.Internal, "unexpected response from elasticsearch when creating occurrence")
+		return nil, createError(log, "got unexpected status code from elasticsearch", nil, zap.Int("status", res.StatusCode))
 	}
+
+	response, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return nil, createError(log, "error parsing elasticsearch response", err)
+	}
+
+	log.Debug("elasticsearch response", zap.String("response", string(response)))
+
+	parsedResponse, err := gabs.ParseJSON(response)
+	if err != nil {
+		return nil, createError(log, "error parsing elasticsearch response", err)
+	}
+
+	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectID, parsedResponse.Path("_id").Data().(string))
 
 	return o, nil
 }
@@ -440,6 +454,16 @@ func (es *ElasticsearchStorage) ListNoteOccurrences(ctx context.Context, project
 // GetVulnerabilityOccurrencesSummary gets a summary of vulnerability occurrences from storage.
 func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.Context, projectID, filter string) (*pb.VulnerabilityOccurrencesSummary, error) {
 	return &pb.VulnerabilityOccurrencesSummary{}, nil
+}
+
+func createError(log *zap.Logger, message string, err error, fields ...zap.Field) error {
+	if err == nil {
+		log.Error(message, fields...)
+		return status.Errorf(codes.Internal, "%s", message)
+	}
+
+	log.Error(message, append(fields, zap.Error(err))...)
+	return status.Errorf(codes.Internal, "%s: %s", message, err)
 }
 
 type esSearchResponseHit struct {

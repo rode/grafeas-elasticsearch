@@ -201,9 +201,16 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		When("elasticsearch creates a new document", func() {
+			var expectedOccurrenceId string
+
 			BeforeEach(func() {
+				expectedOccurrenceId = gofakeit.LetterN(10)
+
 				transport.preparedHttpResponse = &http.Response{
 					StatusCode: 201,
+					Body: ioutil.NopCloser(strings.NewReader(fmt.Sprintf(`{
+						"_id": "%s"
+					}`, expectedOccurrenceId))),
 				}
 
 				expectedOccurrence, err = elasticsearchStorage.CreateOccurrence(ctx, projectID, "", newOccurrence)
@@ -215,8 +222,9 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(transport.receivedHttpRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", projectID)))
 			})
 
-			It("should return a Grafeas occurrence", func() {
+			It("should return a Grafeas occurrence with the correct name", func() {
 				Expect(expectedOccurrence).To(Equal(newOccurrence))
+				Expect(expectedOccurrence.Name).To(Equal(fmt.Sprintf("projects/%s/occurrences/%s", projectID, expectedOccurrenceId)))
 			})
 		})
 

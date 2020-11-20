@@ -4,8 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	grafeasConfig "github.com/grafeas/grafeas/go/config"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -35,7 +36,6 @@ var _ = Describe("elasticsearch storage", func() {
 
 	BeforeEach(func() {
 		transport = &mockEsTransport{}
-		transport.expectedError = nil
 		mockEsClient := &elasticsearch.Client{Transport: transport, API: esapi.New(transport)}
 
 		projectID = gofakeit.LetterN(8)
@@ -45,11 +45,83 @@ var _ = Describe("elasticsearch storage", func() {
 		elasticsearchStorage = NewElasticsearchStore(mockEsClient, logger)
 	})
 
+	Context("creating the elasticsearch storage provider", func() {
+		var (
+			err                 error
+			expectedStorageType = "elasticsearch"
+		)
+
+		// BeforeEach configures the happy path for this context
+		// Variables configured here may be overridden in nested BeforeEach blocks
+		BeforeEach(func() {
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+				},
+				{
+					StatusCode: http.StatusOK,
+				},
+			}
+		})
+
+		// JustBeforeEach actually invokes the system under test
+		JustBeforeEach(func() {
+			randomStorageConfig := grafeasConfig.StorageConfiguration("{}")
+			_, err = elasticsearchStorage.ElasticsearchStorageTypeProvider(expectedStorageType, &randomStorageConfig)
+		})
+
+		It("should check if an index for projects has already been created", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s", projectIndexName)))
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodHead))
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		When("an index for projects does not exist", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].StatusCode = http.StatusNotFound
+			})
+
+			It("should create the index for projects", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(2))
+				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s", projectIndexName)))
+				Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodPut))
+			})
+
+			When("creating the index for projects fails", func() {
+				BeforeEach(func() {
+					transport.preparedHttpResponses[1].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should return an error", func() {
+					Expect(err).To(HaveOccurred())
+				})
+			})
+		})
+
+		When("an index for projects already exists", func() {
+			It("should not create an index for projects", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
+			})
+		})
+
+		When("checking for the existence of a project index fails", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+			})
+
+			It("should return an error", func() {
+				Expect(err).To(HaveOccurred())
+			})
+		})
+	})
+
 	Context("creating a new Grafeas project", func() {
 		When("elasticsearch successfully creates a new index", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponse = &http.Response{
-					StatusCode: 200,
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: 200,
+					},
 				}
 
 				expectedProject, err = elasticsearchStorage.CreateProject(ctx, projectID, project)
@@ -57,10 +129,10 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedHttpRequest.Method).To(Equal("PUT"))
-				Expect(transport.receivedHttpRequest.URL.Path).To(Equal(fmt.Sprintf("/%s", projectID)))
+				Expect(transport.receivedHttpRequests[0].Method).To(Equal("PUT"))
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s", projectID)))
 
-				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequest.Body)
+				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 				Expect(err).ToNot(HaveOccurred())
 
 				parsed, err := gabs.ParseJSON(requestBody)
@@ -76,7 +148,11 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch unsuccessfully creates a new index", func() {
 			BeforeEach(func() {
-				transport.expectedError = errors.New("failed to create new index")
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusInternalServerError,
+					},
+				}
 				_, err = elasticsearchStorage.CreateProject(ctx, projectID, project)
 			})
 
@@ -113,9 +189,11 @@ var _ = Describe("elasticsearch storage", func() {
 				}
 
 				resultResponseBody, _ := json.Marshal(resultResponse)
-				transport.preparedHttpResponse = &http.Response{
-					StatusCode: 200,
-					Body:       ioutil.NopCloser(bytes.NewReader(resultResponseBody)),
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: 200,
+						Body:       ioutil.NopCloser(bytes.NewReader(resultResponseBody)),
+					},
 				}
 
 				expectedOccurrence, err = elasticsearchStorage.GetOccurrence(ctx, projectID, objectID)
@@ -123,10 +201,10 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedHttpRequest.Method).To(Equal("GET"))
-				Expect(transport.receivedHttpRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/_search", projectID)))
+				Expect(transport.receivedHttpRequests[0].Method).To(Equal("GET"))
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", projectID)))
 
-				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequest.Body)
+				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 				Expect(err).ToNot(HaveOccurred())
 
 				parsed, err := gabs.ParseJSON(requestBody)
@@ -145,7 +223,11 @@ var _ = Describe("elasticsearch storage", func() {
 				objectID string
 			)
 			BeforeEach(func() {
-				transport.expectedError = errors.New("failed to find document")
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusInternalServerError,
+					},
+				}
 				_, err = elasticsearchStorage.GetOccurrence(ctx, projectID, objectID)
 			})
 
@@ -159,9 +241,11 @@ var _ = Describe("elasticsearch storage", func() {
 				objectID string
 			)
 			BeforeEach(func() {
-				transport.preparedHttpResponse = &http.Response{
-					StatusCode: 200,
-					Body:       ioutil.NopCloser(strings.NewReader("bad object")),
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: 200,
+						Body:       ioutil.NopCloser(strings.NewReader("bad object")),
+					},
 				}
 
 				_, err = elasticsearchStorage.GetOccurrence(ctx, projectID, objectID)
@@ -177,8 +261,10 @@ var _ = Describe("elasticsearch storage", func() {
 				objectID string
 			)
 			BeforeEach(func() {
-				transport.preparedHttpResponse = &http.Response{
-					StatusCode: 404,
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: 404,
+					},
 				}
 
 				_, err = elasticsearchStorage.GetOccurrence(ctx, projectID, objectID)
@@ -206,11 +292,13 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				expectedOccurrenceId = gofakeit.LetterN(10)
 
-				transport.preparedHttpResponse = &http.Response{
-					StatusCode: 201,
-					Body: ioutil.NopCloser(strings.NewReader(fmt.Sprintf(`{
-						"_id": "%s"
-					}`, expectedOccurrenceId))),
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: 201,
+						Body: formatJson(`{
+							"_id": "%s"
+						}`, expectedOccurrenceId),
+					},
 				}
 
 				expectedOccurrence, err = elasticsearchStorage.CreateOccurrence(ctx, projectID, "", newOccurrence)
@@ -218,8 +306,8 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedHttpRequest.Method).To(Equal("POST"))
-				Expect(transport.receivedHttpRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", projectID)))
+				Expect(transport.receivedHttpRequests[0].Method).To(Equal("POST"))
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", projectID)))
 			})
 
 			It("should return a Grafeas occurrence with the correct name", func() {
@@ -230,7 +318,11 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch fails to create a new document", func() {
 			BeforeEach(func() {
-				transport.expectedError = errors.New("failed to create new document")
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusInternalServerError,
+					},
+				}
 				_, err = elasticsearchStorage.CreateOccurrence(ctx, projectID, "", newOccurrence)
 			})
 
@@ -255,16 +347,18 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch successfully creates new documents", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponse = &http.Response{
-					StatusCode: 200,
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: 200,
+					},
 				}
 
 				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, projectID, "", newOccurrences)
 			})
 
 			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedHttpRequest.Method).To(Equal("POST"))
-				Expect(transport.receivedHttpRequest.URL.Path).To(Equal("/_bulk"))
+				Expect(transport.receivedHttpRequests[0].Method).To(Equal("POST"))
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal("/_bulk"))
 			})
 
 			It("should return a Grafeas occurrence", func() {
@@ -278,7 +372,11 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch fails to create new documents", func() {
 			BeforeEach(func() {
-				transport.expectedError = errors.New("failed to create new documents")
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusInternalServerError,
+					},
+				}
 
 				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, projectID, "", newOccurrences)
 			})
@@ -301,8 +399,10 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch successfully deletes the document", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponse = &http.Response{
-					StatusCode: 200,
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: 200,
+					},
 				}
 
 				err = elasticsearchStorage.DeleteOccurrence(ctx, projectID, "")
@@ -310,15 +410,19 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedHttpRequest.Method).To(Equal("POST"))
-				Expect(transport.receivedHttpRequest.URL.Path).To(Equal(fmt.Sprintf("/%s/%s", projectID, "_delete_by_query")))
+				Expect(transport.receivedHttpRequests[0].Method).To(Equal("POST"))
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/%s", projectID, "_delete_by_query")))
 			})
 
 		})
 
 		When("elasticsearch fails to delete documents", func() {
 			BeforeEach(func() {
-				transport.expectedError = errors.New("failed to delete documents")
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusInternalServerError,
+					},
+				}
 
 				err = elasticsearchStorage.DeleteOccurrence(ctx, projectID, objectID)
 			})
@@ -342,4 +446,8 @@ func generateTestOccurrence() (occurrence *pb.Occurrence) {
 		Remediation: gofakeit.LetterN(10),
 		Details:     nil,
 	}
+}
+
+func formatJson(json string, args ...interface{}) io.ReadCloser {
+	return ioutil.NopCloser(strings.NewReader(fmt.Sprintf(json, args...)))
 }

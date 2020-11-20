@@ -20,18 +20,20 @@ var _ = BeforeSuite(func() {
 })
 
 type mockEsTransport struct {
-	receivedHttpRequest  *http.Request
-	preparedHttpResponse *http.Response
-	expectedError        error
+	receivedHttpRequests  []*http.Request
+	preparedHttpResponses []*http.Response
 }
 
 func (m *mockEsTransport) Perform(req *http.Request) (*http.Response, error) {
-	m.receivedHttpRequest = req
+	m.receivedHttpRequests = append(m.receivedHttpRequests, req)
 
 	// if we have a prepared response, send it. otherwise, return nil
-	if m.preparedHttpResponse != nil {
-		return m.preparedHttpResponse, m.expectedError
+	if len(m.preparedHttpResponses) != 0 {
+		res := m.preparedHttpResponses[0]
+		m.preparedHttpResponses = append(m.preparedHttpResponses[:0], m.preparedHttpResponses[1:]...)
+
+		return res, nil
 	}
 
-	return nil, m.expectedError
+	return nil, nil
 }

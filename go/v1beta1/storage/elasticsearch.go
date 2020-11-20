@@ -21,9 +21,11 @@ import (
 	"github.com/grafeas/grafeas/go/v1beta1/storage"
 	pb "github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
-	"github.com/liatrio/grafeas-elasticsearch/go/config"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
+
+const apiVersion = "v1beta1"
+const projectIndexName = "grafeas-" + apiVersion + "-projects"
 
 // ElasticsearchStorage is...
 type ElasticsearchStorage struct {
@@ -39,20 +41,28 @@ func NewElasticsearchStore(client *elasticsearch.Client, logger *zap.Logger) *El
 	}
 }
 
-// ElasticsearchStorageTypeProvider is...
+// ElasticsearchStorageTypeProvider configures a Grafeas storage backend that utilizes ElasticSearch.
+// Configuring this backend will result in an index, representing projects, to be created.
 func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType string, storageConfig *grafeasConfig.StorageConfiguration) (*storage.Storage, error) {
 	log := es.logger.Named("ElasticsearchStorageTypeProvider")
-	log.Info("registering elasticsearch storage")
+	log.Info("registering elasticsearch storage provider")
 
 	if storageType != "elasticsearch" {
 		return nil, fmt.Errorf("unknown storage type %s, must be 'elasticsearch'", storageType)
 	}
 
-	var storeConfig config.ElasticsearchConfig
+	res, err := es.client.Indices.Exists([]string{projectIndexName})
+	if err != nil || (res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound) {
+		return nil, createError(log, "error checking if project index already exists", err)
+	}
 
-	err := grafeasConfig.ConvertGenericConfigToSpecificType(storageConfig, &storeConfig)
-	if err != nil {
-		return nil, fmt.Errorf("unable to create ElasticsearchConfig, %s", err)
+	// the response is an error if the index was not found, so we need to create it
+	if res.IsError() {
+		log.Info("initial index for grafeas projects not found, creating...", zap.String("index", projectIndexName))
+		res, err = es.client.Indices.Create(projectIndexName)
+		if err != nil || res.IsError() {
+			return nil, createError(log, "error creating project index", err)
+		}
 	}
 
 	return &storage.Storage{

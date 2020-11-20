@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Jeffail/gabs/v2"
+	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -25,7 +26,7 @@ import (
 )
 
 const apiVersion = "v1beta1"
-const projectIndexName = "grafeas-" + apiVersion + "-projects"
+const indexPrefix = "grafeas-" + apiVersion
 
 // ElasticsearchStorage is...
 type ElasticsearchStorage struct {
@@ -47,19 +48,33 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 	log := es.logger.Named("ElasticsearchStorageTypeProvider")
 	log.Info("registering elasticsearch storage provider")
 
+	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
+
 	if storageType != "elasticsearch" {
 		return nil, fmt.Errorf("unknown storage type %s, must be 'elasticsearch'", storageType)
 	}
 
-	res, err := es.client.Indices.Exists([]string{projectIndexName})
+	res, err := es.client.Indices.Exists([]string{projectIndex})
 	if err != nil || (res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound) {
 		return nil, createError(log, "error checking if project index already exists", err)
 	}
 
 	// the response is an error if the index was not found, so we need to create it
 	if res.IsError() {
-		log.Info("initial index for grafeas projects not found, creating...", zap.String("index", projectIndexName))
-		res, err = es.client.Indices.Create(projectIndexName)
+		log.Info("initial index for grafeas projects not found, creating...", zap.String("index", projectIndex))
+		res, err = es.client.Indices.Create(
+			projectIndex,
+			withIndexMappings(map[string]interface{}{
+				"_meta": map[string]string{
+					"type": "grafeas",
+				},
+				"properties": map[string]interface{}{
+					"name": map[string]string{
+						"type": "keyword",
+					},
+				},
+			}),
+		)
 		if err != nil || res.IsError() {
 			return nil, createError(log, "error creating project index", err)
 		}
@@ -71,42 +86,13 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 	}, nil
 }
 
-// CreateProject creates an ElasticSearch index representing the Grafeas Project.
-// The index is created with a "type" metadata field in order to identify this index as a Grafeas Project.
-// Indicies without this piece of metadata are assumed to have been created outside of Grafeas.
+// CreateProject creates a project document within the project index, along with two indices that can be used
+// to store notes and occurrences.
+// Additional metadata is attached to the newly created indices to help identify them as part of a Grafeas project
 func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID string, p *prpb.Project) (*prpb.Project, error) {
-	log := es.logger.Named("CreateProject")
+	//log := es.logger.Named("CreateProject")
 
-	var indexCreateBuffer bytes.Buffer
-	indexCreateBody := map[string]interface{}{
-		"mappings": map[string]interface{}{
-			"_meta": map[string]interface{}{
-				"type": "grafeas-project",
-			},
-		},
-	}
-	if err := json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody); err != nil {
-		return nil, createError(log, "error encoding elasticsearch index create body", err)
-	}
-
-	res, err := es.client.Indices.Create(
-		projectID,
-		es.client.Indices.Create.WithBody(&indexCreateBuffer),
-		es.client.Indices.Create.WithContext(ctx),
-	)
-	if err != nil {
-		return nil, createError(log, "error creating index in elasticsearch", err)
-	}
-
-	log.Debug("elasticsearch create index response", zap.Any("res", res))
-
-	if res.StatusCode != http.StatusOK {
-		return nil, createError(log, "got unexpected status code from elasticsearch", nil, zap.Int("status", res.StatusCode))
-	}
-
-	return &prpb.Project{
-		Name: fmt.Sprintf("projects/%s", projectID),
-	}, nil
+	return nil, nil
 }
 
 // GetProject returns the project with the given pID from the store
@@ -474,6 +460,32 @@ func createError(log *zap.Logger, message string, err error, fields ...zap.Field
 
 	log.Error(message, append(fields, zap.Error(err))...)
 	return status.Errorf(codes.Internal, "%s: %s", message, err)
+}
+
+func withIndexMetadata() func(*esapi.IndicesCreateRequest) {
+	var indexCreateBuffer bytes.Buffer
+	indexCreateBody := map[string]interface{}{
+		"mappings": map[string]interface{}{
+			"_meta": map[string]interface{}{
+				"type": "grafeas",
+			},
+		},
+	}
+
+	_ = json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody)
+
+	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
+}
+
+func withIndexMappings(mappings map[string]interface{}) func(*esapi.IndicesCreateRequest) {
+	var indexCreateBuffer bytes.Buffer
+	indexCreateBody := map[string]interface{}{
+		"mappings": mappings,
+	}
+
+	_ = json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody)
+
+	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
 }
 
 type esSearchResponseHit struct {

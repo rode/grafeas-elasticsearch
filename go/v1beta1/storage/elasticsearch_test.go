@@ -18,7 +18,6 @@ import (
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	pb "github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
-	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
@@ -29,8 +28,6 @@ var _ = Describe("elasticsearch storage", func() {
 		transport            *mockEsTransport
 		projectID            string
 		ctx                  context.Context
-		project              *prpb.Project
-		expectedProject      *prpb.Project
 		err                  error
 	)
 
@@ -40,15 +37,15 @@ var _ = Describe("elasticsearch storage", func() {
 
 		projectID = gofakeit.LetterN(8)
 		ctx = context.Background()
-		project = &prpb.Project{Name: fmt.Sprintf("projects/%s", projectID)}
 
 		elasticsearchStorage = NewElasticsearchStore(mockEsClient, logger)
 	})
 
 	Context("creating the elasticsearch storage provider", func() {
 		var (
-			err                 error
-			expectedStorageType = "elasticsearch"
+			err                  error
+			expectedStorageType  = "elasticsearch"
+			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
 		)
 
 		// BeforeEach configures the happy path for this context
@@ -71,7 +68,7 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		It("should check if an index for projects has already been created", func() {
-			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s", projectIndexName)))
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedProjectIndex)))
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodHead))
 			Expect(err).ToNot(HaveOccurred())
 		})
@@ -83,8 +80,13 @@ var _ = Describe("elasticsearch storage", func() {
 
 			It("should create the index for projects", func() {
 				Expect(transport.receivedHttpRequests).To(HaveLen(2))
-				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s", projectIndexName)))
+				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedProjectIndex)))
 				Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodPut))
+
+				assertJsonHasStringValues(transport.receivedHttpRequests[1].Body, map[string]string{
+					"mappings._meta.type":           "grafeas",
+					"mappings.properties.name.type": "keyword",
+				})
 			})
 
 			When("creating the index for projects fails", func() {
@@ -116,48 +118,85 @@ var _ = Describe("elasticsearch storage", func() {
 	})
 
 	Context("creating a new Grafeas project", func() {
-		When("elasticsearch successfully creates a new index", func() {
-			BeforeEach(func() {
-				transport.preparedHttpResponses = []*http.Response{
-					{
-						StatusCode: 200,
-					},
-				}
+		var (
+		//err error
+		//expectedProjectId string
+		)
 
-				expectedProject, err = elasticsearchStorage.CreateProject(ctx, projectID, project)
-				Expect(err).ToNot(HaveOccurred())
+		// BeforeEach configures the happy path for this context
+		// Variables configured here may be overridden in nested BeforeEach blocks
+		BeforeEach(func() {
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+				},
+				{
+					StatusCode: http.StatusOK,
+				},
+				{
+					StatusCode: http.StatusOK,
+				},
+			}
+
+			//expectedProjectId = gofakeit.LetterN(10)
+		})
+
+		// JustBeforeEach actually invokes the system under test
+		JustBeforeEach(func() {
+			//_, err = elasticsearchStorage.CreateProject(context.Background(), expectedProjectId, &prpb.Project{})
+		})
+
+		It("should check if the project already exists", func() {
+
+		})
+
+		When("the project already exists", func() {
+			It("should return an error", func() {
+
 			})
 
-			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedHttpRequests[0].Method).To(Equal("PUT"))
-				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s", projectID)))
+			It("should not create a document for the project", func() {
 
-				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
-				Expect(err).ToNot(HaveOccurred())
-
-				parsed, err := gabs.ParseJSON(requestBody)
-				Expect(err).ToNot(HaveOccurred())
-
-				Expect(parsed.Path("mappings._meta.type").Data().(string)).To(BeEquivalentTo("grafeas-project"))
 			})
 
-			It("should return a new Grafeas project", func() {
-				Expect(expectedProject.Name).To(Equal(fmt.Sprintf("projects/%s", projectID)))
+			It("should not create new indicies", func() {
+
 			})
 		})
 
-		When("elasticsearch unsuccessfully creates a new index", func() {
-			BeforeEach(func() {
-				transport.preparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusInternalServerError,
-					},
-				}
-				_, err = elasticsearchStorage.CreateProject(ctx, projectID, project)
+		When("the project does not exist", func() {
+			It("should create a new document for the project", func() {
+
 			})
 
+			It("should create indices for storing occurrences/notes for the project", func() {
+
+			})
+
+			When("creating a new document fails", func() {
+				It("should return an error", func() {
+
+				})
+
+				It("should not attempt to create indices", func() {
+
+				})
+			})
+
+			When("creating the indices fails", func() {
+				It("should return an error", func() {
+
+				})
+			})
+		})
+
+		When("checking if the project exists returns an error", func() {
 			It("should return an error", func() {
-				Expect(err).To(HaveOccurred())
+
+			})
+
+			It("should not create a document or indices", func() {
+
 			})
 		})
 	})
@@ -450,4 +489,16 @@ func generateTestOccurrence() (occurrence *pb.Occurrence) {
 
 func formatJson(json string, args ...interface{}) io.ReadCloser {
 	return ioutil.NopCloser(strings.NewReader(fmt.Sprintf(json, args...)))
+}
+
+func assertJsonHasStringValues(body io.ReadCloser, values map[string]string) {
+	requestBody, err := ioutil.ReadAll(body)
+	Expect(err).ToNot(HaveOccurred())
+
+	parsed, err := gabs.ParseJSON(requestBody)
+	Expect(err).ToNot(HaveOccurred())
+
+	for k, v := range values {
+		Expect(parsed.Path(k).Data().(string)).To(BeEquivalentTo(v))
+	}
 }

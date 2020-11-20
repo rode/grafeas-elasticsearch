@@ -5,13 +5,15 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
+
 	"github.com/elastic/go-elasticsearch/v7"
+	"github.com/gogo/protobuf/jsonpb"
 	"github.com/golang/protobuf/ptypes"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"net/http"
-	"strings"
 
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
 	"github.com/grafeas/grafeas/go/v1beta1/storage"
@@ -60,7 +62,7 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 // CreateProject creates an ElasticSearch index representing the Grafeas Project.
 // The index is created with a "type" metadata field in order to identify this index as a Grafeas Project.
 // Indicies without this piece of metadata are assumed to have been created outside of Grafeas.
-func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId string, p *prpb.Project) (*prpb.Project, error) {
+func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID string, p *prpb.Project) (*prpb.Project, error) {
 	log := es.logger.Named("CreateProject")
 
 	var indexCreateBuffer bytes.Buffer
@@ -77,7 +79,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 	}
 
 	res, err := es.client.Indices.Create(
-		projectId,
+		projectID,
 		es.client.Indices.Create.WithBody(&indexCreateBuffer),
 		es.client.Indices.Create.WithContext(ctx),
 	)
@@ -85,6 +87,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 		log.Error("error creating index", zap.NamedError("error", err))
 		return nil, status.Error(codes.Internal, "failed to create index in elasticsearch")
 	}
+
 	log.Debug("elasticsearch create index response", zap.Any("res", res))
 
 	if res.StatusCode != http.StatusOK {
@@ -93,7 +96,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 	}
 
 	return &prpb.Project{
-		Name: fmt.Sprintf("projects/%s", projectId),
+		Name: fmt.Sprintf("projects/%s", projectID),
 	}, nil
 }
 
@@ -116,8 +119,54 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, pID string) e
 }
 
 // GetOccurrence returns the occurrence with pID and oID
-func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, pID, oID string) (*pb.Occurrence, error) {
-	return nil, nil
+func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectID, objectID string) (*pb.Occurrence, error) {
+	log := es.logger.Named("GetOccurrence")
+
+	queryField := fmt.Sprintf("projects/%s/occurrences/%s", projectID, objectID)
+
+	var getDocumentBuffer bytes.Buffer
+	getDocumentBody := map[string]interface{}{
+		"query": map[string]interface{}{
+			"match": map[string]interface{}{
+				"name": queryField,
+			},
+		},
+	}
+	if err := json.NewEncoder(&getDocumentBuffer).Encode(getDocumentBody); err != nil {
+		log.Error("error encoding get document body", zap.NamedError("error", err))
+		return nil, status.Error(codes.Internal, "failed get document body")
+	}
+
+	res, err := es.client.Search(
+		es.client.Search.WithContext(ctx),
+		es.client.Search.WithIndex(projectID),
+		es.client.Search.WithBody(&getDocumentBuffer),
+	)
+	if err != nil {
+		log.Error("error retrieving occurrence", zap.NamedError("error", err))
+		return nil, status.Error(codes.Internal, "failed to get occurrence from elasticsearch")
+	}
+	if res.StatusCode != http.StatusOK {
+		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
+		return nil, status.Error(codes.Internal, "unexpected response from elasticsearch when retrieving occurrence")
+	}
+
+	log.Debug("elasticsearch response", zap.Any("res", res))
+
+	getDocumentResponse := &esSearchResponse{}
+	if err := json.NewDecoder(res.Body).Decode(&getDocumentResponse); err != nil {
+		log.Error("error decoding elasticsearch response body", zap.NamedError("error", err))
+		return nil, err
+	}
+
+	log.Debug("hit raw source", zap.Any("raw _source", getDocumentResponse.Hits.Hits[0].Source))
+
+	occurrence := &pb.Occurrence{}
+	jsonpb.Unmarshal(strings.NewReader(string(getDocumentResponse.Hits.Hits[0].Source)), occurrence)
+
+	log.Debug("converted occurrence", zap.Any("unmarshaled occurrence", occurrence))
+
+	return occurrence, nil
 }
 
 // ListOccurrences returns up to pageSize number of occurrences for this project beginning
@@ -194,7 +243,7 @@ func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, pID, filter
 }
 
 // CreateOccurrence adds the specified occurrence
-func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId, userId string, o *pb.Occurrence) (*pb.Occurrence, error) {
+func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectID, userID string, o *pb.Occurrence) (*pb.Occurrence, error) {
 	log := es.logger.Named("CreateOccurrence")
 	json, err := json.Marshal(o)
 	reader := bytes.NewReader(json)
@@ -203,7 +252,7 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId,
 		o.CreateTime = ptypes.TimestampNow()
 	}
 
-	res, err := es.client.Index(projectId, reader)
+	res, err := es.client.Index(projectID, reader)
 	if err != nil {
 		log.Error("error creating occurrence", zap.NamedError("error", err))
 		return nil, status.Error(codes.Internal, "failed to create occurrence in elasticsearch")
@@ -383,6 +432,7 @@ func (es *ElasticsearchStorage) GetOccurrenceNote(ctx context.Context, pID, oID 
 	return nil, nil
 }
 
+// ListNoteOccurrences is...
 func (es *ElasticsearchStorage) ListNoteOccurrences(ctx context.Context, projectID, nID, filter, pageToken string, pageSize int32) ([]*pb.Occurrence, string, error) {
 	return []*pb.Occurrence{}, "", nil
 }
@@ -392,17 +442,21 @@ func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.C
 	return &pb.VulnerabilityOccurrencesSummary{}, nil
 }
 
+type esSearchResponseHit struct {
+	ID         string          `json:"_id"`
+	Source     json.RawMessage `json:"_source"`
+	Highlights json.RawMessage `json:"highlight"`
+	Sort       []interface{}   `json:"sort"`
+}
+
+type esSearchResponseHits struct {
+	Total struct {
+		Value int
+	}
+	Hits []esSearchResponseHit
+}
+
 type esSearchResponse struct {
 	Took int
-	Hits struct {
-		Total struct {
-			Value int
-		}
-		Hits []struct {
-			ID         string          `json:"_id"`
-			Source     json.RawMessage `json:"_source"`
-			Highlights json.RawMessage `json:"highlight"`
-			Sort       []interface{}   `json:"sort"`
-		}
-	}
+	Hits esSearchResponseHits
 }

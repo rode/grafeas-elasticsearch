@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/Jeffail/gabs/v2"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
@@ -107,9 +106,16 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 		es.client.Search.WithIndex(projectIndex),
 		es.client.Search.WithBody(searchTerm),
 	)
+	if err != nil || res.IsError() {
+		return nil, createError(log, "unexpected response from elasticsearch", err)
+	}
 
-	if res.StatusCode != http.StatusNotFound {
-		return nil, createError(log, "project index already exists", errors.New("project index exists"))
+	var searchResults esSearchResponse
+	if err := json.NewDecoder(res.Body).Decode(&searchResults); err != nil {
+		return nil, err
+	}
+	if searchResults.Hits.Total.Value > 0 {
+		return nil, createError(log, "project already exists with the given name", nil)
 	}
 
 	p.Name = fmt.Sprintf("projects/%s", projectID)

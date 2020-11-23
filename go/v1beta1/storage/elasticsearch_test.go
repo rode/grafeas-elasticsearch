@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/golang/protobuf/jsonpb"
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 	"io"
@@ -120,7 +121,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("creating a new Grafeas project", func() {
 		var (
-			err                  error
+			createProjectErr     error
 			expectedProjectId    string
 			expectedProjectIndex string
 		)
@@ -130,7 +131,8 @@ var _ = Describe("elasticsearch storage", func() {
 		BeforeEach(func() {
 			transport.preparedHttpResponses = []*http.Response{
 				{
-					StatusCode: http.StatusOK,
+					StatusCode: 200,
+					Body:       createEsSearchResponse(0),
 				},
 				{
 					StatusCode: http.StatusOK,
@@ -142,14 +144,13 @@ var _ = Describe("elasticsearch storage", func() {
 					StatusCode: http.StatusOK,
 				},
 			}
-
 			expectedProjectId = gofakeit.LetterN(10)
 			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
 		})
 
 		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
-			_, err = elasticsearchStorage.CreateProject(context.Background(), expectedProjectId, &prpb.Project{})
+			_, createProjectErr = elasticsearchStorage.CreateProject(context.Background(), expectedProjectId, &prpb.Project{})
 		})
 
 		It("should check if the project document already exists", func() {
@@ -162,30 +163,51 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		When("the project already exists", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0] = &http.Response{
+					StatusCode: 200,
+					Body:       createEsSearchResponse(1),
+				}
+			})
+
 			It("should return an error", func() {
-				Expect(err).To(HaveOccurred())
+				Expect(createProjectErr).To(HaveOccurred())
 			})
 
-			It("should not create a document for the project", func() {
+			It("should not create any documents or indices for the project", func() {
 				Expect(transport.receivedHttpRequests).To(HaveLen(1))
-				Expect(transport.receivedHttpRequests[0].URL.Path).ToNot(Equal("/occurrences/_doc"))
-				Expect(transport.receivedHttpRequests[0].Method).ToNot(Equal(http.MethodPost))
+			})
+		})
+
+		When("checking if the project exists returns an error", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0] = &http.Response{StatusCode: http.StatusBadRequest}
+			})
+			It("should return an error", func() {
+				Expect(createProjectErr).To(HaveOccurred())
 			})
 
-			It("should not create new indicies", func() {
+			It("should not create a document or indices", func() {
 				Expect(transport.receivedHttpRequests).To(HaveLen(1))
-				Expect(transport.receivedHttpRequests[0].Method).ToNot(Equal(http.MethodPut))
 			})
 		})
 
 		When("the project does not exist", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponses[0] = &http.Response{StatusCode: http.StatusNotFound}
 				transport.preparedHttpResponses[1] = &http.Response{StatusCode: http.StatusCreated}
 			})
+
 			It("should create a new document for the project", func() {
 				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedProjectIndex)))
 				Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodPost))
+
+				body := transport.receivedHttpRequests[1].Body
+
+				expectedProject := &prpb.Project{}
+				err := jsonpb.Unmarshal(body, expectedProject)
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(expectedProject.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
 			})
 
 			It("should create indices for storing occurrences/notes for the project", func() {
@@ -197,29 +219,25 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			When("creating a new document fails", func() {
+				BeforeEach(func() {
+					transport.preparedHttpResponses[1] = &http.Response{StatusCode: http.StatusBadRequest}
+				})
 				It("should return an error", func() {
-
+					Expect(createProjectErr).To(HaveOccurred())
 				})
 
 				It("should not attempt to create indices", func() {
-
+					Expect(transport.receivedHttpRequests).To(HaveLen(2))
 				})
 			})
 
 			When("creating the indices fails", func() {
-				It("should return an error", func() {
-
+				BeforeEach(func() {
+					transport.preparedHttpResponses[2] = &http.Response{StatusCode: http.StatusBadRequest}
 				})
-			})
-		})
-
-		When("checking if the project exists returns an error", func() {
-			It("should return an error", func() {
-
-			})
-
-			It("should not create a document or indices", func() {
-
+				It("should return an error", func() {
+					Expect(createProjectErr).To(HaveOccurred())
+				})
 			})
 		})
 	})
@@ -228,33 +246,15 @@ var _ = Describe("elasticsearch storage", func() {
 		When("elasticsearch successfully returns a occurrence document", func() {
 			var (
 				objectID           string
-				testOccurrence     *pb.Occurrence
 				expectedOccurrence *pb.Occurrence
-				resultResponse     *esSearchResponse
 			)
 			BeforeEach(func() {
 				objectID = gofakeit.LetterN(8)
-				testOccurrence = generateTestOccurrence()
-				rawTestOccurrence, _ := json.Marshal(testOccurrence)
-				resultResponse = &esSearchResponse{
-					Took: 10,
-					Hits: &esSearchResponseHits{
-						Total: &esSearchResponseTotal{
-							Value: 1,
-						},
-						Hits: []*esSearchResponseHit{
-							{
-								Source: rawTestOccurrence,
-							},
-						},
-					},
-				}
 
-				resultResponseBody, _ := json.Marshal(resultResponse)
 				transport.preparedHttpResponses = []*http.Response{
 					{
 						StatusCode: 200,
-						Body:       ioutil.NopCloser(bytes.NewReader(resultResponseBody)),
+						Body:       createEsSearchResponse(1),
 					},
 				}
 
@@ -276,7 +276,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should return a Grafeas occurrence", func() {
-				Expect(expectedOccurrence).To(Equal(testOccurrence))
+				Expect(expectedOccurrence).ToNot(Equal(nil))
 			})
 		})
 
@@ -496,6 +496,32 @@ var _ = Describe("elasticsearch storage", func() {
 	})
 
 })
+
+func createEsSearchResponse(hitTotal int) io.ReadCloser {
+	var occurrenceHits []*esSearchResponseHit
+	for i := 0; i < hitTotal; i++ {
+		occ := generateTestOccurrence()
+		rawOcc, err := json.Marshal(occ)
+		Expect(err).ToNot(HaveOccurred())
+		occurrenceHits = append(occurrenceHits, &esSearchResponseHit{
+			Source: rawOcc,
+		})
+	}
+
+	response := &esSearchResponse{
+		Took: gofakeit.Number(1, 10),
+		Hits: &esSearchResponseHits{
+			Total: &esSearchResponseTotal{
+				Value: hitTotal,
+			},
+			Hits: occurrenceHits,
+		},
+	}
+	responseBody, err := json.Marshal(response)
+	Expect(err).ToNot(HaveOccurred())
+
+	return ioutil.NopCloser(bytes.NewReader(responseBody))
+}
 
 func generateTestOccurrence() (occurrence *pb.Occurrence) {
 	return &pb.Occurrence{

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/Jeffail/gabs/v2"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
@@ -90,7 +91,18 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 // to store notes and occurrences.
 // Additional metadata is attached to the newly created indices to help identify them as part of a Grafeas project
 func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID string, p *prpb.Project) (*prpb.Project, error) {
-	//log := es.logger.Named("CreateProject")
+	log := es.logger.Named("CreateProject")
+
+	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
+
+	res, err := es.client.Indices.Exists([]string{projectIndex})
+	if err != nil {
+		return nil, createError(log, "error checking if project index already exists", err)
+	}
+
+	if res.StatusCode == http.StatusOK {
+		return nil, createError(log, "project index already exists", errors.New("project index exists"))
+	}
 
 	return nil, nil
 }

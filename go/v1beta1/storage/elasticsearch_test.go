@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
+	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -119,8 +120,9 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("creating a new Grafeas project", func() {
 		var (
-		//err error
-		//expectedProjectId string
+			err                  error
+			expectedProjectId    string
+			expectedProjectIndex string
 		)
 
 		// BeforeEach configures the happy path for this context
@@ -138,29 +140,34 @@ var _ = Describe("elasticsearch storage", func() {
 				},
 			}
 
-			//expectedProjectId = gofakeit.LetterN(10)
+			expectedProjectId = gofakeit.LetterN(10)
+			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
 		})
 
 		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
-			//_, err = elasticsearchStorage.CreateProject(context.Background(), expectedProjectId, &prpb.Project{})
+			_, err = elasticsearchStorage.CreateProject(context.Background(), expectedProjectId, &prpb.Project{})
 		})
 
 		It("should check if the project already exists", func() {
-
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedProjectIndex)))
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodHead))
 		})
 
 		When("the project already exists", func() {
 			It("should return an error", func() {
-
+				Expect(err).To(HaveOccurred())
 			})
 
 			It("should not create a document for the project", func() {
-
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
+				Expect(transport.receivedHttpRequests[0].URL.Path).ToNot(Equal("/occurrences/_doc"))
+				Expect(transport.receivedHttpRequests[0].Method).ToNot(Equal(http.MethodPost))
 			})
 
 			It("should not create new indicies", func() {
-
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
+				Expect(transport.receivedHttpRequests[0].Method).ToNot(Equal(http.MethodPut))
 			})
 		})
 

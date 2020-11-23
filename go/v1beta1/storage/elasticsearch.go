@@ -93,12 +93,20 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID string, p *prpb.Project) (*prpb.Project, error) {
 	log := es.logger.Named("CreateProject")
 
-	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
-
-	res, err := es.client.Indices.Exists([]string{projectIndex})
+	projectName := fmt.Sprintf("projects/%s", projectID)
+	searchTerm, err := createElasticsearchSearchTermQuery(map[string]interface{}{
+		"name": projectName,
+	})
 	if err != nil {
-		return nil, createError(log, "error checking if project index already exists", err)
+		return nil, createError(log, "error marshalling project search to json", err)
 	}
+
+	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
+	res, err := es.client.Search(
+		es.client.Search.WithContext(ctx),
+		es.client.Search.WithIndex(projectIndex),
+		es.client.Search.WithBody(searchTerm),
+	)
 
 	if res.StatusCode != http.StatusNotFound {
 		return nil, createError(log, "project index already exists", errors.New("project index exists"))
@@ -108,7 +116,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 	m := jsonpb.Marshaler{}
 	str, err := m.MarshalToString(p)
 	if err != nil {
-		return nil, createError(log, "error marshalling occurrenco to json", err)
+		return nil, createError(log, "error marshalling occurrence to json", err)
 	}
 
 	// Create new project document
@@ -538,23 +546,4 @@ func withIndexMappings(mappings map[string]interface{}) func(*esapi.IndicesCreat
 	_ = json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody)
 
 	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
-}
-
-type esSearchResponseHit struct {
-	ID         string          `json:"_id"`
-	Source     json.RawMessage `json:"_source"`
-	Highlights json.RawMessage `json:"highlight"`
-	Sort       []interface{}   `json:"sort"`
-}
-
-type esSearchResponseHits struct {
-	Total struct {
-		Value int
-	}
-	Hits []esSearchResponseHit
-}
-
-type esSearchResponse struct {
-	Took int
-	Hits esSearchResponseHits
 }

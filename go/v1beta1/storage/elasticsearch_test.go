@@ -84,7 +84,7 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedProjectIndex)))
 				Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodPut))
 
-				assertJsonHasStringValues(transport.receivedHttpRequests[1].Body, map[string]string{
+				assertJsonHasValues(transport.receivedHttpRequests[1].Body, map[string]interface{}{
 					"mappings._meta.type":           "grafeas",
 					"mappings.properties.name.type": "keyword",
 				})
@@ -153,8 +153,12 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		It("should check if the project document already exists", func() {
-			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedProjectIndex)))
-			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodHead))
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectIndex)))
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+
+			assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
+				"query.term.name": fmt.Sprintf("projects/%s", expectedProjectId),
+			})
 		})
 
 		When("the project already exists", func() {
@@ -234,11 +238,11 @@ var _ = Describe("elasticsearch storage", func() {
 				rawTestOccurrence, _ := json.Marshal(testOccurrence)
 				resultResponse = &esSearchResponse{
 					Took: 10,
-					Hits: esSearchResponseHits{
-						Total: struct {
-							Value int
-						}{1},
-						Hits: []esSearchResponseHit{
+					Hits: &esSearchResponseHits{
+						Total: &esSearchResponseTotal{
+							Value: 1,
+						},
+						Hits: []*esSearchResponseHit{
 							{
 								Source: rawTestOccurrence,
 							},
@@ -510,7 +514,7 @@ func formatJson(json string, args ...interface{}) io.ReadCloser {
 	return ioutil.NopCloser(strings.NewReader(fmt.Sprintf(json, args...)))
 }
 
-func assertJsonHasStringValues(body io.ReadCloser, values map[string]string) {
+func assertJsonHasValues(body io.ReadCloser, values map[string]interface{}) {
 	requestBody, err := ioutil.ReadAll(body)
 	Expect(err).ToNot(HaveOccurred())
 
@@ -518,6 +522,17 @@ func assertJsonHasStringValues(body io.ReadCloser, values map[string]string) {
 	Expect(err).ToNot(HaveOccurred())
 
 	for k, v := range values {
-		Expect(parsed.Path(k).Data().(string)).To(BeEquivalentTo(v))
+		Expect(parsed.ExistsP(k)).To(BeTrue(), "expected jsonpath %s to exist", k)
+
+		switch v.(type) {
+		case string:
+			Expect(parsed.Path(k).Data().(string)).To(Equal(v.(string)))
+		case bool:
+			Expect(parsed.Path(k).Data().(bool)).To(Equal(v.(bool)))
+		case int:
+			Expect(parsed.Path(k).Data().(int)).To(Equal(v.(int)))
+		default:
+			Fail("assertJsonHasValues encountered unexpected type")
+		}
 	}
 }

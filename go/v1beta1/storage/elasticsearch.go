@@ -64,16 +64,7 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 		log.Info("initial index for grafeas projects not found, creating...", zap.String("index", projectIndex))
 		res, err = es.client.Indices.Create(
 			projectIndex,
-			withIndexMappings(map[string]interface{}{
-				"_meta": map[string]string{
-					"type": "grafeas",
-				},
-				"properties": map[string]interface{}{
-					"name": map[string]string{
-						"type": "keyword",
-					},
-				},
-			}),
+			withIndexMetadataAndStringMapping(),
 		)
 		if err != nil || res.IsError() {
 			return nil, createError(log, "error creating project index", err)
@@ -90,14 +81,14 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 // to store notes and occurrences.
 // Additional metadata is attached to the newly created indices to help identify them as part of a Grafeas project
 func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID string, p *prpb.Project) (*prpb.Project, error) {
-	log := es.logger.Named("CreateProject")
-
 	projectName := fmt.Sprintf("projects/%s", projectID)
+	log := es.logger.Named("CreateProject").With(zap.String("project", projectName))
+
 	searchTerm, err := createElasticsearchSearchTermQuery(map[string]interface{}{
 		"name": projectName,
 	})
 	if err != nil {
-		return nil, createError(log, "error marshalling project search to json", err)
+		return nil, createError(log, "error creating search body JSON", err)
 	}
 
 	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
@@ -107,7 +98,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 		es.client.Search.WithBody(searchTerm),
 	)
 	if err != nil || res.IsError() {
-		return nil, createError(log, "unexpected response from elasticsearch", err)
+		return nil, createError(log, "error searching elasticsearch for projects", err)
 	}
 
 	var searchResults esSearchResponse
@@ -115,12 +106,12 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 		return nil, err
 	}
 	if searchResults.Hits.Total.Value > 0 {
-		return nil, createError(log, "project already exists with the given name", nil)
+		log.Info("project already exists")
+		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s already exists", projectName))
 	}
 
-	p.Name = fmt.Sprintf("projects/%s", projectID)
-	m := jsonpb.Marshaler{}
-	str, err := m.MarshalToString(p)
+	p.Name = projectName
+	str, err := (&jsonpb.Marshaler{}).MarshalToString(p)
 	if err != nil {
 		return nil, createError(log, "error marshalling occurrence to json", err)
 	}
@@ -131,32 +122,26 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 		bytes.NewReader([]byte(str)),
 		es.client.Index.WithContext(ctx),
 	)
-	if err != nil || res.StatusCode != http.StatusCreated {
+	if err != nil || res.IsError() {
 		return nil, createError(log, "error creating occurrence in elasticsearch", err)
 	}
 
 	// Create indices for occurrences and notes
-	var grafeasIndices []string
-	grafeasIndices = append(grafeasIndices, fmt.Sprintf("%s-%s", indexPrefix, "occurrences"))
-	grafeasIndices = append(grafeasIndices, fmt.Sprintf("%s-%s", indexPrefix, "notes"))
-	for _, index := range grafeasIndices {
+	for _, index := range []string{
+		fmt.Sprintf("%s-%s", indexPrefix, "occurrences"),
+		fmt.Sprintf("%s-%s", indexPrefix, "notes"),
+	} {
 		res, err = es.client.Indices.Create(
 			index,
-			withIndexMappings(map[string]interface{}{
-				"_meta": map[string]string{
-					"type": "grafeas",
-				},
-				"properties": map[string]interface{}{
-					"name": map[string]string{
-						"type": "keyword",
-					},
-				},
-			}),
+			es.client.Indices.Create.WithContext(ctx),
+			withIndexMetadataAndStringMapping(),
 		)
 		if err != nil || res.IsError() {
 			return nil, createError(log, "error creating index", err)
 		}
 	}
+
+	log.Info("created project")
 
 	return p, nil
 }
@@ -518,6 +503,7 @@ func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.C
 	return &pb.VulnerabilityOccurrencesSummary{}, nil
 }
 
+// createError is a helper function that allows you to easily log an error and return a gRPC formatted error.
 func createError(log *zap.Logger, message string, err error, fields ...zap.Field) error {
 	if err == nil {
 		log.Error(message, fields...)
@@ -528,25 +514,25 @@ func createError(log *zap.Logger, message string, err error, fields ...zap.Field
 	return status.Errorf(codes.Internal, "%s: %s", message, err)
 }
 
-func withIndexMetadata() func(*esapi.IndicesCreateRequest) {
+// withIndexMetadataAndStringMapping adds an index mapping to add metadata that can be used to help identify an index as
+// a part of the Grafeas storage backend, and a dynamic template to map all strings to keywords.
+func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
 	var indexCreateBuffer bytes.Buffer
 	indexCreateBody := map[string]interface{}{
 		"mappings": map[string]interface{}{
-			"_meta": map[string]interface{}{
+			"_meta": map[string]string{
 				"type": "grafeas",
 			},
+			"dynamic_templates": map[string]interface{}{
+				"strings": map[string]interface{}{
+					"match_mapping_type": "string",
+					"mapping": map[string]interface{}{
+						"type":  "keyword",
+						"norms": false,
+					},
+				},
+			},
 		},
-	}
-
-	_ = json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody)
-
-	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
-}
-
-func withIndexMappings(mappings map[string]interface{}) func(*esapi.IndicesCreateRequest) {
-	var indexCreateBuffer bytes.Buffer
-	indexCreateBody := map[string]interface{}{
-		"mappings": mappings,
 	}
 
 	_ = json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody)

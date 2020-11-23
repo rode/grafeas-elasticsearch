@@ -85,10 +85,7 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedProjectIndex)))
 				Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodPut))
 
-				assertJsonHasValues(transport.receivedHttpRequests[1].Body, map[string]interface{}{
-					"mappings._meta.type":           "grafeas",
-					"mappings.properties.name.type": "keyword",
-				})
+				assertIndexCreateBodyHasMetadataAndStringMapping(transport.receivedHttpRequests[1].Body)
 			})
 
 			When("creating the index for projects fails", func() {
@@ -124,6 +121,7 @@ var _ = Describe("elasticsearch storage", func() {
 			createProjectErr     error
 			expectedProjectId    string
 			expectedProjectIndex string
+			expectedProject      *prpb.Project
 		)
 
 		// BeforeEach configures the happy path for this context
@@ -150,7 +148,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
-			_, createProjectErr = elasticsearchStorage.CreateProject(context.Background(), expectedProjectId, &prpb.Project{})
+			expectedProject, createProjectErr = elasticsearchStorage.CreateProject(context.Background(), expectedProjectId, &prpb.Project{})
 		})
 
 		It("should check if the project document already exists", func() {
@@ -172,6 +170,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 			It("should return an error", func() {
 				Expect(createProjectErr).To(HaveOccurred())
+				Expect(expectedProject).To(BeNil())
 			})
 
 			It("should not create any documents or indices for the project", func() {
@@ -185,6 +184,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 			It("should return an error", func() {
 				Expect(createProjectErr).To(HaveOccurred())
+				Expect(expectedProject).To(BeNil())
 			})
 
 			It("should not create a document or indices", func() {
@@ -201,21 +201,26 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedProjectIndex)))
 				Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodPost))
 
-				body := transport.receivedHttpRequests[1].Body
-
-				expectedProject := &prpb.Project{}
-				err := jsonpb.Unmarshal(body, expectedProject)
+				projectBody := &prpb.Project{}
+				err := jsonpb.Unmarshal(transport.receivedHttpRequests[1].Body, projectBody)
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(expectedProject.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
+				Expect(projectBody.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
 			})
 
 			It("should create indices for storing occurrences/notes for the project", func() {
 				Expect(transport.receivedHttpRequests[2].URL.Path).To(Equal(fmt.Sprintf("/%s-%s", indexPrefix, "occurrences")))
 				Expect(transport.receivedHttpRequests[2].Method).To(Equal(http.MethodPut))
+				assertIndexCreateBodyHasMetadataAndStringMapping(transport.receivedHttpRequests[2].Body)
 
 				Expect(transport.receivedHttpRequests[3].URL.Path).To(Equal(fmt.Sprintf("/%s-%s", indexPrefix, "notes")))
 				Expect(transport.receivedHttpRequests[3].Method).To(Equal(http.MethodPut))
+				assertIndexCreateBodyHasMetadataAndStringMapping(transport.receivedHttpRequests[3].Body)
+			})
+
+			It("should return the project", func() {
+				Expect(expectedProject).ToNot(BeNil())
+				Expect(expectedProject.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
 			})
 
 			When("creating a new document fails", func() {
@@ -224,6 +229,7 @@ var _ = Describe("elasticsearch storage", func() {
 				})
 				It("should return an error", func() {
 					Expect(createProjectErr).To(HaveOccurred())
+					Expect(expectedProject).To(BeNil())
 				})
 
 				It("should not attempt to create indices", func() {
@@ -237,6 +243,7 @@ var _ = Describe("elasticsearch storage", func() {
 				})
 				It("should return an error", func() {
 					Expect(createProjectErr).To(HaveOccurred())
+					Expect(expectedProject).To(BeNil())
 				})
 			})
 		})
@@ -561,4 +568,13 @@ func assertJsonHasValues(body io.ReadCloser, values map[string]interface{}) {
 			Fail("assertJsonHasValues encountered unexpected type")
 		}
 	}
+}
+
+func assertIndexCreateBodyHasMetadataAndStringMapping(body io.ReadCloser) {
+	assertJsonHasValues(body, map[string]interface{}{
+		"mappings._meta.type": "grafeas",
+		"mappings.dynamic_templates.strings.match_mapping_type": "string",
+		"mappings.dynamic_templates.strings.mapping.type":       "keyword",
+		"mappings.dynamic_templates.strings.mapping.norms":      false,
+	})
 }

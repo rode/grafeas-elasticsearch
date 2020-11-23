@@ -138,6 +138,9 @@ var _ = Describe("elasticsearch storage", func() {
 				{
 					StatusCode: http.StatusOK,
 				},
+				{
+					StatusCode: http.StatusOK,
+				},
 			}
 
 			expectedProjectId = gofakeit.LetterN(10)
@@ -149,7 +152,7 @@ var _ = Describe("elasticsearch storage", func() {
 			_, err = elasticsearchStorage.CreateProject(context.Background(), expectedProjectId, &prpb.Project{})
 		})
 
-		It("should check if the project already exists", func() {
+		It("should check if the project document already exists", func() {
 			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedProjectIndex)))
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodHead))
 		})
@@ -172,12 +175,21 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		When("the project does not exist", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0] = &http.Response{StatusCode: http.StatusNotFound}
+				transport.preparedHttpResponses[1] = &http.Response{StatusCode: http.StatusCreated}
+			})
 			It("should create a new document for the project", func() {
-
+				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedProjectIndex)))
+				Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodPost))
 			})
 
 			It("should create indices for storing occurrences/notes for the project", func() {
+				Expect(transport.receivedHttpRequests[2].URL.Path).To(Equal(fmt.Sprintf("/%s-%s", indexPrefix, "occurrences")))
+				Expect(transport.receivedHttpRequests[2].Method).To(Equal(http.MethodPut))
 
+				Expect(transport.receivedHttpRequests[3].URL.Path).To(Equal(fmt.Sprintf("/%s-%s", indexPrefix, "notes")))
+				Expect(transport.receivedHttpRequests[3].Method).To(Equal(http.MethodPut))
 			})
 
 			When("creating a new document fails", func() {

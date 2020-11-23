@@ -100,11 +100,51 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 		return nil, createError(log, "error checking if project index already exists", err)
 	}
 
-	if res.StatusCode == http.StatusOK {
+	if res.StatusCode != http.StatusNotFound {
 		return nil, createError(log, "project index already exists", errors.New("project index exists"))
 	}
 
-	return nil, nil
+	p.Name = fmt.Sprintf("projects/%s", projectID)
+	m := jsonpb.Marshaler{}
+	str, err := m.MarshalToString(p)
+	if err != nil {
+		return nil, createError(log, "error marshalling occurrenco to json", err)
+	}
+
+	// Create new project document
+	res, err = es.client.Index(
+		projectIndex,
+		bytes.NewReader([]byte(str)),
+		es.client.Index.WithContext(ctx),
+	)
+	if err != nil || res.StatusCode != http.StatusCreated {
+		return nil, createError(log, "error creating occurrence in elasticsearch", err)
+	}
+
+	// Create indices for occurrences and notes
+	var grafeasIndices []string
+	grafeasIndices = append(grafeasIndices, fmt.Sprintf("%s-%s", indexPrefix, "occurrences"))
+	grafeasIndices = append(grafeasIndices, fmt.Sprintf("%s-%s", indexPrefix, "notes"))
+	for _, index := range grafeasIndices {
+		res, err = es.client.Indices.Create(
+			index,
+			withIndexMappings(map[string]interface{}{
+				"_meta": map[string]string{
+					"type": "grafeas",
+				},
+				"properties": map[string]interface{}{
+					"name": map[string]string{
+						"type": "keyword",
+					},
+				},
+			}),
+		)
+		if err != nil || res.IsError() {
+			return nil, createError(log, "error creating index", err)
+		}
+	}
+
+	return p, nil
 }
 
 // GetProject returns the project with the given pID from the store

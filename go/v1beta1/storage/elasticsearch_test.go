@@ -354,44 +354,55 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
+
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body: structToJsonBody(&esDeleteResponse{
+						Deleted: 1,
+					}),
+				},
+			}
 		})
 
 		JustBeforeEach(func() {
-			err = elasticsearchStorage.DeleteProject(ctx, projectID)
+			deleteProjectErr = elasticsearchStorage.DeleteProject(ctx, projectID)
+		})
+
+		It("should have sent the correct HTTP request", func() {
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal("POST"))
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_delete_by_query", expectedProjectIndex)))
+
+			assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
+				"query.term.name": fmt.Sprintf("projects/%s", projectID),
+			})
 		})
 
 		When("elasticsearch successfully deletes the document", func() {
-			BeforeEach(func() {
-				transport.preparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body:       formatJson(`{"deleted": 1}`),
-					},
-				}
-			})
-
-			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedHttpRequests[0].Method).To(Equal("POST"))
-				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/%s", expectedProjectIndex, "_delete_by_query")))
-
-				assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
-					"query.term.name": fmt.Sprintf("projects/%s", projectID),
-				})
+			It("should not return an error", func() {
+				Expect(deleteProjectErr).ToNot(HaveOccurred())
 			})
 		})
 
 		When("project does not exist", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body:       formatJson(`{"deleted": 0}`),
-					},
-				}
+				transport.preparedHttpResponses[0].Body = structToJsonBody(&esDeleteResponse{
+					Deleted: 0,
+				})
 			})
 
 			It("should return an error", func() {
-				Expect(deleteProjectErr).ToNot(HaveOccurred())
+				Expect(deleteProjectErr).To(HaveOccurred())
+			})
+		})
+
+		When("deleting the project fails", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+			})
+
+			It("should return an error", func() {
+				Expect(deleteProjectErr).To(HaveOccurred())
 			})
 		})
 	})
@@ -748,6 +759,13 @@ func generateTestNote(name string) (occurrence *pb.Note) {
 
 func formatJson(json string, args ...interface{}) io.ReadCloser {
 	return ioutil.NopCloser(strings.NewReader(fmt.Sprintf(json, args...)))
+}
+
+func structToJsonBody(i interface{}) io.ReadCloser {
+	b, err := json.Marshal(i)
+	Expect(err).ToNot(HaveOccurred())
+
+	return ioutil.NopCloser(strings.NewReader(string(b)))
 }
 
 func assertJsonHasValues(body io.ReadCloser, values map[string]interface{}) {

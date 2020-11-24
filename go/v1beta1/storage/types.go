@@ -51,3 +51,9 @@ func createElasticsearchSearchTermQuery(term map[string]interface{}) (io.Reader,
 
 	return bytes.NewReader(b), nil
 }
+
+// Elasticsearch /_delete_by_query response
+
+type esDeleteResponse struct {
+	Deleted int `json:"deleted"`
+}

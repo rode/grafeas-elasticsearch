@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
@@ -170,9 +171,10 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 	}
 
 	var searchResults esSearchResponse
-	if err := json.NewDecoder(res.Body).Decode(&searchResults); err != nil {
-		return nil, err
+	if err := decodeResponse(res.Body, &searchResults); err != nil {
+		return nil, createError(log, "error unmarshalling elasticsearch response", err)
 	}
+
 	if searchResults.Hits.Total.Value == 0 {
 		log.Info("project not found")
 		return nil, status.Error(codes.NotFound, fmt.Sprintf("project with name %s not found", projectName))
@@ -217,26 +219,14 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 		return createError(log, "error deleting elasticsearch project", err)
 	}
 
-	response, err := ioutil.ReadAll(res.Body)
+	var deletedResults esDeleteResponse
+	err = decodeResponse(res.Body, &deletedResults)
 	if err != nil {
-		return createError(log, "error parsing elasticsearch response", err)
+		return createError(log, "error unmarshalling elasticsearch response", err)
 	}
 
-	dec := json.NewDecoder(bytes.NewReader(response))
-	dec.UseNumber()
-
-	parsedResponse, err := gabs.ParseJSONDecoder(dec)
-	if err != nil {
-		return createError(log, "error parsing elasticsearch response", err)
-	}
-
-	deletedCount, err := parsedResponse.Path("deleted").Data().(json.Number).Int64()
-	if err != nil {
-		return createError(log, "error parsing elasticsearch response", err)
-	}
-
-	if deletedCount == 0 {
-		return status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s not found", projectName))
+	if deletedResults.Deleted == 0 {
+		return createError(log, "elasticsearch returned zero deleted documents", nil, zap.Any("response", deletedResults))
 	}
 
 	return nil
@@ -616,4 +606,8 @@ func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
 	_ = json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody)
 
 	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
+}
+
+func decodeResponse(r io.ReadCloser, i interface{}) error {
+	return json.NewDecoder(r).Decode(i)
 }

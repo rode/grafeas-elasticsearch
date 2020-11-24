@@ -16,7 +16,7 @@ require (
 	github.com/pelletier/go-toml v1.7.0 // indirect
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/spf13/viper v1.7.0 // indirect
-	github.com/stretchr/testify v1.6.1 // indirect
+	github.com/stretchr/testify v1.6.1
 	go.uber.org/zap v1.10.0
 	golang.org/x/sys v0.0.0-20201118182958-a01c418693c7 // indirect
 	google.golang.org/genproto v0.0.0-20200806141610-86f49bd18e98

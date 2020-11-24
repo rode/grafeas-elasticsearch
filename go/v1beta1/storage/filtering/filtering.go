@@ -2,18 +2,11 @@ package filtering
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/parser"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 )
-
-//checkIfMustOrShould will return whether the operation is an AND (must) or OR (should)
-func checkIfMustOrShould(function string) string {
-	fmt.Println(function)
-	return OperationText(function)
-}
 
 // ParseExpressionEntrypoint will serve as the entrypoint to the filter
 // that is eventually passed to parseExpression which will handle the recursive logic
@@ -58,7 +51,7 @@ func ParseExpressionEntrypoint(filter string) (string, []common.Error) {
 // ParseExpression to parse and create a query
 func parseExpression(expression *expr.Expr) interface{} {
 	var term *Term
-	function := expression.GetCallExpr().GetFunction() // =
+	function := Operation(expression.GetCallExpr().GetFunction()) // =
 
 	// Determine if left and right side are final and if so formulate query
 	leftarg := expression.GetCallExpr().Args[0]
@@ -70,29 +63,21 @@ func parseExpression(expression *expr.Expr) interface{} {
 	_, rightIsIdent := rightarg.ExprKind.(*expr.Expr_IdentExpr)
 	_, rightIsConst := rightarg.ExprKind.(*expr.Expr_ConstExpr)
 
-	// operationalTerm may hold a Must or Should
-	var operationalTerm interface{}
-	switch operator := checkIfMustOrShould(function); operator {
-	case "must":
-		var mustTerm []interface{}
-		//append left recursively and add to the must slice
-		mustTerm = append(mustTerm, parseExpression(leftarg))
-		//append right recursively and add to the must slice
-		mustTerm = append(mustTerm, parseExpression(rightarg))
-
-		operationalTerm = &Must{
-			Must: mustTerm,
-		}
-		return &Bool{Bool: operationalTerm}
-	case "should":
-		var shouldTerm []interface{}
-		shouldTerm = append(shouldTerm, parseExpression(leftarg))
-		shouldTerm = append(shouldTerm, parseExpression(rightarg))
-		operationalTerm = &Should{
-			Should: shouldTerm,
-		}
-		return &Bool{Bool: operationalTerm}
-	case "equal":
+	if function == AndOperation {
+		return &Bool{Bool: &Must{
+			Must: []interface{}{
+				parseExpression(leftarg),  //append left recursively and add to the must slice
+				parseExpression(rightarg), //append right recursively and add to the must slice
+			},
+		}}
+	} else if function == OrOperation {
+		return &Bool{Bool: &Should{
+			Should: []interface{}{
+				parseExpression(leftarg),
+				parseExpression(rightarg),
+			},
+		}}
+	} else { // currently the else block is used for _==_ operations
 		var leftString string
 		var rightString string
 		if leftIsIdent && rightIsConst {
@@ -108,12 +93,11 @@ func parseExpression(expression *expr.Expr) interface{} {
 			leftString = leftarg.GetConstExpr().GetStringValue()
 			rightString = rightarg.GetIdentExpr().Name
 		}
-
 		term = &Term{
 			Term: map[string]string{
 				leftString: rightString,
 			},
 		}
+		return term
 	}
-	return term
 }

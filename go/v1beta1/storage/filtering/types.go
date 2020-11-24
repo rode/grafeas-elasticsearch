@@ -26,21 +26,12 @@ type Term struct {
 	Term map[string]string `json:"term"`
 }
 
-// The representation of all operations currently supported. Eventually need to assess
+// Operation is the representation of all operations currently supported. Eventually needs to assess
 // if an enum exists within the cel package.
+type Operation string
+
 const (
-	AndOperation   = "_&&_"
-	OrOperation    = "_||_"
-	EqualOperation = "_==_"
+	AndOperation   Operation = "_&&_"
+	OrOperation    Operation = "_||_"
+	EqualOperation Operation = "_==_"
 )
-
-var operationText = map[string]string{
-	AndOperation:   "must",
-	OrOperation:    "should",
-	EqualOperation: "equal",
-}
-
-// OperationText returns the operation provided's corresponding string field name
-func OperationText(operation string) string {
-	return operationText[operation]
-}

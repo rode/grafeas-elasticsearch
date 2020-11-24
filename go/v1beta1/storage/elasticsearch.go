@@ -166,7 +166,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 		es.client.Search.WithBody(searchTerm),
 	)
 	if err != nil || res.IsError() {
-		return nil, createError(log, "error searching elasticsearch for projects", err)
+		return nil, createError(log, "error searching elasticsearch for project", err)
 	}
 
 	var searchResults esSearchResponse
@@ -174,14 +174,17 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 		return nil, err
 	}
 	if searchResults.Hits.Total.Value == 0 {
-		log.Info("project already exists")
-		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s already exists", projectName))
+		log.Info("project not found")
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("project with name %s not found", projectName))
 	}
 
-	resultProject := &prpb.Project{}
-	jsonpb.Unmarshal(strings.NewReader(string(searchResults.Hits.Hits[0].Source)), resultProject)
+	project := &prpb.Project{}
+	err = jsonpb.Unmarshal(strings.NewReader(string(searchResults.Hits.Hits[0].Source)), project)
+	if err != nil {
+		return nil, createError(log, "error unmarshalling project from elasticsearch", err)
+	}
 
-	return resultProject, nil
+	return project, nil
 }
 
 // ListProjects returns up to pageSize number of projects beginning at pageToken (or from

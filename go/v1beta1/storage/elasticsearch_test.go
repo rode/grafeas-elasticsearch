@@ -5,6 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/golang/protobuf/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"io"
 	"io/ioutil"
 	"net/http"
@@ -170,7 +173,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should return an error", func() {
-				Expect(createProjectErr).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(createProjectErr, codes.AlreadyExists)
 				Expect(expectedProject).To(BeNil())
 			})
 
@@ -185,7 +188,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should return an error", func() {
-				Expect(createProjectErr).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(createProjectErr, codes.Internal)
 				Expect(expectedProject).To(BeNil())
 			})
 
@@ -231,7 +234,7 @@ var _ = Describe("elasticsearch storage", func() {
 				})
 
 				It("should return an error", func() {
-					Expect(createProjectErr).To(HaveOccurred())
+					assertErrorHasGrpcStatusCode(createProjectErr, codes.Internal)
 					Expect(expectedProject).To(BeNil())
 				})
 
@@ -246,7 +249,7 @@ var _ = Describe("elasticsearch storage", func() {
 				})
 
 				It("should return an error", func() {
-					Expect(createProjectErr).To(HaveOccurred())
+					assertErrorHasGrpcStatusCode(createProjectErr, codes.Internal)
 					Expect(expectedProject).To(BeNil())
 				})
 			})
@@ -267,10 +270,11 @@ var _ = Describe("elasticsearch storage", func() {
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
-					Body:       createEsSearchResponse("project", expectedProjectID),
+					Body: createGenericEsSearchResponse(&prpb.Project{
+						Name: fmt.Sprintf("projects/%s", expectedProjectID),
+					}),
 				},
 			}
-
 		})
 
 		JustBeforeEach(func() {
@@ -287,7 +291,7 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		When("elasticsearch successfully returns a project document", func() {
-			It("should return a Grafeas project", func() {
+			It("should return the Grafeas project", func() {
 				Expect(expectedProject).ToNot(BeNil())
 				Expect(expectedProject.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectID)))
 			})
@@ -308,7 +312,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should return an error", func() {
-				Expect(getProjectErr).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(getProjectErr, codes.NotFound)
 			})
 		})
 
@@ -647,6 +651,34 @@ var _ = Describe("elasticsearch storage", func() {
 
 })
 
+func createGenericEsSearchResponse(messages ...proto.Message) io.ReadCloser {
+	var hits []*esSearchResponseHit
+	marshaller := &jsonpb.Marshaler{}
+
+	for _, m := range messages {
+		raw, err := marshaller.MarshalToString(m)
+		Expect(err).ToNot(HaveOccurred())
+
+		hits = append(hits, &esSearchResponseHit{
+			Source: []byte(raw),
+		})
+	}
+
+	response := &esSearchResponse{
+		Took: gofakeit.Number(1, 10),
+		Hits: &esSearchResponseHits{
+			Total: &esSearchResponseTotal{
+				Value: len(hits),
+			},
+			Hits: hits,
+		},
+	}
+	responseBody, err := json.Marshal(response)
+	Expect(err).ToNot(HaveOccurred())
+
+	return ioutil.NopCloser(bytes.NewReader(responseBody))
+}
+
 func createEsSearchResponse(objectType string, hitNames ...string) io.ReadCloser {
 	var occurrenceHits []*esSearchResponseHit
 
@@ -748,4 +780,12 @@ func assertIndexCreateBodyHasMetadataAndStringMapping(body io.ReadCloser) {
 		"mappings.dynamic_templates.strings.mapping.type":       "keyword",
 		"mappings.dynamic_templates.strings.mapping.norms":      false,
 	})
+}
+
+func assertErrorHasGrpcStatusCode(err error, code codes.Code) {
+	Expect(err).To(HaveOccurred())
+	s, ok := status.FromError(err)
+
+	Expect(ok).To(BeTrue(), "expected error to have been produced from the grpc/status package")
+	Expect(s.Code()).To(Equal(code))
 }

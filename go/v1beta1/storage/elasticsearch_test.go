@@ -130,7 +130,7 @@ var _ = Describe("elasticsearch storage", func() {
 		BeforeEach(func() {
 			transport.preparedHttpResponses = []*http.Response{
 				{
-					StatusCode: 200,
+					StatusCode: http.StatusOK,
 					Body:       createEsSearchResponse("project"),
 				},
 				{
@@ -164,7 +164,7 @@ var _ = Describe("elasticsearch storage", func() {
 		When("the project already exists", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses[0] = &http.Response{
-					StatusCode: 200,
+					StatusCode: http.StatusOK,
 					Body:       createEsSearchResponse("project", gofakeit.LetterN(10)),
 				}
 			})
@@ -183,6 +183,7 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses[0] = &http.Response{StatusCode: http.StatusBadRequest}
 			})
+
 			It("should return an error", func() {
 				Expect(createProjectErr).To(HaveOccurred())
 				Expect(expectedProject).To(BeNil())
@@ -228,6 +229,7 @@ var _ = Describe("elasticsearch storage", func() {
 				BeforeEach(func() {
 					transport.preparedHttpResponses[1] = &http.Response{StatusCode: http.StatusBadRequest}
 				})
+
 				It("should return an error", func() {
 					Expect(createProjectErr).To(HaveOccurred())
 					Expect(expectedProject).To(BeNil())
@@ -242,6 +244,7 @@ var _ = Describe("elasticsearch storage", func() {
 				BeforeEach(func() {
 					transport.preparedHttpResponses[2] = &http.Response{StatusCode: http.StatusBadRequest}
 				})
+
 				It("should return an error", func() {
 					Expect(createProjectErr).To(HaveOccurred())
 					Expect(expectedProject).To(BeNil())
@@ -263,7 +266,7 @@ var _ = Describe("elasticsearch storage", func() {
 			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
 			transport.preparedHttpResponses = []*http.Response{
 				{
-					StatusCode: 200,
+					StatusCode: http.StatusOK,
 					Body:       createEsSearchResponse("project", expectedProjectID),
 				},
 			}
@@ -298,7 +301,7 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
-						StatusCode: 200,
+						StatusCode: http.StatusOK,
 						Body:       createEsSearchResponse("project"),
 					},
 				}
@@ -313,7 +316,7 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
-						StatusCode: 200,
+						StatusCode: http.StatusOK,
 						Body:       ioutil.NopCloser(strings.NewReader("bad object")),
 					},
 				}
@@ -400,7 +403,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 				transport.preparedHttpResponses = []*http.Response{
 					{
-						StatusCode: 200,
+						StatusCode: http.StatusOK,
 						Body:       createEsSearchResponse("occurrence", objectID),
 					},
 				}
@@ -452,7 +455,7 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
-						StatusCode: 200,
+						StatusCode: http.StatusOK,
 						Body:       ioutil.NopCloser(strings.NewReader("bad object")),
 					},
 				}
@@ -472,7 +475,7 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
-						StatusCode: 404,
+						StatusCode: http.StatusNotFound,
 					},
 				}
 
@@ -503,7 +506,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 				transport.preparedHttpResponses = []*http.Response{
 					{
-						StatusCode: 201,
+						StatusCode: http.StatusCreated,
 						Body: formatJson(`{
 							"_id": "%s"
 						}`, expectedOccurrenceId),
@@ -558,7 +561,7 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
-						StatusCode: 200,
+						StatusCode: http.StatusOK,
 					},
 				}
 
@@ -610,7 +613,7 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
-						StatusCode: 200,
+						StatusCode: http.StatusOK,
 					},
 				}
 

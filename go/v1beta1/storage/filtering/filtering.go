@@ -48,7 +48,6 @@ func checkIfMustOrShould(function string) string {
 // ParseExpressionEntrypoint will serve as the entrypoint to the filter
 // that is eventually passed to parseExpression which will handle the recursive logic
 func ParseExpressionEntrypoint(filter string) string {
-
 	parsedExpr, err := parser.Parse(common.NewStringSource(filter, ""))
 	if len(err.GetErrors()) > 0 {
 		return "Bad Filter"
@@ -146,7 +145,6 @@ func parseExpression(expression *expr.Expr) interface{} {
 				leftString: rightString,
 			},
 		}
-
 	}
 	return term
 }

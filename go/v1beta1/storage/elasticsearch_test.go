@@ -214,11 +214,11 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should create indices for storing occurrences/notes for the project", func() {
-				Expect(transport.receivedHttpRequests[2].URL.Path).To(Equal(fmt.Sprintf("/%s-%s", indexPrefix, "occurrences")))
+				Expect(transport.receivedHttpRequests[2].URL.Path).To(Equal(fmt.Sprintf("/%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")))
 				Expect(transport.receivedHttpRequests[2].Method).To(Equal(http.MethodPut))
 				assertIndexCreateBodyHasMetadataAndStringMapping(transport.receivedHttpRequests[2].Body)
 
-				Expect(transport.receivedHttpRequests[3].URL.Path).To(Equal(fmt.Sprintf("/%s-%s", indexPrefix, "notes")))
+				Expect(transport.receivedHttpRequests[3].URL.Path).To(Equal(fmt.Sprintf("/%s-%s-%s", indexPrefix, expectedProjectId, "notes")))
 				Expect(transport.receivedHttpRequests[3].Method).To(Equal(http.MethodPut))
 				assertIndexCreateBodyHasMetadataAndStringMapping(transport.receivedHttpRequests[3].Body)
 			})

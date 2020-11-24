@@ -130,8 +130,8 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 
 	// Create indices for occurrences and notes
 	for _, index := range []string{
-		fmt.Sprintf("%s-%s", indexPrefix, "occurrences"),
-		fmt.Sprintf("%s-%s", indexPrefix, "notes"),
+		fmt.Sprintf("%s-%s-%s", indexPrefix, projectID, "occurrences"),
+		fmt.Sprintf("%s-%s-%s", indexPrefix, projectID, "notes"),
 	} {
 		res, err = es.client.Indices.Create(
 			index,

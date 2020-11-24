@@ -794,9 +794,9 @@ func assertJsonHasValues(body io.ReadCloser, values map[string]interface{}) {
 func assertIndexCreateBodyHasMetadataAndStringMapping(body io.ReadCloser) {
 	assertJsonHasValues(body, map[string]interface{}{
 		"mappings._meta.type": "grafeas",
-		"mappings.dynamic_templates.strings.match_mapping_type": "string",
-		"mappings.dynamic_templates.strings.mapping.type":       "keyword",
-		"mappings.dynamic_templates.strings.mapping.norms":      false,
+		"mappings.dynamic_templates.0.strings.match_mapping_type": "string",
+		"mappings.dynamic_templates.0.strings.mapping.type":       "keyword",
+		"mappings.dynamic_templates.0.strings.mapping.norms":      false,
 	})
 }
 

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -63,14 +64,19 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 
 	// the response is an error if the index was not found, so we need to create it
 	if res.IsError() {
-		log.Info("initial index for grafeas projects not found, creating...", zap.String("index", projectIndex))
+		log := log.With(zap.String("index", projectIndex))
+		log.Info("initial index for grafeas projects not found, creating...")
 		res, err = es.client.Indices.Create(
 			projectIndex,
 			withIndexMetadataAndStringMapping(),
 		)
-		if err != nil || res.IsError() {
-			return nil, createError(log, "error creating project index", err)
+		if err != nil {
+			return nil, createError(log, "error sending index creation request to elasticsearch", err)
 		}
+		if res.IsError() {
+			return nil, createError(log, "error creating index in elasticsearch", errors.New(res.String()))
+		}
+		log.Info("index created")
 	}
 
 	return &storage.Storage{
@@ -591,12 +597,14 @@ func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
 			"_meta": map[string]string{
 				"type": "grafeas",
 			},
-			"dynamic_templates": map[string]interface{}{
-				"strings": map[string]interface{}{
-					"match_mapping_type": "string",
-					"mapping": map[string]interface{}{
-						"type":  "keyword",
-						"norms": false,
+			"dynamic_templates": []map[string]interface{}{
+				{
+					"strings": map[string]interface{}{
+						"match_mapping_type": "string",
+						"mapping": map[string]interface{}{
+							"type":  "keyword",
+							"norms": false,
+						},
 					},
 				},
 			},

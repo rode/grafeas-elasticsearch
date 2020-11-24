@@ -84,6 +84,8 @@ func ParseExpressionEntrypoint(filter string) string {
 
 // ParseExpression to parse and create a query
 func parseExpression(expression *expr.Expr) interface{} {
+	var term *Term
+
 	_, isCallExpr := expression.ExprKind.(*expr.Expr_CallExpr)
 	if isCallExpr {
 		function := expression.GetCallExpr().GetFunction() // =
@@ -102,9 +104,9 @@ func parseExpression(expression *expr.Expr) interface{} {
 		var operationalTerm interface{}
 		if checkIfMustOrShould(function) == "must" {
 			var mustTerm []interface{}
-			//append left
+			//append left recursively
 			mustTerm = append(mustTerm, parseExpression(leftarg))
-			//append right
+			//append right recursively
 			mustTerm = append(mustTerm, parseExpression(rightarg))
 
 			operationalTerm = &Must{
@@ -138,14 +140,13 @@ func parseExpression(expression *expr.Expr) interface{} {
 				rightString = rightarg.GetIdentExpr().Name
 			}
 
-			term := &Term{
+			term = &Term{
 				Term: map[string]string{
 					leftString: rightString,
 				},
 			}
-			return term
 
 		}
 	}
-	return nil
+	return term
 }

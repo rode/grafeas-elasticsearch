@@ -5,11 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/Jeffail/gabs/v2"
-	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"io/ioutil"
 	"net/http"
 	"strings"
+
+	"github.com/Jeffail/gabs/v2"
+	"github.com/elastic/go-elasticsearch/v7/esapi"
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/gogo/protobuf/jsonpb"
@@ -147,8 +148,40 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 }
 
 // GetProject returns the project with the given pID from the store
-func (es *ElasticsearchStorage) GetProject(ctx context.Context, pID string) (*prpb.Project, error) {
-	return nil, nil
+func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string) (*prpb.Project, error) {
+	projectName := fmt.Sprintf("projects/%s", projectID)
+	log := es.logger.Named("GetProject").With(zap.String("project", projectName))
+
+	searchTerm, err := createElasticsearchSearchTermQuery(map[string]interface{}{
+		"name": projectName,
+	})
+	if err != nil {
+		return nil, createError(log, "error creating search body JSON", err)
+	}
+
+	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
+	res, err := es.client.Search(
+		es.client.Search.WithContext(ctx),
+		es.client.Search.WithIndex(projectIndex),
+		es.client.Search.WithBody(searchTerm),
+	)
+	if err != nil || res.IsError() {
+		return nil, createError(log, "error searching elasticsearch for projects", err)
+	}
+
+	var searchResults esSearchResponse
+	if err := json.NewDecoder(res.Body).Decode(&searchResults); err != nil {
+		return nil, err
+	}
+	if searchResults.Hits.Total.Value == 0 {
+		log.Info("project already exists")
+		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s already exists", projectName))
+	}
+
+	resultProject := &prpb.Project{}
+	jsonpb.Unmarshal(strings.NewReader(string(searchResults.Hits.Hits[0].Source)), resultProject)
+
+	return resultProject, nil
 }
 
 // ListProjects returns up to pageSize number of projects beginning at pageToken (or from
@@ -160,7 +193,49 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 }
 
 // DeleteProject deletes the project with the given pID from the store
-func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, pID string) error {
+func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID string) error {
+	projectName := fmt.Sprintf("projects/%s", projectID)
+	log := es.logger.Named("DeleteProject").With(zap.String("project", projectName))
+
+	searchTerm, err := createElasticsearchSearchTermQuery(map[string]interface{}{
+		"name": projectName,
+	})
+	if err != nil {
+		return createError(log, "error creating search body JSON", err)
+	}
+
+	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
+	res, err := es.client.DeleteByQuery(
+		[]string{projectIndex},
+		searchTerm,
+		es.client.DeleteByQuery.WithContext(ctx),
+	)
+	if err != nil || res.IsError() {
+		return createError(log, "error deleting elasticsearch project", err)
+	}
+
+	response, err := ioutil.ReadAll(res.Body)
+	if err != nil {
+		return createError(log, "error parsing elasticsearch response", err)
+	}
+
+	dec := json.NewDecoder(bytes.NewReader(response))
+	dec.UseNumber()
+
+	parsedResponse, err := gabs.ParseJSONDecoder(dec)
+	if err != nil {
+		return createError(log, "error parsing elasticsearch response", err)
+	}
+
+	deletedCount, err := parsedResponse.Path("deleted").Data().(json.Number).Int64()
+	if err != nil {
+		return createError(log, "error parsing elasticsearch response", err)
+	}
+
+	if deletedCount == 0 {
+		return status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s not found", projectName))
+	}
+
 	return nil
 }
 

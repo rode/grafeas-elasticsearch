@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/golang/protobuf/jsonpb"
-	grafeasConfig "github.com/grafeas/grafeas/go/config"
-	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
+
+	"github.com/golang/protobuf/jsonpb"
+	grafeasConfig "github.com/grafeas/grafeas/go/config"
+	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 
 	"github.com/Jeffail/gabs/v2"
 	"github.com/brianvoe/gofakeit/v5"
@@ -130,7 +131,7 @@ var _ = Describe("elasticsearch storage", func() {
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: 200,
-					Body:       createEsSearchResponse(0),
+					Body:       createEsSearchResponse("project"),
 				},
 				{
 					StatusCode: http.StatusOK,
@@ -164,7 +165,7 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses[0] = &http.Response{
 					StatusCode: 200,
-					Body:       createEsSearchResponse(1),
+					Body:       createEsSearchResponse("project", gofakeit.LetterN(10)),
 				}
 			})
 
@@ -249,6 +250,145 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
+	Context("retrieving a Grafeas project", func() {
+		var (
+			getProjectErr        error
+			expectedProjectID    string
+			expectedProjectIndex string
+			expectedProject      *prpb.Project
+		)
+
+		BeforeEach(func() {
+			expectedProjectID = gofakeit.LetterN(10)
+			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: 200,
+					Body:       createEsSearchResponse("project", expectedProjectID),
+				},
+			}
+
+		})
+
+		JustBeforeEach(func() {
+			expectedProject, getProjectErr = elasticsearchStorage.GetProject(ctx, expectedProjectID)
+		})
+
+		It("should query Grafeas for the specified project", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectIndex)))
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+
+			assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
+				"query.term.name": fmt.Sprintf("projects/%s", expectedProjectID),
+			})
+		})
+
+		When("elasticsearch successfully returns a project document", func() {
+			It("should return a Grafeas project", func() {
+				Expect(expectedProject).ToNot(BeNil())
+				Expect(expectedProject.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectID)))
+			})
+
+			It("should return without an error", func() {
+				Expect(getProjectErr).ToNot(HaveOccurred())
+			})
+		})
+
+		When("elasticsearch can not find the specified project document", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: 200,
+						Body:       createEsSearchResponse("project"),
+					},
+				}
+			})
+
+			It("should return an error", func() {
+				Expect(getProjectErr).To(HaveOccurred())
+			})
+		})
+
+		When("elasticsearch returns a bad object", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: 200,
+						Body:       ioutil.NopCloser(strings.NewReader("bad object")),
+					},
+				}
+			})
+
+			It("should return an error", func() {
+				Expect(getProjectErr).To(HaveOccurred())
+			})
+		})
+
+		When("returns an unexpected response", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusBadRequest,
+					},
+				}
+			})
+
+			It("should return an error", func() {
+				Expect(getProjectErr).To(HaveOccurred())
+			})
+		})
+	})
+
+	Context("deleting a Grafeas project", func() {
+		var (
+			deleteProjectErr     error
+			expectedProjectIndex string
+		)
+
+		BeforeEach(func() {
+			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
+		})
+
+		JustBeforeEach(func() {
+			err = elasticsearchStorage.DeleteProject(ctx, projectID)
+		})
+
+		When("elasticsearch successfully deletes the document", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body:       formatJson(`{"deleted": 1}`),
+					},
+				}
+			})
+
+			It("should have sent the correct HTTP request", func() {
+				Expect(transport.receivedHttpRequests[0].Method).To(Equal("POST"))
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/%s", expectedProjectIndex, "_delete_by_query")))
+
+				assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
+					"query.term.name": fmt.Sprintf("projects/%s", projectID),
+				})
+			})
+		})
+
+		When("project does not exist", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body:       formatJson(`{"deleted": 0}`),
+					},
+				}
+			})
+
+			It("should return an error", func() {
+				Expect(deleteProjectErr).ToNot(HaveOccurred())
+			})
+		})
+	})
+
 	Context("retrieving a Grafeas occurrence", func() {
 		When("elasticsearch successfully returns a occurrence document", func() {
 			var (
@@ -261,7 +401,7 @@ var _ = Describe("elasticsearch storage", func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
 						StatusCode: 200,
-						Body:       createEsSearchResponse(1),
+						Body:       createEsSearchResponse("occurrence", objectID),
 					},
 				}
 
@@ -283,7 +423,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should return a Grafeas occurrence", func() {
-				Expect(expectedOccurrence).ToNot(Equal(nil))
+				Expect(expectedOccurrence.Name).To(Equal(objectID))
 			})
 		})
 
@@ -347,17 +487,17 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("creating a new Grafeas occurrence", func() {
 		var (
-			newOccurrence      *pb.Occurrence
-			expectedOccurrence *pb.Occurrence
+			newOccurrence        *pb.Occurrence
+			expectedOccurrence   *pb.Occurrence
+			expectedOccurrenceId string
 		)
 
 		BeforeEach(func() {
-			newOccurrence = generateTestOccurrence()
+			expectedOccurrenceId = gofakeit.LetterN(10)
+			newOccurrence = generateTestOccurrence(expectedOccurrenceId)
 		})
 
 		When("elasticsearch creates a new document", func() {
-			var expectedOccurrenceId string
-
 			BeforeEach(func() {
 				expectedOccurrenceId = gofakeit.LetterN(10)
 
@@ -410,7 +550,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			for i := 1; i <= gofakeit.Number(2, 20); i++ {
-				newOccurrences = append(newOccurrences, generateTestOccurrence())
+				newOccurrences = append(newOccurrences, generateTestOccurrence(gofakeit.LetterN(10)))
 			}
 		})
 
@@ -504,22 +644,37 @@ var _ = Describe("elasticsearch storage", func() {
 
 })
 
-func createEsSearchResponse(hitTotal int) io.ReadCloser {
+func createEsSearchResponse(objectType string, hitNames ...string) io.ReadCloser {
 	var occurrenceHits []*esSearchResponseHit
-	for i := 0; i < hitTotal; i++ {
-		occ := generateTestOccurrence()
-		rawOcc, err := json.Marshal(occ)
-		Expect(err).ToNot(HaveOccurred())
-		occurrenceHits = append(occurrenceHits, &esSearchResponseHit{
-			Source: rawOcc,
-		})
+
+	for _, hit := range hitNames {
+		switch objectType {
+		case "project":
+			rawGrafeasObject, err := json.Marshal(generateTestProject(hit))
+			Expect(err).ToNot(HaveOccurred())
+			occurrenceHits = append(occurrenceHits, &esSearchResponseHit{
+				Source: rawGrafeasObject,
+			})
+		case "occurrence":
+			rawGrafeasObject, err := json.Marshal(generateTestOccurrence(hit))
+			Expect(err).ToNot(HaveOccurred())
+			occurrenceHits = append(occurrenceHits, &esSearchResponseHit{
+				Source: rawGrafeasObject,
+			})
+		case "note":
+			rawGrafeasObject, err := json.Marshal(generateTestNote(hit))
+			Expect(err).ToNot(HaveOccurred())
+			occurrenceHits = append(occurrenceHits, &esSearchResponseHit{
+				Source: rawGrafeasObject,
+			})
+		}
 	}
 
 	response := &esSearchResponse{
 		Took: gofakeit.Number(1, 10),
 		Hits: &esSearchResponseHits{
 			Total: &esSearchResponseTotal{
-				Value: hitTotal,
+				Value: len(hitNames),
 			},
 			Hits: occurrenceHits,
 		},
@@ -530,9 +685,15 @@ func createEsSearchResponse(hitTotal int) io.ReadCloser {
 	return ioutil.NopCloser(bytes.NewReader(responseBody))
 }
 
-func generateTestOccurrence() (occurrence *pb.Occurrence) {
+func generateTestProject(name string) (occurrence *prpb.Project) {
+	return &prpb.Project{
+		Name: fmt.Sprintf("projects/%s", name),
+	}
+}
+
+func generateTestOccurrence(name string) (occurrence *pb.Occurrence) {
 	return &pb.Occurrence{
-		Name: gofakeit.LetterN(10),
+		Name: name,
 		Resource: &grafeas_go_proto.Resource{
 			Uri: gofakeit.LetterN(10),
 		},
@@ -540,6 +701,13 @@ func generateTestOccurrence() (occurrence *pb.Occurrence) {
 		Kind:        common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
 		Remediation: gofakeit.LetterN(10),
 		Details:     nil,
+	}
+}
+
+func generateTestNote(name string) (occurrence *pb.Note) {
+	return &pb.Note{
+		Name: name,
+		Kind: common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
 	}
 }
 

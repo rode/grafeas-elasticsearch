@@ -2,7 +2,6 @@ package filtering
 
 import (
 	"encoding/json"
-	"fmt"
 
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/parser"
@@ -58,9 +57,6 @@ func ParseExpressionEntrypoint(filter string) string {
 
 	_, isCallExpr := expression.ExprKind.(*expr.Expr_CallExpr)
 	if isCallExpr {
-		function := expression.GetCallExpr().GetFunction() // =
-		fmt.Println(function)
-
 		// Determine if left and right side are final and if so formulate query
 		leftarg := expression.GetCallExpr().Args[0]
 		rightarg := expression.GetCallExpr().Args[1]
@@ -91,7 +87,6 @@ func parseExpression(expression *expr.Expr) interface{} {
 	_, isCallExpr := expression.ExprKind.(*expr.Expr_CallExpr)
 	if isCallExpr {
 		function := expression.GetCallExpr().GetFunction() // =
-		fmt.Println(function)
 
 		// Determine if left and right side are final and if so formulate query
 		leftarg := expression.GetCallExpr().Args[0]

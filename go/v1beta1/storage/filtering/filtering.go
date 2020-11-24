@@ -5,11 +5,8 @@ import (
 
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/parser"
-	"go.uber.org/zap"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 )
-
-var parseLogger *zap.Logger
 
 // Query holds a parent query that carries the entire search query
 type Query struct {

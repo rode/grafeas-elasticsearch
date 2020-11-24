@@ -207,6 +207,7 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID string) error {
 	projectName := fmt.Sprintf("projects/%s", projectID)
 	log := es.logger.Named("DeleteProject").With(zap.String("project", projectName))
+	log.Info("deleting project")
 
 	searchTerm, err := createElasticsearchSearchTermQuery(map[string]interface{}{
 		"name": projectName,
@@ -234,6 +235,21 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 	if deletedResults.Deleted == 0 {
 		return createError(log, "elasticsearch returned zero deleted documents", nil, zap.Any("response", deletedResults))
 	}
+
+	log.Info("project document deleted")
+
+	res, err = es.client.Indices.Delete(
+		[]string{
+			fmt.Sprintf("%s-%s-occurrences", indexPrefix, projectID),
+			fmt.Sprintf("%s-%s-notes", indexPrefix, projectID),
+		},
+		es.client.Indices.Delete.WithContext(ctx),
+	)
+	if err != nil || res.IsError() {
+		return createError(log, "error deleting elasticsearch indices", err)
+	}
+
+	log.Info("project indices for notes / occurrences deleted")
 
 	return nil
 }

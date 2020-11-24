@@ -32,16 +32,17 @@ var _ = Describe("elasticsearch storage", func() {
 	var (
 		elasticsearchStorage *ElasticsearchStorage
 		transport            *mockEsTransport
-		projectID            string
 		ctx                  context.Context
 		err                  error
+		expectedProjectId    string
 	)
 
 	BeforeEach(func() {
+		expectedProjectId = gofakeit.LetterN(10)
+
 		transport = &mockEsTransport{}
 		mockEsClient := &elasticsearch.Client{Transport: transport, API: esapi.New(transport)}
 
-		projectID = gofakeit.LetterN(8)
 		ctx = context.Background()
 
 		elasticsearchStorage = NewElasticsearchStore(mockEsClient, logger)
@@ -122,10 +123,11 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("creating a new Grafeas project", func() {
 		var (
-			createProjectErr     error
-			expectedProjectId    string
-			expectedProjectIndex string
-			expectedProject      *prpb.Project
+			createProjectErr         error
+			expectedProjectIndex     string
+			expectedProject          *prpb.Project
+			expectedOccurrencesIndex string
+			expectedNotesIndex       string
 		)
 
 		// BeforeEach configures the happy path for this context
@@ -146,8 +148,9 @@ var _ = Describe("elasticsearch storage", func() {
 					StatusCode: http.StatusOK,
 				},
 			}
-			expectedProjectId = gofakeit.LetterN(10)
 			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
+			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")
+			expectedNotesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "notes")
 		})
 
 		// JustBeforeEach actually invokes the system under test
@@ -214,11 +217,11 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should create indices for storing occurrences/notes for the project", func() {
-				Expect(transport.receivedHttpRequests[2].URL.Path).To(Equal(fmt.Sprintf("/%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")))
+				Expect(transport.receivedHttpRequests[2].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedOccurrencesIndex)))
 				Expect(transport.receivedHttpRequests[2].Method).To(Equal(http.MethodPut))
 				assertIndexCreateBodyHasMetadataAndStringMapping(transport.receivedHttpRequests[2].Body)
 
-				Expect(transport.receivedHttpRequests[3].URL.Path).To(Equal(fmt.Sprintf("/%s-%s-%s", indexPrefix, expectedProjectId, "notes")))
+				Expect(transport.receivedHttpRequests[3].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedNotesIndex)))
 				Expect(transport.receivedHttpRequests[3].Method).To(Equal(http.MethodPut))
 				assertIndexCreateBodyHasMetadataAndStringMapping(transport.receivedHttpRequests[3].Body)
 			})
@@ -259,26 +262,24 @@ var _ = Describe("elasticsearch storage", func() {
 	Context("retrieving a Grafeas project", func() {
 		var (
 			getProjectErr        error
-			expectedProjectID    string
 			expectedProjectIndex string
 			expectedProject      *prpb.Project
 		)
 
 		BeforeEach(func() {
-			expectedProjectID = gofakeit.LetterN(10)
 			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
 					Body: createGenericEsSearchResponse(&prpb.Project{
-						Name: fmt.Sprintf("projects/%s", expectedProjectID),
+						Name: fmt.Sprintf("projects/%s", expectedProjectId),
 					}),
 				},
 			}
 		})
 
 		JustBeforeEach(func() {
-			expectedProject, getProjectErr = elasticsearchStorage.GetProject(ctx, expectedProjectID)
+			expectedProject, getProjectErr = elasticsearchStorage.GetProject(ctx, expectedProjectId)
 		})
 
 		It("should query Grafeas for the specified project", func() {
@@ -286,14 +287,14 @@ var _ = Describe("elasticsearch storage", func() {
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 
 			assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
-				"query.term.name": fmt.Sprintf("projects/%s", expectedProjectID),
+				"query.term.name": fmt.Sprintf("projects/%s", expectedProjectId),
 			})
 		})
 
 		When("elasticsearch successfully returns a project document", func() {
 			It("should return the Grafeas project", func() {
 				Expect(expectedProject).ToNot(BeNil())
-				Expect(expectedProject.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectID)))
+				Expect(expectedProject.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
 			})
 
 			It("should return without an error", func() {
@@ -348,12 +349,16 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("deleting a Grafeas project", func() {
 		var (
-			deleteProjectErr     error
-			expectedProjectIndex string
+			deleteProjectErr         error
+			expectedProjectIndex     string
+			expectedNotesIndex       string
+			expectedOccurrencesIndex string
 		)
 
 		BeforeEach(func() {
 			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
+			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")
+			expectedNotesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "notes")
 
 			transport.preparedHttpResponses = []*http.Response{
 				{
@@ -362,25 +367,51 @@ var _ = Describe("elasticsearch storage", func() {
 						Deleted: 1,
 					}),
 				},
+				{
+					StatusCode: http.StatusOK,
+				},
 			}
 		})
 
 		JustBeforeEach(func() {
-			deleteProjectErr = elasticsearchStorage.DeleteProject(ctx, projectID)
+			deleteProjectErr = elasticsearchStorage.DeleteProject(ctx, expectedProjectId)
 		})
 
 		It("should have sent the correct HTTP request", func() {
-			Expect(transport.receivedHttpRequests[0].Method).To(Equal("POST"))
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodPost))
 			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_delete_by_query", expectedProjectIndex)))
 
 			assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
-				"query.term.name": fmt.Sprintf("projects/%s", projectID),
+				"query.term.name": fmt.Sprintf("projects/%s", expectedProjectId),
 			})
 		})
 
-		When("elasticsearch successfully deletes the document", func() {
-			It("should not return an error", func() {
-				Expect(deleteProjectErr).ToNot(HaveOccurred())
+		When("elasticsearch successfully deletes the project document", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].Body = structToJsonBody(&esDeleteResponse{
+					Deleted: 1,
+				})
+			})
+
+			It("should attempt to delete the indices for notes / occurrences", func() {
+				Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodDelete))
+				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s,%s", expectedOccurrencesIndex, expectedNotesIndex)))
+			})
+
+			When("elasticsearch successfully deletes the indices for notes / occurrences", func() {
+				It("should not return an error", func() {
+					Expect(deleteProjectErr).ToNot(HaveOccurred())
+				})
+			})
+
+			When("elasticsearch fails to delete the indices for notes / occurrences", func() {
+				BeforeEach(func() {
+					transport.preparedHttpResponses[1].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should return an error", func() {
+					assertErrorHasGrpcStatusCode(deleteProjectErr, codes.Internal)
+				})
 			})
 		})
 
@@ -393,6 +424,10 @@ var _ = Describe("elasticsearch storage", func() {
 
 			It("should return an error", func() {
 				Expect(deleteProjectErr).To(HaveOccurred())
+			})
+
+			It("should not attempt to delete the indices for notes / occurrences", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
 			})
 		})
 
@@ -413,6 +448,7 @@ var _ = Describe("elasticsearch storage", func() {
 				objectID           string
 				expectedOccurrence *pb.Occurrence
 			)
+
 			BeforeEach(func() {
 				objectID = gofakeit.LetterN(8)
 
@@ -423,13 +459,13 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				}
 
-				expectedOccurrence, err = elasticsearchStorage.GetOccurrence(ctx, projectID, objectID)
+				expectedOccurrence, err = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, objectID)
 				Expect(err).ToNot(HaveOccurred())
 			})
 
 			It("should have sent the correct HTTP request", func() {
 				Expect(transport.receivedHttpRequests[0].Method).To(Equal("GET"))
-				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", projectID)))
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectId)))
 
 				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 				Expect(err).ToNot(HaveOccurred())
@@ -437,7 +473,7 @@ var _ = Describe("elasticsearch storage", func() {
 				parsed, err := gabs.ParseJSON(requestBody)
 				Expect(err).ToNot(HaveOccurred())
 
-				Expect(parsed.Path("query.match.name").Data().(string)).To(BeEquivalentTo(fmt.Sprintf("projects/%s/occurrences/%s", projectID, objectID)))
+				Expect(parsed.Path("query.match.name").Data().(string)).To(BeEquivalentTo(fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, objectID)))
 			})
 
 			It("should return a Grafeas occurrence", func() {
@@ -449,13 +485,14 @@ var _ = Describe("elasticsearch storage", func() {
 			var (
 				objectID string
 			)
+
 			BeforeEach(func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
 						StatusCode: http.StatusInternalServerError,
 					},
 				}
-				_, err = elasticsearchStorage.GetOccurrence(ctx, projectID, objectID)
+				_, err = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, objectID)
 			})
 
 			It("should return an error", func() {
@@ -475,7 +512,7 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				}
 
-				_, err = elasticsearchStorage.GetOccurrence(ctx, projectID, objectID)
+				_, err = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, objectID)
 			})
 
 			It("should fail to decode response and return an error", func() {
@@ -494,7 +531,7 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				}
 
-				_, err = elasticsearchStorage.GetOccurrence(ctx, projectID, objectID)
+				_, err = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, objectID)
 			})
 
 			It("should return an error", func() {
@@ -528,18 +565,18 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				}
 
-				expectedOccurrence, err = elasticsearchStorage.CreateOccurrence(ctx, projectID, "", newOccurrence)
+				expectedOccurrence, err = elasticsearchStorage.CreateOccurrence(ctx, expectedProjectId, "", newOccurrence)
 				Expect(err).ToNot(HaveOccurred())
 			})
 
 			It("should have sent the correct HTTP request", func() {
 				Expect(transport.receivedHttpRequests[0].Method).To(Equal("POST"))
-				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", projectID)))
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedProjectId)))
 			})
 
 			It("should return a Grafeas occurrence with the correct name", func() {
 				Expect(expectedOccurrence).To(Equal(newOccurrence))
-				Expect(expectedOccurrence.Name).To(Equal(fmt.Sprintf("projects/%s/occurrences/%s", projectID, expectedOccurrenceId)))
+				Expect(expectedOccurrence.Name).To(Equal(fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)))
 			})
 		})
 
@@ -550,7 +587,7 @@ var _ = Describe("elasticsearch storage", func() {
 						StatusCode: http.StatusInternalServerError,
 					},
 				}
-				_, err = elasticsearchStorage.CreateOccurrence(ctx, projectID, "", newOccurrence)
+				_, err = elasticsearchStorage.CreateOccurrence(ctx, expectedProjectId, "", newOccurrence)
 			})
 
 			It("should return an error", func() {
@@ -580,7 +617,7 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				}
 
-				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, projectID, "", newOccurrences)
+				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, expectedProjectId, "", newOccurrences)
 			})
 
 			It("should have sent the correct HTTP request", func() {
@@ -605,7 +642,7 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				}
 
-				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, projectID, "", newOccurrences)
+				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, expectedProjectId, "", newOccurrences)
 			})
 
 			It("should return an error", func() {
@@ -632,13 +669,13 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				}
 
-				err = elasticsearchStorage.DeleteOccurrence(ctx, projectID, "")
+				err = elasticsearchStorage.DeleteOccurrence(ctx, expectedProjectId, "")
 				Expect(err).ToNot(HaveOccurred())
 			})
 
 			It("should have sent the correct HTTP request", func() {
 				Expect(transport.receivedHttpRequests[0].Method).To(Equal("POST"))
-				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/%s", projectID, "_delete_by_query")))
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/%s", expectedProjectId, "_delete_by_query")))
 			})
 
 		})
@@ -651,7 +688,7 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				}
 
-				err = elasticsearchStorage.DeleteOccurrence(ctx, projectID, objectID)
+				err = elasticsearchStorage.DeleteOccurrence(ctx, expectedProjectId, objectID)
 			})
 
 			It("should return an error", func() {

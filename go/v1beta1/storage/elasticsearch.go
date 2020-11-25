@@ -13,6 +13,7 @@ import (
 
 	"github.com/Jeffail/gabs/v2"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
+	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/gogo/protobuf/jsonpb"
@@ -25,6 +26,7 @@ import (
 	"github.com/grafeas/grafeas/go/v1beta1/storage"
 	pb "github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
+
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
@@ -198,9 +200,55 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 // ListProjects returns up to pageSize number of projects beginning at pageToken (or from
 // start if pageToken is the empty string).
 func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string, pageSize int, pageToken string) ([]*prpb.Project, string, error) {
-	//id := decryptInt64(pageToken, es.PaginationKey, 0)
-	//TODO
-	return nil, "", nil
+	var (
+		projects []*prpb.Project
+		body     strings.Builder
+	)
+
+	log := es.logger.Named("ListProjects")
+
+	if filter != "" {
+		filterQuery, err := filtering.ParseExpressionEntrypoint(filter)
+		if err != nil {
+			// There can be many parse errors in a filter, this returns the first error found
+			return nil, filterQuery, createError(log, filterQuery, errors.New(err[0].Message))
+		}
+		body.WriteString(filterQuery)
+	}
+
+	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
+
+	res, err := es.client.Search(
+		es.client.Search.WithContext(ctx),
+		es.client.Search.WithIndex(projectIndex),
+		es.client.Search.WithBody(strings.NewReader(body.String())),
+	)
+	if err != nil || res.IsError() {
+		return nil, "", createError(log, "error searching elasticsearch for projects", err)
+	}
+
+	var searchResults esSearchResponse
+	if err := json.NewDecoder(res.Body).Decode(&searchResults); err != nil {
+		return nil, "", createError(log, "error decoding into search response", err)
+	}
+	for _, hit := range searchResults.Hits.Hits {
+		log.Debug("Project Hit", zap.String("Occ RAW", fmt.Sprintf("%+v", string(hit.Source))))
+
+		project := &prpb.Project{}
+		err := json.Unmarshal(hit.Source, &project)
+		if err != nil {
+			log.Error("Failed to convert _doc to project", zap.Error(err))
+			return nil, "", createError(log, "error converting _doc to project", err)
+		}
+
+		log.Debug("Project Hit", zap.String("Project", fmt.Sprintf("%+v", project)))
+
+		projects = append(projects, project)
+	}
+
+	log.Info("listed projects")
+
+	return projects, "", nil
 }
 
 // DeleteProject deletes the project with the given pID from the store

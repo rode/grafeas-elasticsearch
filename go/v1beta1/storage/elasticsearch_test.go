@@ -5,13 +5,14 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/golang/protobuf/proto"
-	"google.golang.org/grpc/codes"
-	"google.golang.org/grpc/status"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
+
+	"github.com/golang/protobuf/proto"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 
 	"github.com/golang/protobuf/jsonpb"
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
@@ -255,6 +256,100 @@ var _ = Describe("elasticsearch storage", func() {
 					assertErrorHasGrpcStatusCode(createProjectErr, codes.Internal)
 					Expect(expectedProject).To(BeNil())
 				})
+			})
+		})
+	})
+
+	Context("listing grafeas projects with filter", func() {
+		var (
+			getProjectErr         error
+			expectedProjectIndex  string
+			expectedProjects      []*prpb.Project
+			expectedSingleProject string
+		)
+
+		BeforeEach(func() {
+			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
+			expectedSingleProject = gofakeit.LetterN(8)
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body: createGenericEsSearchResponse(&prpb.Project{
+						Name: fmt.Sprintf("projects/%s", expectedSingleProject),
+					}),
+				},
+			}
+		})
+
+		JustBeforeEach(func() {
+			expectedProjects, _, getProjectErr = elasticsearchStorage.ListProjects(ctx, fmt.Sprintf("name==\"projects/%s\"", expectedSingleProject), 0, "")
+		})
+
+		It("should query Grafeas for the specified project", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectIndex)))
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+
+			assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
+				"query.bool.must.0.term.name": fmt.Sprintf("projects/%s", expectedSingleProject),
+			})
+		})
+
+		When("elasticsearch successfully returns a project document", func() {
+			It("should return the Grafeas project", func() {
+				Expect(expectedProjects).ToNot(BeNil())
+				Expect(expectedProjects[0].Name).To(Equal(fmt.Sprintf("projects/%s", expectedSingleProject)))
+			})
+
+			It("should return without an error", func() {
+				Expect(getProjectErr).ToNot(HaveOccurred())
+			})
+		})
+
+		When("elasticsearch can not find the specified project document", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body:       createEsSearchResponse("project"),
+					},
+				}
+			})
+
+			It("should return an empty array of grafeas projects", func() {
+				Expect(expectedProjects).To(BeNil())
+			})
+
+			It("should not return an error", func() {
+				Expect(getProjectErr).ToNot(HaveOccurred())
+			})
+		})
+
+		When("elasticsearch returns a bad object", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body:       ioutil.NopCloser(strings.NewReader("bad object")),
+					},
+				}
+			})
+
+			It("should return an error", func() {
+				Expect(getProjectErr).To(HaveOccurred())
+			})
+		})
+
+		When("returns an unexpected response", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusBadRequest,
+					},
+				}
+			})
+
+			It("should return an error", func() {
+				Expect(getProjectErr).To(HaveOccurred())
 			})
 		})
 	})

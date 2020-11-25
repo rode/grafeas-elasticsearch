@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Jeffail/gabs/v2"
-	"github.com/elastic/go-elasticsearch/v7/esapi"
+	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
+
+	"github.com/Jeffail/gabs/v2"
+	"github.com/elastic/go-elasticsearch/v7/esapi"
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/gogo/protobuf/jsonpb"
@@ -62,23 +64,19 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 
 	// the response is an error if the index was not found, so we need to create it
 	if res.IsError() {
-		log.Info("initial index for grafeas projects not found, creating...", zap.String("index", projectIndex))
+		log := log.With(zap.String("index", projectIndex))
+		log.Info("initial index for grafeas projects not found, creating...")
 		res, err = es.client.Indices.Create(
 			projectIndex,
-			withIndexMappings(map[string]interface{}{
-				"_meta": map[string]string{
-					"type": "grafeas",
-				},
-				"properties": map[string]interface{}{
-					"name": map[string]string{
-						"type": "keyword",
-					},
-				},
-			}),
+			withIndexMetadataAndStringMapping(),
 		)
-		if err != nil || res.IsError() {
-			return nil, createError(log, "error creating project index", err)
+		if err != nil {
+			return nil, createError(log, "error sending index creation request to elasticsearch", err)
 		}
+		if res.IsError() {
+			return nil, createError(log, "error creating index in elasticsearch", errors.New(res.String()))
+		}
+		log.Info("index created")
 	}
 
 	return &storage.Storage{
@@ -91,25 +89,110 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 // to store notes and occurrences.
 // Additional metadata is attached to the newly created indices to help identify them as part of a Grafeas project
 func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID string, p *prpb.Project) (*prpb.Project, error) {
-	log := es.logger.Named("CreateProject")
+	projectName := fmt.Sprintf("projects/%s", projectID)
+	log := es.logger.Named("CreateProject").With(zap.String("project", projectName))
+
+	searchTerm, err := createElasticsearchSearchTermQuery(map[string]interface{}{
+		"name": projectName,
+	})
+	if err != nil {
+		return nil, createError(log, "error creating search body JSON", err)
+	}
 
 	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
+	res, err := es.client.Search(
+		es.client.Search.WithContext(ctx),
+		es.client.Search.WithIndex(projectIndex),
+		es.client.Search.WithBody(searchTerm),
+	)
+	if err != nil || res.IsError() {
+		return nil, createError(log, "error searching elasticsearch for projects", err)
+	}
 
-	res, err := es.client.Indices.Exists([]string{projectIndex})
+	var searchResults esSearchResponse
+	if err := json.NewDecoder(res.Body).Decode(&searchResults); err != nil {
+		return nil, err
+	}
+	if searchResults.Hits.Total.Value > 0 {
+		log.Info("project already exists")
+		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s already exists", projectName))
+	}
+
+	p.Name = projectName
+	str, err := (&jsonpb.Marshaler{}).MarshalToString(p)
 	if err != nil {
-		return nil, createError(log, "error checking if project index already exists", err)
+		return nil, createError(log, "error marshalling occurrence to json", err)
 	}
 
-	if res.StatusCode == http.StatusOK {
-		return nil, createError(log, "project index already exists", errors.New("project index exists"))
+	// Create new project document
+	res, err = es.client.Index(
+		projectIndex,
+		bytes.NewReader([]byte(str)),
+		es.client.Index.WithContext(ctx),
+	)
+	if err != nil || res.IsError() {
+		return nil, createError(log, "error creating occurrence in elasticsearch", err)
 	}
 
-	return nil, nil
+	// Create indices for occurrences and notes
+	for _, index := range []string{
+		fmt.Sprintf("%s-%s-%s", indexPrefix, projectID, "occurrences"),
+		fmt.Sprintf("%s-%s-%s", indexPrefix, projectID, "notes"),
+	} {
+		res, err = es.client.Indices.Create(
+			index,
+			es.client.Indices.Create.WithContext(ctx),
+			withIndexMetadataAndStringMapping(),
+		)
+		if err != nil || res.IsError() {
+			return nil, createError(log, "error creating index", err)
+		}
+	}
+
+	log.Info("created project")
+
+	return p, nil
 }
 
 // GetProject returns the project with the given pID from the store
-func (es *ElasticsearchStorage) GetProject(ctx context.Context, pID string) (*prpb.Project, error) {
-	return nil, nil
+func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string) (*prpb.Project, error) {
+	projectName := fmt.Sprintf("projects/%s", projectID)
+	log := es.logger.Named("GetProject").With(zap.String("project", projectName))
+
+	searchTerm, err := createElasticsearchSearchTermQuery(map[string]interface{}{
+		"name": projectName,
+	})
+	if err != nil {
+		return nil, createError(log, "error creating search body JSON", err)
+	}
+
+	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
+	res, err := es.client.Search(
+		es.client.Search.WithContext(ctx),
+		es.client.Search.WithIndex(projectIndex),
+		es.client.Search.WithBody(searchTerm),
+	)
+	if err != nil || res.IsError() {
+		return nil, createError(log, "error searching elasticsearch for project", err)
+	}
+
+	var searchResults esSearchResponse
+	if err := decodeResponse(res.Body, &searchResults); err != nil {
+		return nil, createError(log, "error unmarshalling elasticsearch response", err)
+	}
+
+	if searchResults.Hits.Total.Value == 0 {
+		log.Info("project not found")
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("project with name %s not found", projectName))
+	}
+
+	project := &prpb.Project{}
+	err = jsonpb.Unmarshal(strings.NewReader(string(searchResults.Hits.Hits[0].Source)), project)
+	if err != nil {
+		return nil, createError(log, "error unmarshalling project from elasticsearch", err)
+	}
+
+	return project, nil
 }
 
 // ListProjects returns up to pageSize number of projects beginning at pageToken (or from
@@ -121,7 +204,53 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 }
 
 // DeleteProject deletes the project with the given pID from the store
-func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, pID string) error {
+func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID string) error {
+	projectName := fmt.Sprintf("projects/%s", projectID)
+	log := es.logger.Named("DeleteProject").With(zap.String("project", projectName))
+	log.Info("deleting project")
+
+	searchTerm, err := createElasticsearchSearchTermQuery(map[string]interface{}{
+		"name": projectName,
+	})
+	if err != nil {
+		return createError(log, "error creating search body JSON", err)
+	}
+
+	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
+	res, err := es.client.DeleteByQuery(
+		[]string{projectIndex},
+		searchTerm,
+		es.client.DeleteByQuery.WithContext(ctx),
+	)
+	if err != nil || res.IsError() {
+		return createError(log, "error deleting elasticsearch project", err)
+	}
+
+	var deletedResults esDeleteResponse
+	err = decodeResponse(res.Body, &deletedResults)
+	if err != nil {
+		return createError(log, "error unmarshalling elasticsearch response", err)
+	}
+
+	if deletedResults.Deleted == 0 {
+		return createError(log, "elasticsearch returned zero deleted documents", nil, zap.Any("response", deletedResults))
+	}
+
+	log.Info("project document deleted")
+
+	res, err = es.client.Indices.Delete(
+		[]string{
+			fmt.Sprintf("%s-%s-occurrences", indexPrefix, projectID),
+			fmt.Sprintf("%s-%s-notes", indexPrefix, projectID),
+		},
+		es.client.Indices.Delete.WithContext(ctx),
+	)
+	if err != nil || res.IsError() {
+		return createError(log, "error deleting elasticsearch indices", err)
+	}
+
+	log.Info("project indices for notes / occurrences deleted")
+
 	return nil
 }
 
@@ -464,6 +593,7 @@ func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.C
 	return &pb.VulnerabilityOccurrencesSummary{}, nil
 }
 
+// createError is a helper function that allows you to easily log an error and return a gRPC formatted error.
 func createError(log *zap.Logger, message string, err error, fields ...zap.Field) error {
 	if err == nil {
 		log.Error(message, fields...)
@@ -474,12 +604,25 @@ func createError(log *zap.Logger, message string, err error, fields ...zap.Field
 	return status.Errorf(codes.Internal, "%s: %s", message, err)
 }
 
-func withIndexMetadata() func(*esapi.IndicesCreateRequest) {
+// withIndexMetadataAndStringMapping adds an index mapping to add metadata that can be used to help identify an index as
+// a part of the Grafeas storage backend, and a dynamic template to map all strings to keywords.
+func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
 	var indexCreateBuffer bytes.Buffer
 	indexCreateBody := map[string]interface{}{
 		"mappings": map[string]interface{}{
-			"_meta": map[string]interface{}{
+			"_meta": map[string]string{
 				"type": "grafeas",
+			},
+			"dynamic_templates": []map[string]interface{}{
+				{
+					"strings": map[string]interface{}{
+						"match_mapping_type": "string",
+						"mapping": map[string]interface{}{
+							"type":  "keyword",
+							"norms": false,
+						},
+					},
+				},
 			},
 		},
 	}
@@ -489,32 +632,6 @@ func withIndexMetadata() func(*esapi.IndicesCreateRequest) {
 	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
 }
 
-func withIndexMappings(mappings map[string]interface{}) func(*esapi.IndicesCreateRequest) {
-	var indexCreateBuffer bytes.Buffer
-	indexCreateBody := map[string]interface{}{
-		"mappings": mappings,
-	}
-
-	_ = json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody)
-
-	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
-}
-
-type esSearchResponseHit struct {
-	ID         string          `json:"_id"`
-	Source     json.RawMessage `json:"_source"`
-	Highlights json.RawMessage `json:"highlight"`
-	Sort       []interface{}   `json:"sort"`
-}
-
-type esSearchResponseHits struct {
-	Total struct {
-		Value int
-	}
-	Hits []esSearchResponseHit
-}
-
-type esSearchResponse struct {
-	Took int
-	Hits esSearchResponseHits
+func decodeResponse(r io.ReadCloser, i interface{}) error {
+	return json.NewDecoder(r).Decode(i)
 }

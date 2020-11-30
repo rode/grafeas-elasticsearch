@@ -536,7 +536,50 @@ func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, pID, oID s
 
 // GetNote returns the note with project (pID) and note ID (nID)
 func (es *ElasticsearchStorage) GetNote(ctx context.Context, pID, nID string) (*pb.Note, error) {
-	return nil, nil
+	log := es.logger.Named("GetNote")
+
+	queryField := fmt.Sprintf("projects/%s/notes/%s", pID, nID)
+
+	var getDocumentBuffer bytes.Buffer
+	getDocumentBody := map[string]interface{}{
+		"query": map[string]interface{}{
+			"match": map[string]interface{}{
+				"name": queryField,
+			},
+		},
+	}
+	if err := json.NewEncoder(&getDocumentBuffer).Encode(getDocumentBody); err != nil {
+		return nil, createError(log, "error encoding elasticsearch get document body", err)
+	}
+
+	res, err := es.client.Search(
+		es.client.Search.WithContext(ctx),
+		es.client.Search.WithIndex(pID),
+		es.client.Search.WithBody(&getDocumentBuffer),
+	)
+	if err != nil {
+		return nil, createError(log, "error retrieving note from elasticsearch", err)
+	}
+	if res.StatusCode != http.StatusOK {
+		return nil, createError(log, "got unexpected status code from elasticsearch", nil, zap.Int("status", res.StatusCode))
+	}
+
+	log.Debug("elasticsearch response", zap.Any("response", res))
+
+	getDocumentResponse := &esSearchResponse{}
+	if err := json.NewDecoder(res.Body).Decode(&getDocumentResponse); err != nil {
+		log.Error("error decoding elasticsearch response body", zap.NamedError("error", err))
+		return nil, err
+	}
+
+	log.Debug("hit raw source", zap.Any("raw _source", getDocumentResponse.Hits.Hits[0].Source))
+
+	note := &pb.Note{}
+	jsonpb.Unmarshal(strings.NewReader(string(getDocumentResponse.Hits.Hits[0].Source)), note)
+
+	log.Debug("converted note", zap.Any("unmarshaled occurrence", note))
+
+	return note, nil
 }
 
 // ListNotes returns up to pageSize number of notes for this project (pID) beginning
@@ -546,14 +589,18 @@ func (es *ElasticsearchStorage) ListNotes(ctx context.Context, pID, filter, page
 	log.Debug("Project ID", zap.String("pID", pID))
 
 	var (
-		os   []*pb.Occurrence
-		body strings.Builder
+		notes []*pb.Note
+		body  strings.Builder
 	)
 
-	body.WriteString("{\n")
-
-	body.WriteString(fmt.Sprintf(`"size": %d`, pageSize))
-	body.WriteString("\n}")
+	if filter != "" {
+		filterQuery, err := filtering.ParseExpressionEntrypoint(filter)
+		if err != nil {
+			// There can be many parse errors in a filter, this returns the first error found
+			return nil, filterQuery, createError(log, filterQuery, errors.New(err[0].Message))
+		}
+		body.WriteString(filterQuery)
+	}
 
 	res, err := es.client.Search(
 		es.client.Search.WithIndex(pID),
@@ -588,21 +635,21 @@ func (es *ElasticsearchStorage) ListNotes(ctx context.Context, pID, filter, page
 	log.Debug("ES Search hits", zap.Any("Total Hits", searchResults.Hits.Total.Value))
 
 	for _, hit := range searchResults.Hits.Hits {
-		log.Debug("Occurrence Hit", zap.String("Occ RAW", fmt.Sprintf("%+v", string(hit.Source))))
+		log.Debug("Note Hit", zap.String("Note RAW", fmt.Sprintf("%+v", string(hit.Source))))
 
-		occ := &pb.Occurrence{}
-		err := json.Unmarshal(hit.Source, &occ)
+		note := &pb.Note{}
+		err := json.Unmarshal(hit.Source, &note)
 		if err != nil {
-			log.Error("Failed to convert _doc to occurrence", zap.Error(err))
+			log.Error("Failed to convert _doc to Note", zap.Error(err))
 			return nil, "", err
 		}
 
-		log.Debug("Occurrence Hit", zap.String("Occ", fmt.Sprintf("%+v", occ)))
+		log.Debug("Note Hit", zap.String("Note", fmt.Sprintf("%+v", note)))
 
-		os = append(os, occ)
+		notes = append(notes, note)
 	}
 
-	return nil, "", nil
+	return notes, "", nil
 
 }
 

@@ -1,8 +1,6 @@
 package filtering
 
 import (
-	"encoding/json"
-
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/parser"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
@@ -10,16 +8,14 @@ import (
 
 // ParseExpressionEntrypoint will serve as the entrypoint to the filter
 // that is eventually passed to parseExpression which will handle the recursive logic
-func ParseExpressionEntrypoint(filter string) (string, []common.Error) {
+func ParseExpressionEntrypoint(filter string) (*Query, []common.Error) {
 	parsedExpr, err := parser.Parse(common.NewStringSource(filter, ""))
 	if len(err.GetErrors()) > 0 {
-		return "Bad Filter", err.GetErrors()
+		return nil, err.GetErrors()
 	}
 
 	expression := parsedExpr.GetExpr()
-	query := &Query{
-		Query: map[string]interface{}{},
-	}
+	query := &Query{}
 
 	_, isCallExpr := expression.ExprKind.(*expr.Expr_CallExpr)
 	if isCallExpr {
@@ -34,23 +30,21 @@ func ParseExpressionEntrypoint(filter string) (string, []common.Error) {
 		_, rightIsConst := rightarg.ExprKind.(*expr.Expr_ConstExpr)
 
 		if (leftIsConst || leftIsIdent) && (rightIsConst || rightIsIdent) {
-			query.Query = &Bool{Bool: &Must{
-				Must: []interface{}{parseExpression(expression)},
-			},
+			query.Bool = &Bool{
+				Must: &Must{parseExpression(expression)},
 			}
-			queryBytes, _ := json.Marshal(query)
-			return string(queryBytes), nil
+
+			return query, nil
 		}
 	}
-	query.Query = parseExpression(expression)
 
-	queryBytes, _ := json.Marshal(query)
-	return string(queryBytes), nil
+	query.Bool = parseExpression(expression).(*Bool)
+
+	return query, nil
 }
 
 // ParseExpression to parse and create a query
 func parseExpression(expression *expr.Expr) interface{} {
-	var term *Term
 	function := Operation(expression.GetCallExpr().GetFunction()) // =
 
 	// Determine if left and right side are final and if so formulate query
@@ -64,19 +58,20 @@ func parseExpression(expression *expr.Expr) interface{} {
 	_, rightIsConst := rightarg.ExprKind.(*expr.Expr_ConstExpr)
 
 	if function == AndOperation {
-		return &Bool{Bool: &Must{
-			Must: []interface{}{
+		return &Bool{
+			Must: &Must{
 				parseExpression(leftarg),  //append left recursively and add to the must slice
 				parseExpression(rightarg), //append right recursively and add to the must slice
 			},
-		}}
+		}
+
 	} else if function == OrOperation {
-		return &Bool{Bool: &Should{
-			Should: []interface{}{
-				parseExpression(leftarg),
-				parseExpression(rightarg),
+		return &Bool{
+			Should: &Should{
+				parseExpression(leftarg),  //append left recursively and add to the must slice
+				parseExpression(rightarg), //append right recursively and add to the must slice
 			},
-		}}
+		}
 	} else { // currently the else block is used for _==_ operations
 		var leftString string
 		var rightString string
@@ -93,11 +88,8 @@ func parseExpression(expression *expr.Expr) interface{} {
 			leftString = leftarg.GetConstExpr().GetStringValue()
 			rightString = rightarg.GetIdentExpr().Name
 		}
-		term = &Term{
-			Term: map[string]string{
-				leftString: rightString,
-			},
+		return &Term{
+			leftString: rightString,
 		}
-		return term
 	}
 }

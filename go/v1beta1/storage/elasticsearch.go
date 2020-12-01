@@ -94,9 +94,14 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 	projectName := fmt.Sprintf("projects/%s", projectID)
 	log := es.logger.Named("CreateProject").With(zap.String("project", projectName))
 
-	searchTerm, err := createElasticsearchSearchTermQuery(map[string]interface{}{
-		"name": projectName,
+	searchTerm, err := encodeRequest(&esSearch{
+		Query: &filtering.Query{
+			Term: &filtering.Term{
+				"name": projectName,
+			},
+		},
 	})
+
 	if err != nil {
 		return nil, createError(log, "error creating search body JSON", err)
 	}
@@ -107,8 +112,11 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 		es.client.Search.WithIndex(projectIndex),
 		es.client.Search.WithBody(searchTerm),
 	)
-	if err != nil || res.IsError() {
-		return nil, createError(log, "error searching elasticsearch for projects", err)
+	if err != nil {
+		return nil, createError(log, "error sending request to elasticsearch", err)
+	}
+	if res.IsError() {
+		return nil, createError(log, "error searching elasticsearch for projects", nil)
 	}
 
 	var searchResults esSearchResponse
@@ -161,7 +169,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 	projectName := fmt.Sprintf("projects/%s", projectID)
 	log := es.logger.Named("GetProject").With(zap.String("project", projectName))
 
-	searchTerm, err := createElasticsearchSearchTermQuery(map[string]interface{}{
+	searchTerm, err := encodeRequest(&filtering.Term{
 		"name": projectName,
 	})
 	if err != nil {
@@ -202,7 +210,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string, pageSize int, pageToken string) ([]*prpb.Project, string, error) {
 	var (
 		projects []*prpb.Project
-		body     strings.Builder
+		body     *esSearch
 	)
 
 	log := es.logger.Named("ListProjects")
@@ -211,17 +219,21 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 		filterQuery, err := filtering.ParseExpressionEntrypoint(filter)
 		if err != nil {
 			// There can be many parse errors in a filter, this returns the first error found
-			return nil, filterQuery, createError(log, filterQuery, errors.New(err[0].Message))
+			return nil, "", createError(log, "error while parsing filter", errors.New(err[0].Message)) //library to consolidate array of errs
 		}
-		body.WriteString(filterQuery)
+		body.Query = filterQuery
 	}
 
 	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
+	encodedBody, err := encodeRequest(body)
+	if err != nil {
+		return nil, "", createError(log, "error encoding search request", err)
+	}
 
 	res, err := es.client.Search(
 		es.client.Search.WithContext(ctx),
 		es.client.Search.WithIndex(projectIndex),
-		es.client.Search.WithBody(strings.NewReader(body.String())),
+		es.client.Search.WithBody(encodedBody),
 	)
 	if err != nil || res.IsError() {
 		return nil, "", createError(log, "error searching elasticsearch for projects", err)
@@ -232,16 +244,16 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 		return nil, "", createError(log, "error decoding into search response", err)
 	}
 	for _, hit := range searchResults.Hits.Hits {
-		log.Debug("Project Hit", zap.String("Occ RAW", fmt.Sprintf("%+v", string(hit.Source))))
+		hitLogger := log.With(zap.String("project raw", string(hit.Source)))
 
 		project := &prpb.Project{}
 		err := json.Unmarshal(hit.Source, &project)
 		if err != nil {
-			log.Error("Failed to convert _doc to project", zap.Error(err))
-			return nil, "", createError(log, "error converting _doc to project", err)
+			log.Error("failed to convert _doc to project", zap.Error(err))
+			return nil, "", createError(hitLogger, "error converting _doc to project", err)
 		}
 
-		log.Debug("Project Hit", zap.String("Project", fmt.Sprintf("%+v", project)))
+		hitLogger.Debug("project hit", zap.Any("project", project))
 
 		projects = append(projects, project)
 	}
@@ -257,7 +269,7 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 	log := es.logger.Named("DeleteProject").With(zap.String("project", projectName))
 	log.Info("deleting project")
 
-	searchTerm, err := createElasticsearchSearchTermQuery(map[string]interface{}{
+	searchTerm, err := encodeRequest(&filtering.Term{
 		"name": projectName,
 	})
 	if err != nil {
@@ -584,27 +596,35 @@ func (es *ElasticsearchStorage) GetNote(ctx context.Context, pID, nID string) (*
 
 // ListNotes returns up to pageSize number of notes for this project (pID) beginning
 // at pageToken (or from start if pageToken is the empty string).
-func (es *ElasticsearchStorage) ListNotes(ctx context.Context, pID, filter, pageToken string, pageSize int32) ([]*pb.Note, string, error) {
+func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectID, filter, pageToken string, pageSize int32) ([]*pb.Note, string, error) {
 	log := es.logger.Named("ListNotes")
-	log.Debug("Project ID", zap.String("pID", pID))
+	log.Debug("Project ID", zap.String("projectID", projectID))
 
 	var (
 		notes []*pb.Note
-		body  strings.Builder
 	)
-
+	body := &esSearch{}
 	if filter != "" {
 		filterQuery, err := filtering.ParseExpressionEntrypoint(filter)
+		stringVal, _ := json.Marshal(filterQuery)
+		fmt.Println(string(stringVal))
 		if err != nil {
 			// There can be many parse errors in a filter, this returns the first error found
-			return nil, filterQuery, createError(log, filterQuery, errors.New(err[0].Message))
+			return nil, "", createError(log, "error while parsing filter", errors.New(err[0].Message))
 		}
-		body.WriteString(filterQuery)
+
+		body.Query = filterQuery
 	}
 
+	encodedBody, err := encodeRequest(body)
+	if err != nil {
+		return nil, "", createError(log, "error encoding search request", err)
+	}
+
+	noteIndex := fmt.Sprintf("%s-%s-notes", indexPrefix, projectID)
 	res, err := es.client.Search(
-		es.client.Search.WithIndex(pID),
-		es.client.Search.WithBody(strings.NewReader(body.String())),
+		es.client.Search.WithIndex(noteIndex),
+		es.client.Search.WithBody(encodedBody),
 	)
 	if err != nil {
 		log.Error("Failed to retrieve documents from Elasticsearch", zap.Error(err))
@@ -729,4 +749,13 @@ func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
 
 func decodeResponse(r io.ReadCloser, i interface{}) error {
 	return json.NewDecoder(r).Decode(i)
+}
+
+func encodeRequest(body interface{}) (io.Reader, error) {
+	b, err := json.Marshal(body)
+	if err != nil {
+		return nil, err
+	}
+
+	return bytes.NewReader(b), nil
 }

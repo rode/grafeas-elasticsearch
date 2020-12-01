@@ -38,7 +38,7 @@ func ParseExpressionEntrypoint(filter string) (*Query, []common.Error) {
 		}
 	}
 
-	query.Bool = parseExpression(expression).(*Bool)
+	query = parseExpression(expression).(*Query)
 
 	return query, nil
 }
@@ -48,48 +48,54 @@ func parseExpression(expression *expr.Expr) interface{} {
 	function := Operation(expression.GetCallExpr().GetFunction()) // =
 
 	// Determine if left and right side are final and if so formulate query
-	leftarg := expression.GetCallExpr().Args[0]
-	rightarg := expression.GetCallExpr().Args[1]
+	leftArg := expression.GetCallExpr().Args[0]
+	rightArg := expression.GetCallExpr().Args[1]
 
 	// Check to see if each side is an identity or const expression
-	_, leftIsIdent := leftarg.ExprKind.(*expr.Expr_IdentExpr)
-	_, leftIsConst := leftarg.ExprKind.(*expr.Expr_ConstExpr)
-	_, rightIsIdent := rightarg.ExprKind.(*expr.Expr_IdentExpr)
-	_, rightIsConst := rightarg.ExprKind.(*expr.Expr_ConstExpr)
+	_, leftIsIdent := leftArg.ExprKind.(*expr.Expr_IdentExpr)
+	_, leftIsConst := leftArg.ExprKind.(*expr.Expr_ConstExpr)
+	_, rightIsIdent := rightArg.ExprKind.(*expr.Expr_IdentExpr)
+	_, rightIsConst := rightArg.ExprKind.(*expr.Expr_ConstExpr)
 
 	if function == AndOperation {
-		return &Bool{
-			Must: &Must{
-				parseExpression(leftarg),  //append left recursively and add to the must slice
-				parseExpression(rightarg), //append right recursively and add to the must slice
+		return &Query{
+			Bool: &Bool{
+				Must: &Must{
+					parseExpression(leftArg),  //append left recursively and add to the must slice
+					parseExpression(rightArg), //append right recursively and add to the must slice
+				},
 			},
 		}
 
 	} else if function == OrOperation {
-		return &Bool{
-			Should: &Should{
-				parseExpression(leftarg),  //append left recursively and add to the must slice
-				parseExpression(rightarg), //append right recursively and add to the must slice
+		return &Query{
+			Bool: &Bool{
+				Should: &Should{
+					parseExpression(leftArg),  //append left recursively and add to the must slice
+					parseExpression(rightArg), //append right recursively and add to the must slice
+				},
 			},
 		}
 	} else { // currently the else block is used for _==_ operations
 		var leftString string
 		var rightString string
 		if leftIsIdent && rightIsConst {
-			leftString = leftarg.GetIdentExpr().Name
-			rightString = rightarg.GetConstExpr().GetStringValue()
+			leftString = leftArg.GetIdentExpr().Name
+			rightString = rightArg.GetConstExpr().GetStringValue()
 		} else if leftIsConst && rightIsConst {
-			leftString = leftarg.GetConstExpr().GetStringValue()
-			rightString = rightarg.GetConstExpr().GetStringValue()
+			leftString = leftArg.GetConstExpr().GetStringValue()
+			rightString = rightArg.GetConstExpr().GetStringValue()
 		} else if leftIsIdent && rightIsIdent {
-			leftString = leftarg.GetIdentExpr().Name
-			rightString = rightarg.GetIdentExpr().Name
+			leftString = leftArg.GetIdentExpr().Name
+			rightString = rightArg.GetIdentExpr().Name
 		} else if leftIsConst && rightIsIdent {
-			leftString = leftarg.GetConstExpr().GetStringValue()
-			rightString = rightarg.GetIdentExpr().Name
+			leftString = leftArg.GetConstExpr().GetStringValue()
+			rightString = rightArg.GetIdentExpr().Name
 		}
-		return &Term{
-			leftString: rightString,
+		return &Bool{
+			Term: &Term{
+				leftString: rightString,
+			},
 		}
 	}
 }

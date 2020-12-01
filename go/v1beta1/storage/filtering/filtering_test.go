@@ -11,13 +11,11 @@ func TestSingleTerm(t *testing.T) {
 
 	// {"query":{"bool":{"must":[{"term":{"a":"b"}}]}}}`
 	expectedResult := &Query{
-		Query: &Bool{
-			Bool: &Must{
-				Must: []interface{}{
-					&Term{
-						Term: map[string]string{
-							"a": "b",
-						},
+		Bool: &Bool{
+			Must: &Must{
+				&Bool{
+					Term: &Term{
+						"a": "b",
 					},
 				},
 			},
@@ -33,13 +31,11 @@ func TestSingleTermLeftConstRightConst(t *testing.T) {
 
 	// {"query":{"bool":{"must":[{"term":{"a":"b"}}]}}}
 	expectedResult := &Query{
-		Query: &Bool{
-			Bool: &Must{
-				Must: []interface{}{
-					&Term{
-						Term: map[string]string{
-							"a": "b",
-						},
+		Bool: &Bool{
+			Must: &Must{
+				&Bool{
+					Term: &Term{
+						"a": "b",
 					},
 				},
 			},
@@ -55,13 +51,11 @@ func TestSingleTermLeftIdentRightIdent(t *testing.T) {
 
 	// {"query":{"bool":{"must":[{"term":{"a":"b"}}]}}}
 	expectedResult := &Query{
-		Query: &Bool{
-			Bool: &Must{
-				Must: []interface{}{
-					&Term{
-						Term: map[string]string{
-							"a": "b",
-						},
+		Bool: &Bool{
+			Must: &Must{
+				&Bool{
+					Term: &Term{
+						"a": "b",
 					},
 				},
 			},
@@ -77,13 +71,11 @@ func TestSingleTermLeftConstRightIdent(t *testing.T) {
 
 	// {"query":{"bool":{"must":[{"term":{"a":"b"}}]}}}
 	expectedResult := &Query{
-		Query: &Bool{
-			Bool: &Must{
-				Must: []interface{}{
-					&Term{
-						Term: map[string]string{
-							"a": "b",
-						},
+		Bool: &Bool{
+			Must: &Must{
+				&Bool{
+					Term: &Term{
+						"a": "b",
 					},
 				},
 			},
@@ -99,18 +91,16 @@ func TestAndingTwoTerm(t *testing.T) {
 
 	// {"query":{"bool":{"must":[{"term":{"a":"b"}},{"term":{"c":"d"}}]}}}
 	expectedResult := &Query{
-		Query: &Bool{
-			Bool: &Must{
-				Must: []interface{}{
-					&Term{
-						Term: map[string]string{
-							"a": "b",
-						},
+		Bool: &Bool{
+			Must: &Must{
+				&Bool{
+					Term: &Term{
+						"a": "b",
 					},
-					&Term{
-						Term: map[string]string{
-							"c": "d",
-						},
+				},
+				&Bool{
+					Term: &Term{
+						"c": "d",
 					},
 				},
 			},
@@ -126,29 +116,27 @@ func TestAndingThreeTerms(t *testing.T) {
 
 	// {"query":{"bool":{"must":[{"bool":{"must":[{"term":{"a":"b"}},{"term":{"c":"d"}}]}},{"term":{"e":"f"}}]}}}
 	expectedResult := &Query{
-		Query: &Bool{
-			Bool: &Must{
-				Must: []interface{}{
-					&Bool{
-						Bool: &Must{
-							Must: []interface{}{
-								&Term{
-									Term: map[string]string{
-										"a": "b",
-									},
+		Bool: &Bool{
+			Must: &Must{
+				&Query{
+					Bool: &Bool{
+						Must: &Must{
+							&Bool{
+								Term: &Term{
+									"a": "b",
 								},
-								&Term{
-									Term: map[string]string{
-										"c": "d",
-									},
+							},
+							&Bool{
+								Term: &Term{
+									"c": "d",
 								},
 							},
 						},
 					},
-					&Term{
-						Term: map[string]string{
-							"e": "f",
-						},
+				},
+				&Bool{
+					Term: &Term{
+						"e": "f",
 					},
 				},
 			},
@@ -164,26 +152,24 @@ func TestAndingTermWithOrSet(t *testing.T) {
 
 	// {"query":{"bool":{"must":[{"term":{"a":"b"}},{"bool":{"should":[{"term":{"c":"d"}},{"term":{"e":"f"}}]}}]}}}
 	expectedResult := &Query{
-		Query: &Bool{
-			Bool: &Must{
-				Must: []interface{}{
-					&Term{
-						Term: map[string]string{
-							"a": "b",
-						},
+		Bool: &Bool{
+			Must: &Must{
+				&Bool{
+					Term: &Term{
+						"a": "b",
 					},
-					&Bool{
-						Bool: &Should{
-							Should: []interface{}{
-								&Term{
-									Term: map[string]string{
-										"c": "d",
-									},
+				},
+				&Query{
+					Bool: &Bool{
+						Should: &Should{
+							&Bool{
+								Term: &Term{
+									"c": "d",
 								},
-								&Term{
-									Term: map[string]string{
-										"e": "f",
-									},
+							},
+							&Bool{
+								Term: &Term{
+									"e": "f",
 								},
 							},
 						},
@@ -199,42 +185,39 @@ func TestAndingTermWithOrSet(t *testing.T) {
 
 func TestAndingAndSetWithOrSet(t *testing.T) {
 	filter := `((a=="b")&&(g=="h")) && ((c=="d")||(e=="f"))`
-	// `{"query":{"bool":{"must":[{"bool":{"must":[{"term":{"a":"b"}},{"term":{"g":"h"}}]}},{"bool":{"should":[{"term":{"c":"d"}},{"term":{"e":"f"}}]}}]}}}`
 	actualResult, _ := ParseExpressionEntrypoint(filter)
-	expectedResult := &Query{
-		Query: &Bool{
-			Bool: &Must{
-				Must: []interface{}{
 
-					&Bool{
-						Bool: &Must{
-							Must: []interface{}{
-								&Term{
-									Term: map[string]string{
-										"a": "b",
-									},
+	// `{"query":{"bool":{"must":[{"bool":{"must":[{"term":{"a":"b"}},{"term":{"g":"h"}}]}},{"bool":{"should":[{"term":{"c":"d"}},{"term":{"e":"f"}}]}}]}}}`
+	expectedResult := &Query{
+		Bool: &Bool{
+			Must: &Must{
+				&Query{
+					Bool: &Bool{
+						Must: &Must{
+							&Bool{
+								Term: &Term{
+									"a": "b",
 								},
-								&Term{
-									Term: map[string]string{
-										"g": "h",
-									},
+							},
+							&Bool{
+								Term: &Term{
+									"g": "h",
 								},
 							},
 						},
 					},
-
-					&Bool{
-						Bool: &Should{
-							Should: []interface{}{
-								&Term{
-									Term: map[string]string{
-										"c": "d",
-									},
+				},
+				&Query{
+					Bool: &Bool{
+						Should: &Should{
+							&Bool{
+								Term: &Term{
+									"c": "d",
 								},
-								&Term{
-									Term: map[string]string{
-										"e": "f",
-									},
+							},
+							&Bool{
+								Term: &Term{
+									"e": "f",
 								},
 							},
 						},
@@ -243,6 +226,7 @@ func TestAndingAndSetWithOrSet(t *testing.T) {
 			},
 		},
 	}
+
 	assert.Equal(t, expectedResult, actualResult)
 }
 

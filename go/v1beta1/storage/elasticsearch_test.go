@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"google.golang.org/grpc/codes"
@@ -598,55 +599,114 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("creating a batch of Grafeas occurrences", func() {
 		var (
-			err                 []error
-			newOccurrences      []*pb.Occurrence
-			expectedOccurrences []*pb.Occurrence
+			expectedErrs             []error
+			actualErrs               []error
+			actualOccurrences        []*pb.Occurrence
+			expectedOccurrences      []*pb.Occurrence
+			expectedOccurrencesIndex string
 		)
 
+		// BeforeEach configures the happy path for this context
+		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
-			for i := 1; i <= gofakeit.Number(2, 20); i++ {
-				newOccurrences = append(newOccurrences, generateTestOccurrence(gofakeit.LetterN(10)))
+			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")
+			expectedOccurrences = generateTestOccurrences(gofakeit.Number(2, 5))
+			for i := 0; i < len(expectedOccurrences); i++ {
+				expectedErrs = append(expectedErrs, nil)
+			}
+
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body:       createEsBulkOccurrenceIndexResponse(expectedOccurrences, expectedErrs),
+				},
 			}
 		})
 
-		When("elasticsearch successfully creates new documents", func() {
-			BeforeEach(func() {
-				transport.preparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusOK,
-					},
+		// JustBeforeEach actually invokes the system under test
+		JustBeforeEach(func() {
+			occurrences := deepCopyOccurrences(expectedOccurrences)
+
+			transport.preparedHttpResponses[0].Body = createEsBulkOccurrenceIndexResponse(occurrences, expectedErrs)
+			actualOccurrences, actualErrs = elasticsearchStorage.BatchCreateOccurrences(context.Background(), expectedProjectId, "", occurrences)
+		})
+
+		// this test parses the ndjson request body and ensures that it was formatted correctly
+		It("should send a bulk request to ES to index each occurrence", func() {
+			var expectedPayloads []interface{}
+
+			for i := 0; i < len(expectedOccurrences); i++ {
+				expectedPayloads = append(expectedPayloads, &esBulkQueryFragment{}, &pb.Occurrence{})
+			}
+
+			parseEsBulkIndexRequest(transport.receivedHttpRequests[0].Body, expectedPayloads)
+
+			for i, payload := range expectedPayloads {
+				if i%2 == 0 { // index metadata
+					metadata := payload.(*esBulkQueryFragment)
+					Expect(metadata.Index.Index).To(Equal(expectedOccurrencesIndex))
+				} else { // occurrence
+					occurrence := payload.(*pb.Occurrence)
+					Expect(occurrence).To(Equal(expectedOccurrences[(i-1)/2]))
+				}
+			}
+		})
+
+		When("the bulk request returns no errors", func() {
+			It("should return all created occurrences", func() {
+				for i, occ := range expectedOccurrences {
+					expectedOccurrence := deepCopyOccurrence(occ)
+					expectedOccurrence.Name = actualOccurrences[i].Name
+					Expect(actualOccurrences[i]).To(Equal(expectedOccurrence))
 				}
 
-				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, expectedProjectId, "", newOccurrences)
-			})
-
-			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedHttpRequests[0].Method).To(Equal("POST"))
-				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal("/_bulk"))
-			})
-
-			It("should return a Grafeas occurrence", func() {
-				Expect(expectedOccurrences).To(Equal(newOccurrences))
-			})
-
-			It("should return without an error", func() {
-				Expect(err).To(BeEmpty())
+				Expect(actualErrs).To(HaveLen(0))
 			})
 		})
 
-		When("elasticsearch fails to create new documents", func() {
+		When("the bulk request completely fails", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusInternalServerError,
-					},
-				}
-
-				expectedOccurrences, err = elasticsearchStorage.BatchCreateOccurrences(ctx, expectedProjectId, "", newOccurrences)
+				transport.preparedHttpResponses[0].StatusCode = http.StatusInternalServerError
 			})
 
-			It("should return an error", func() {
-				Expect(err).ToNot(BeEmpty())
+			It("should return a single error and no occurrences", func() {
+				Expect(actualOccurrences).To(BeNil())
+				Expect(actualErrs).To(HaveLen(1))
+				Expect(actualErrs[0]).To(HaveOccurred())
+			})
+		})
+
+		When("the bulk request returns some errors", func() {
+			var randomErrorIndex int
+
+			BeforeEach(func() {
+				randomErrorIndex = gofakeit.Number(0, len(expectedOccurrences)-1)
+				expectedErrs = []error{}
+				for i := 0; i < len(expectedOccurrences); i++ {
+					if i == randomErrorIndex {
+						expectedErrs = append(expectedErrs, errors.New(""))
+					} else {
+						expectedErrs = append(expectedErrs, nil)
+					}
+				}
+			})
+
+			It("should only return the occurrences that were successfully created", func() {
+				// remove the bad occurrence from expectedOccurrences
+				copy(expectedOccurrences[randomErrorIndex:], expectedOccurrences[randomErrorIndex+1:])
+				expectedOccurrences[len(expectedOccurrences)-1] = nil
+				expectedOccurrences = expectedOccurrences[:len(expectedOccurrences)-1]
+
+				// assert expectedOccurrences matches actualOccurrences
+				for i, occ := range expectedOccurrences {
+					expectedOccurrence := deepCopyOccurrence(occ)
+					expectedOccurrence.Name = actualOccurrences[i].Name
+					Expect(actualOccurrences[i]).To(Equal(expectedOccurrence))
+				}
+
+				// assert that we got a single error back
+				Expect(actualErrs).To(HaveLen(1))
+				Expect(actualErrs[0]).To(HaveOccurred())
 			})
 		})
 	})
@@ -768,13 +828,52 @@ func createEsSearchResponse(objectType string, hitNames ...string) io.ReadCloser
 	return ioutil.NopCloser(bytes.NewReader(responseBody))
 }
 
-func generateTestProject(name string) (occurrence *prpb.Project) {
+func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []error) io.ReadCloser {
+	var (
+		responseItems     []*esBulkResponseItem
+		responseHasErrors = false
+	)
+	for i := range occurrences {
+		var (
+			responseErr  *esBulkResponseItemError
+			responseCode = http.StatusCreated
+		)
+		if errs[i] != nil {
+			responseErr = &esBulkResponseItemError{
+				Type:   gofakeit.LetterN(10),
+				Reason: gofakeit.LetterN(10),
+			}
+			responseCode = http.StatusInternalServerError
+			responseHasErrors = true
+		}
+
+		responseItems = append(responseItems, &esBulkResponseItem{
+			Index: &esBulkResponseIndexItem{
+				Id:     gofakeit.LetterN(10),
+				Status: responseCode,
+				Error:  responseErr,
+			},
+		})
+	}
+
+	response := &esBulkResponse{
+		Items:  responseItems,
+		Errors: responseHasErrors,
+	}
+
+	responseBody, err := json.Marshal(response)
+	Expect(err).ToNot(HaveOccurred())
+
+	return ioutil.NopCloser(bytes.NewReader(responseBody))
+}
+
+func generateTestProject(name string) *prpb.Project {
 	return &prpb.Project{
 		Name: fmt.Sprintf("projects/%s", name),
 	}
 }
 
-func generateTestOccurrence(name string) (occurrence *pb.Occurrence) {
+func generateTestOccurrence(name string) *pb.Occurrence {
 	return &pb.Occurrence{
 		Name: name,
 		Resource: &grafeas_go_proto.Resource{
@@ -787,7 +886,16 @@ func generateTestOccurrence(name string) (occurrence *pb.Occurrence) {
 	}
 }
 
-func generateTestNote(name string) (occurrence *pb.Note) {
+func generateTestOccurrences(l int) []*pb.Occurrence {
+	var result []*pb.Occurrence
+	for i := 0; i < l; i++ {
+		result = append(result, generateTestOccurrence(""))
+	}
+
+	return result
+}
+
+func generateTestNote(name string) *pb.Note {
 	return &pb.Note{
 		Name: name,
 		Kind: common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
@@ -843,4 +951,49 @@ func assertErrorHasGrpcStatusCode(err error, code codes.Code) {
 
 	Expect(ok).To(BeTrue(), "expected error to have been produced from the grpc/status package")
 	Expect(s.Code()).To(Equal(code))
+}
+
+// parseEsBulkIndexRequest parses a request body in ndjson format
+// each line of the body is assumed to be properly formatted JSON
+// every odd line is assumed to be a regular JSON structure that can be unmarshalled via json.Unmarshal
+// every even line is assumed to be a JSON structure representing a protobuf message, and will be unmarshalled using jsonpb.Unmarshal
+func parseEsBulkIndexRequest(body io.ReadCloser, structs []interface{}) {
+	buf := new(bytes.Buffer)
+	_, err := buf.ReadFrom(body)
+	Expect(err).ToNot(HaveOccurred())
+
+	requestPayload := strings.TrimSuffix(buf.String(), "\n") // _bulk requests need to end in a newline
+	jsonPayloads := strings.Split(requestPayload, "\n")
+	Expect(jsonPayloads).To(HaveLen(len(structs)))
+
+	for i, s := range structs {
+		if i%2 == 0 { // regular JSON
+			err = json.Unmarshal([]byte(jsonPayloads[i]), s)
+		} else { // protobuf JSON
+			err = jsonpb.Unmarshal(bytes.NewReader([]byte(jsonPayloads[i])), s.(proto.Message))
+		}
+
+		Expect(err).ToNot(HaveOccurred())
+	}
+}
+
+func deepCopyOccurrences(occs []*pb.Occurrence) []*pb.Occurrence {
+	var result []*pb.Occurrence
+	for _, occ := range occs {
+		result = append(result, deepCopyOccurrence(occ))
+	}
+
+	return result
+}
+
+func deepCopyOccurrence(occ *pb.Occurrence) *pb.Occurrence {
+	result := &pb.Occurrence{}
+
+	str, err := (&jsonpb.Marshaler{}).MarshalToString(occ)
+	Expect(err).ToNot(HaveOccurred())
+
+	err = jsonpb.Unmarshal(strings.NewReader(str), result)
+	Expect(err).ToNot(HaveOccurred())
+
+	return result
 }

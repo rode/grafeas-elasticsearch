@@ -420,6 +420,7 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectID,
 }
 
 // BatchCreateOccurrences batch creates the specified occurrences in Elasticsearch.
+// This method uses the ES "_bulk" API: https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html
 func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, projectId string, uID string, occurrences []*pb.Occurrence) ([]*pb.Occurrence, []error) {
 	log := es.logger.Named("BatchCreateOccurrences")
 
@@ -437,6 +438,11 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	}
 	metadata = append(metadata, "\n"...)
 
+	// build the request body using newline delimited JSON (ndjson)
+	// each occurrence is represented by two JSON structures:
+	// the first is the metadata that represents the ES operation, in this case "index"
+	// the second is the source payload to index
+	// in total, this body will consist of (len(occurrences) * 2) JSON structures, separated by newlines, with a trailing newline at the end
 	var body bytes.Buffer
 	for _, occurrence := range occurrences {
 		data, err := (&jsonpb.Marshaler{}).MarshalToString(occurrence)
@@ -484,7 +490,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	for i, occurrence := range occurrences {
 		indexItem := response.Items[i].Index
 		if occErr := indexItem.Error; occErr != nil {
-			errs = append(errs, createError(log, "error creating occurrence in ES", nil, zap.Any("occurrence", occurrence), zap.Error(fmt.Errorf("[%d] %s: %s", indexItem.Status, occErr.Type, occErr.Reason))))
+			errs = append(errs, createError(log, "error creating occurrence in ES", fmt.Errorf("[%d] %s: %s", indexItem.Status, occErr.Type, occErr.Reason), zap.Any("occurrence", occurrence)))
 			continue
 		}
 

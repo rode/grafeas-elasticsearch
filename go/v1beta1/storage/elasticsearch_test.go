@@ -7,14 +7,15 @@ import (
 	"errors"
 	"fmt"
 	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strings"
 
-	"github.com/golang/protobuf/jsonpb"
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 
@@ -211,7 +212,7 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodPost))
 
 				projectBody := &prpb.Project{}
-				err := jsonpb.Unmarshal(transport.receivedHttpRequests[1].Body, projectBody)
+				err := protojson.Unmarshal(ioReadCloserToByteSlice(transport.receivedHttpRequests[1].Body), proto.MessageV2(projectBody))
 				Expect(err).ToNot(HaveOccurred())
 
 				Expect(projectBody.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
@@ -543,56 +544,69 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("creating a new Grafeas occurrence", func() {
 		var (
-			newOccurrence        *pb.Occurrence
-			expectedOccurrence   *pb.Occurrence
-			expectedOccurrenceId string
+			actualOccurrence         *pb.Occurrence
+			expectedOccurrence       *pb.Occurrence
+			expectedOccurrenceId     string
+			expectedOccurrencesIndex string
+			actualErr                error
 		)
 
+		// BeforeEach configures the happy path for this context
+		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
 			expectedOccurrenceId = gofakeit.LetterN(10)
-			newOccurrence = generateTestOccurrence(expectedOccurrenceId)
+			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")
+			expectedOccurrence = generateTestOccurrence("")
+
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusCreated,
+					Body: structToJsonBody(&esIndexDocResponse{
+						Id: expectedOccurrenceId,
+					}),
+				},
+			}
 		})
 
-		When("elasticsearch creates a new document", func() {
-			BeforeEach(func() {
-				expectedOccurrenceId = gofakeit.LetterN(10)
+		// JustBeforeEach actually invokes the system under test
+		JustBeforeEach(func() {
+			occurrence := deepCopyOccurrence(expectedOccurrence)
 
-				transport.preparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusCreated,
-						Body: formatJson(`{
-							"_id": "%s"
-						}`, expectedOccurrenceId),
-					},
-				}
-
-				expectedOccurrence, err = elasticsearchStorage.CreateOccurrence(ctx, expectedProjectId, "", newOccurrence)
-				Expect(err).ToNot(HaveOccurred())
+			transport.preparedHttpResponses[0].Body = structToJsonBody(&esIndexDocResponse{
+				Id: expectedOccurrenceId,
 			})
-
-			It("should have sent the correct HTTP request", func() {
-				Expect(transport.receivedHttpRequests[0].Method).To(Equal("POST"))
-				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedProjectId)))
-			})
-
-			It("should return a Grafeas occurrence with the correct name", func() {
-				Expect(expectedOccurrence).To(Equal(newOccurrence))
-				Expect(expectedOccurrence.Name).To(Equal(fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)))
-			})
+			actualOccurrence, actualErr = elasticsearchStorage.CreateOccurrence(context.Background(), expectedProjectId, "", occurrence)
 		})
 
-		When("elasticsearch fails to create a new document", func() {
+		It("should attempt to index the occurrence as a document", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedOccurrencesIndex)))
+		})
+
+		When("indexing the document fails", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusInternalServerError,
-					},
+				transport.preparedHttpResponses[0] = &http.Response{
+					StatusCode: http.StatusInternalServerError,
+					Body: structToJsonBody(&esIndexDocResponse{
+						Error: &esIndexDocError{
+							Type:   gofakeit.LetterN(10),
+							Reason: gofakeit.LetterN(10),
+						},
+					}),
 				}
-				_, err = elasticsearchStorage.CreateOccurrence(ctx, expectedProjectId, "", newOccurrence)
 			})
 
 			It("should return an error", func() {
-				Expect(err).To(HaveOccurred())
+				Expect(actualOccurrence).To(BeNil())
+				Expect(actualErr).To(HaveOccurred())
+			})
+		})
+
+		When("indexing the document succeeds", func() {
+			It("should return the occurrence that was created", func() {
+				Expect(actualErr).ToNot(HaveOccurred())
+
+				expectedOccurrence.Name = fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)
+				Expect(actualOccurrence).To(Equal(expectedOccurrence))
 			})
 		})
 	})
@@ -761,14 +775,13 @@ var _ = Describe("elasticsearch storage", func() {
 
 func createGenericEsSearchResponse(messages ...proto.Message) io.ReadCloser {
 	var hits []*esSearchResponseHit
-	marshaller := &jsonpb.Marshaler{}
 
 	for _, m := range messages {
-		raw, err := marshaller.MarshalToString(m)
+		raw, err := protojson.Marshal(proto.MessageV2(m))
 		Expect(err).ToNot(HaveOccurred())
 
 		hits = append(hits, &esSearchResponseHit{
-			Source: []byte(raw),
+			Source: raw,
 		})
 	}
 
@@ -835,11 +848,11 @@ func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []er
 	)
 	for i := range occurrences {
 		var (
-			responseErr  *esBulkResponseItemError
+			responseErr  *esIndexDocError
 			responseCode = http.StatusCreated
 		)
 		if errs[i] != nil {
-			responseErr = &esBulkResponseItemError{
+			responseErr = &esIndexDocError{
 				Type:   gofakeit.LetterN(10),
 				Reason: gofakeit.LetterN(10),
 			}
@@ -848,7 +861,7 @@ func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []er
 		}
 
 		responseItems = append(responseItems, &esBulkResponseItem{
-			Index: &esBulkResponseIndexItem{
+			Index: &esIndexDocResponse{
 				Id:     gofakeit.LetterN(10),
 				Status: responseCode,
 				Error:  responseErr,
@@ -883,6 +896,7 @@ func generateTestOccurrence(name string) *pb.Occurrence {
 		Kind:        common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
 		Remediation: gofakeit.LetterN(10),
 		Details:     nil,
+		CreateTime:  ptypes.TimestampNow(),
 	}
 }
 
@@ -956,7 +970,7 @@ func assertErrorHasGrpcStatusCode(err error, code codes.Code) {
 // parseEsBulkIndexRequest parses a request body in ndjson format
 // each line of the body is assumed to be properly formatted JSON
 // every odd line is assumed to be a regular JSON structure that can be unmarshalled via json.Unmarshal
-// every even line is assumed to be a JSON structure representing a protobuf message, and will be unmarshalled using jsonpb.Unmarshal
+// every even line is assumed to be a JSON structure representing a protobuf message, and will be unmarshalled using protojson.Unmarshal
 func parseEsBulkIndexRequest(body io.ReadCloser, structs []interface{}) {
 	buf := new(bytes.Buffer)
 	_, err := buf.ReadFrom(body)
@@ -970,7 +984,7 @@ func parseEsBulkIndexRequest(body io.ReadCloser, structs []interface{}) {
 		if i%2 == 0 { // regular JSON
 			err = json.Unmarshal([]byte(jsonPayloads[i]), s)
 		} else { // protobuf JSON
-			err = jsonpb.Unmarshal(bytes.NewReader([]byte(jsonPayloads[i])), s.(proto.Message))
+			err = protojson.Unmarshal([]byte(jsonPayloads[i]), proto.MessageV2(s))
 		}
 
 		Expect(err).ToNot(HaveOccurred())
@@ -989,11 +1003,18 @@ func deepCopyOccurrences(occs []*pb.Occurrence) []*pb.Occurrence {
 func deepCopyOccurrence(occ *pb.Occurrence) *pb.Occurrence {
 	result := &pb.Occurrence{}
 
-	str, err := (&jsonpb.Marshaler{}).MarshalToString(occ)
+	str, err := protojson.Marshal(proto.MessageV2(occ))
 	Expect(err).ToNot(HaveOccurred())
 
-	err = jsonpb.Unmarshal(strings.NewReader(str), result)
+	err = protojson.Unmarshal(str, proto.MessageV2(result))
 	Expect(err).ToNot(HaveOccurred())
 
 	return result
+}
+
+func ioReadCloserToByteSlice(r io.ReadCloser) []byte {
+	builder := new(strings.Builder)
+	_, err := io.Copy(builder, r)
+	Expect(err).ToNot(HaveOccurred())
+	return []byte(builder.String())
 }

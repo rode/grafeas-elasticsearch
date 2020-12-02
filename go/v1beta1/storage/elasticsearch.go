@@ -6,16 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/encoding/protojson"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strings"
 
-	"github.com/Jeffail/gabs/v2"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 
 	"github.com/elastic/go-elasticsearch/v7"
-	"github.com/gogo/protobuf/jsonpb"
 	"github.com/golang/protobuf/ptypes"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -119,7 +118,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 	}
 
 	p.Name = projectName
-	str, err := (&jsonpb.Marshaler{}).MarshalToString(p)
+	str, err := protojson.Marshal(proto.MessageV2(p))
 	if err != nil {
 		return nil, createError(log, "error marshalling occurrence to json", err)
 	}
@@ -187,7 +186,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 	}
 
 	project := &prpb.Project{}
-	err = jsonpb.Unmarshal(strings.NewReader(string(searchResults.Hits.Hits[0].Source)), project)
+	err = protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(project))
 	if err != nil {
 		return nil, createError(log, "error unmarshalling project from elasticsearch", err)
 	}
@@ -295,7 +294,7 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectID, ob
 	log.Debug("hit raw source", zap.Any("raw _source", getDocumentResponse.Hits.Hits[0].Source))
 
 	occurrence := &pb.Occurrence{}
-	jsonpb.Unmarshal(strings.NewReader(string(getDocumentResponse.Hits.Hits[0].Source)), occurrence)
+	protojson.Unmarshal(getDocumentResponse.Hits.Hits[0].Source, proto.MessageV2(occurrence))
 
 	log.Debug("converted occurrence", zap.Any("unmarshaled occurrence", occurrence))
 
@@ -383,38 +382,34 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectID,
 		o.CreateTime = ptypes.TimestampNow()
 	}
 
-	m := jsonpb.Marshaler{}
-	str, err := m.MarshalToString(o)
+	str, err := protojson.Marshal(proto.MessageV2(o))
 	if err != nil {
 		return nil, createError(log, "error marshalling occurrence to json", err)
 	}
 
+	occurrenceIndex := fmt.Sprintf("%s-%s-%s", indexPrefix, projectID, "occurrences")
 	res, err := es.client.Index(
-		projectID,
-		bytes.NewReader([]byte(str)),
+		occurrenceIndex,
+		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),
 	)
 	if err != nil {
 		return nil, createError(log, "error creating occurrence in elasticsearch", err)
 	}
 
-	if res.StatusCode != http.StatusCreated {
+	if res.IsError() {
 		return nil, createError(log, "got unexpected status code from elasticsearch", nil, zap.Int("status", res.StatusCode))
 	}
 
-	response, err := ioutil.ReadAll(res.Body)
+	esResponse := &esIndexDocResponse{}
+	err = decodeResponse(res.Body, esResponse)
 	if err != nil {
-		return nil, createError(log, "error parsing elasticsearch response", err)
+		return nil, createError(log, "error decoding elasticsearch response", err)
 	}
 
-	log.Debug("elasticsearch response", zap.String("response", string(response)))
+	log.Debug("elasticsearch response", zap.Any("response", esResponse))
 
-	parsedResponse, err := gabs.ParseJSON(response)
-	if err != nil {
-		return nil, createError(log, "error parsing elasticsearch response", err)
-	}
-
-	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectID, parsedResponse.Path("_id").Data().(string))
+	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectID, esResponse.Id)
 
 	return o, nil
 }
@@ -445,7 +440,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	// in total, this body will consist of (len(occurrences) * 2) JSON structures, separated by newlines, with a trailing newline at the end
 	var body bytes.Buffer
 	for _, occurrence := range occurrences {
-		data, err := (&jsonpb.Marshaler{}).MarshalToString(occurrence)
+		data, err := protojson.Marshal(proto.MessageV2(occurrence))
 		if err != nil {
 			return nil, []error{
 				createError(log, "error marshaling occurrence", err),

@@ -289,9 +289,14 @@ var _ = Describe("elasticsearch storage", func() {
 			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectIndex)))
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 
-			assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
-				"query.bool.must.0.term.name": fmt.Sprintf("projects/%s", expectedSingleProject),
-			})
+			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
+			Expect(err).ToNot(HaveOccurred())
+
+			searchBody := &esSearch{}
+			err = json.Unmarshal(requestBody, searchBody)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect((*searchBody.Query.Bool.Must)[0].(map[string]interface{})["term"].(map[string]interface{})["name"]).To(Equal(fmt.Sprintf("projects/%s", expectedSingleProject)))
 		})
 
 		When("elasticsearch successfully returns a project document", func() {
@@ -381,9 +386,15 @@ var _ = Describe("elasticsearch storage", func() {
 			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectIndex)))
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 
-			assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
-				"query.term.name": fmt.Sprintf("projects/%s", expectedProjectId),
-			})
+			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
+			Expect(err).ToNot(HaveOccurred())
+
+			searchBody := &esSearch{}
+			err = json.Unmarshal(requestBody, searchBody)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect((*searchBody.Query.Bool.Must)[0].(map[string]interface{})["term"].(map[string]interface{})["name"]).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
+
 		})
 
 		When("elasticsearch successfully returns a project document", func() {
@@ -476,9 +487,14 @@ var _ = Describe("elasticsearch storage", func() {
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodPost))
 			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_delete_by_query", expectedProjectIndex)))
 
-			assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
-				"query.term.name": fmt.Sprintf("projects/%s", expectedProjectId),
-			})
+			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
+			Expect(err).ToNot(HaveOccurred())
+
+			searchBody := &esSearch{}
+			err = json.Unmarshal(requestBody, searchBody)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect((*searchBody.Query.Bool.Must)[0].(map[string]interface{})["term"].(map[string]interface{})["name"]).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
 		})
 
 		When("elasticsearch successfully deletes the project document", func() {

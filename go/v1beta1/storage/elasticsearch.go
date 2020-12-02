@@ -169,9 +169,17 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 	projectName := fmt.Sprintf("projects/%s", projectID)
 	log := es.logger.Named("GetProject").With(zap.String("project", projectName))
 
-	searchTerm, err := encodeRequest(&filtering.Term{
-		"name": projectName,
-	})
+	filterQuery, errs := filtering.ParseExpressionEntrypoint(fmt.Sprintf(`name=="%s"`, projectName))
+	if errs != nil {
+		// There can be many parse errors in a filter, this returns the first error found
+		return nil, createError(log, "error while parsing filter", errors.New(errs[0].Message)) //library to consolidate array of errs
+	}
+
+	body := &esSearch{
+		Query: filterQuery,
+	}
+
+	searchTerm, err := encodeRequest(body)
 	if err != nil {
 		return nil, createError(log, "error creating search body JSON", err)
 	}
@@ -208,10 +216,9 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 // ListProjects returns up to pageSize number of projects beginning at pageToken (or from
 // start if pageToken is the empty string).
 func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string, pageSize int, pageToken string) ([]*prpb.Project, string, error) {
-	var (
-		projects []*prpb.Project
-		body     *esSearch
-	)
+	var projects []*prpb.Project
+
+	body := &esSearch{}
 
 	log := es.logger.Named("ListProjects")
 
@@ -221,6 +228,7 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 			// There can be many parse errors in a filter, this returns the first error found
 			return nil, "", createError(log, "error while parsing filter", errors.New(err[0].Message)) //library to consolidate array of errs
 		}
+
 		body.Query = filterQuery
 	}
 
@@ -269,9 +277,17 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 	log := es.logger.Named("DeleteProject").With(zap.String("project", projectName))
 	log.Info("deleting project")
 
-	searchTerm, err := encodeRequest(&filtering.Term{
-		"name": projectName,
-	})
+	filterQuery, errs := filtering.ParseExpressionEntrypoint(fmt.Sprintf(`name=="%s"`, projectName))
+	if errs != nil {
+		// There can be many parse errors in a filter, this returns the first error found
+		return createError(log, "error while parsing filter", errors.New(errs[0].Message)) //library to consolidate array of errs
+	}
+
+	body := &esSearch{
+		Query: filterQuery,
+	}
+
+	searchTerm, err := encodeRequest(body)
 	if err != nil {
 		return createError(log, "error creating search body JSON", err)
 	}

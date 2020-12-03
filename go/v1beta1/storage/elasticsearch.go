@@ -227,7 +227,6 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 		body.Query = filterQuery
 	}
 
-	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
 	encodedBody, err := encodeRequest(body)
 	if err != nil {
 		return nil, "", createError(log, "error encoding search request", err)
@@ -235,7 +234,7 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 
 	res, err := es.client.Search(
 		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(projectIndex),
+		es.client.Search.WithIndex(projectsIndex()),
 		es.client.Search.WithBody(encodedBody),
 	)
 	if err != nil || res.IsError() {
@@ -243,9 +242,10 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 	}
 
 	var searchResults esSearchResponse
-	if err := json.NewDecoder(res.Body).Decode(&searchResults); err != nil {
-		return nil, "", createError(log, "error decoding into search response", err)
+	if err := decodeResponse(res.Body, &searchResults); err != nil {
+		return nil, "", createError(log, "error decoding elasticsearch response", err)
 	}
+
 	for _, hit := range searchResults.Hits.Hits {
 		hitLogger := log.With(zap.String("project raw", string(hit.Source)))
 
@@ -272,33 +272,31 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 	log := es.logger.Named("DeleteProject").With(zap.String("project", projectName))
 	log.Info("deleting project")
 
-	filterQuery, err := es.filterer.ParseExpression(fmt.Sprintf(`name=="%s"`, projectName))
-	if err != nil {
-		return createError(log, "error while parsing filter", err)
-	}
-
-	body := &esSearch{
-		Query: filterQuery,
-	}
-
-	searchTerm, err := encodeRequest(body)
+	searchBody, err := encodeRequest(&esSearch{
+		Query: &filtering.Query{
+			Term: &filtering.Term{
+				"name": projectName,
+			},
+		},
+	})
 	if err != nil {
 		return createError(log, "error creating search body JSON", err)
 	}
 
-	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
 	res, err := es.client.DeleteByQuery(
-		[]string{projectIndex},
-		searchTerm,
+		[]string{projectsIndex()},
+		searchBody,
 		es.client.DeleteByQuery.WithContext(ctx),
 	)
-	if err != nil || res.IsError() {
-		return createError(log, "error deleting elasticsearch project", err)
+	if err != nil {
+		return createError(log, "error sending request to elasticsearch", err)
+	}
+	if res.IsError() {
+		return createError(log, "received unexpected response from elasticsearch when deleting project", nil)
 	}
 
 	var deletedResults esDeleteResponse
-	err = decodeResponse(res.Body, &deletedResults)
-	if err != nil {
+	if err = decodeResponse(res.Body, &deletedResults); err != nil {
 		return createError(log, "error unmarshalling elasticsearch response", err)
 	}
 
@@ -357,7 +355,7 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectID, ob
 	log.Debug("elasticsearch response", zap.Any("response", res))
 
 	getDocumentResponse := &esSearchResponse{}
-	if err := json.NewDecoder(res.Body).Decode(&getDocumentResponse); err != nil {
+	if err := json.NewDecoder(res.Body).Decode(getDocumentResponse); err != nil {
 		log.Error("error decoding elasticsearch response body", zap.NamedError("error", err))
 		return nil, err
 	}
@@ -403,7 +401,6 @@ func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, pID, filter
 		log.Error("Failed to retrieve documents from Elasticsearch", zap.Error(err))
 		return nil, "", err
 	}
-	defer res.Body.Close()
 
 	if res.IsError() {
 		//log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))

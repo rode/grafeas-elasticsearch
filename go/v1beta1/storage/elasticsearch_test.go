@@ -6,8 +6,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/golang/mock/gomock"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/liatrio/grafeas-elasticsearch/go/mocks"
 	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -37,17 +39,28 @@ var _ = Describe("elasticsearch storage", func() {
 		transport            *mockEsTransport
 		ctx                  context.Context
 		expectedProjectId    string
+		mockCtrl             *gomock.Controller
+		filterer             *mocks.MockFilterer
 	)
 
 	BeforeEach(func() {
 		expectedProjectId = gofakeit.LetterN(10)
 
-		transport = &mockEsTransport{}
-		mockEsClient := &elasticsearch.Client{Transport: transport, API: esapi.New(transport)}
-
 		ctx = context.Background()
 
-		elasticsearchStorage = NewElasticsearchStore(logger, mockEsClient, filtering.NewFilterer())
+		mockCtrl = gomock.NewController(GinkgoT())
+		filterer = mocks.NewMockFilterer(mockCtrl)
+		transport = &mockEsTransport{}
+	})
+
+	JustBeforeEach(func() {
+		mockEsClient := &elasticsearch.Client{Transport: transport, API: esapi.New(transport)}
+
+		elasticsearchStorage = NewElasticsearchStore(logger, mockEsClient, filterer)
+	})
+
+	AfterEach(func() {
+		mockCtrl.Finish()
 	})
 
 	Context("creating the elasticsearch storage provider", func() {
@@ -261,32 +274,36 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("listing grafeas projects with filter", func() {
+	Context("listing grafeas projects", func() {
 		var (
-			getProjectErr         error
-			expectedProjectIndex  string
-			expectedProjects      []*prpb.Project
-			expectedSingleProject string
+			actualErr            error
+			actualProjects       []*prpb.Project
+			expectedProjects     []*prpb.Project
+			expectedProjectIndex string
+			expectedFilter       string
+			expectedQuery        *filtering.Query
 		)
 
 		BeforeEach(func() {
+			expectedQuery = &filtering.Query{}
+			expectedFilter = ""
 			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
-			expectedSingleProject = gofakeit.LetterN(8)
+			expectedProjects = generateTestProjects(gofakeit.Number(2, 5))
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
-					Body: createGenericEsSearchResponse(&prpb.Project{
-						Name: fmt.Sprintf("projects/%s", expectedSingleProject),
-					}),
+					Body: createProjectEsSearchResponse(
+						expectedProjects...,
+					),
 				},
 			}
 		})
 
 		JustBeforeEach(func() {
-			expectedProjects, _, getProjectErr = elasticsearchStorage.ListProjects(ctx, fmt.Sprintf("name==\"projects/%s\"", expectedSingleProject), 0, "")
+			actualProjects, _, actualErr = elasticsearchStorage.ListProjects(ctx, expectedFilter, 0, "")
 		})
 
-		It("should query Grafeas for the specified project", func() {
+		It("should query elasticsearch for project documents", func() {
 			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectIndex)))
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 
@@ -296,37 +313,84 @@ var _ = Describe("elasticsearch storage", func() {
 			searchBody := &esSearch{}
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
-
-			Expect((*searchBody.Query.Bool.Must)[0].(map[string]interface{})["term"].(map[string]interface{})["name"]).To(Equal(fmt.Sprintf("projects/%s", expectedSingleProject)))
+			Expect(searchBody.Query).To(BeNil())
 		})
 
-		When("elasticsearch successfully returns a project document", func() {
-			It("should return the Grafeas project", func() {
-				Expect(expectedProjects).ToNot(BeNil())
-				Expect(expectedProjects[0].Name).To(Equal(fmt.Sprintf("projects/%s", expectedSingleProject)))
+		When("a valid filter is specified", func() {
+			BeforeEach(func() {
+				expectedQuery = &filtering.Query{
+					Term: &filtering.Term{
+						gofakeit.LetterN(10): gofakeit.LetterN(10),
+					},
+				}
+				expectedFilter = gofakeit.LetterN(10)
+
+				filterer.
+					EXPECT().
+					ParseExpression(expectedFilter).
+					Return(expectedQuery, nil)
+			})
+
+			It("should send the query to elasticsearch", func() {
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectIndex)))
+				Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+
+				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				searchBody := &esSearch{}
+				err = json.Unmarshal(requestBody, searchBody)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(searchBody.Query).To(Equal(expectedQuery))
+			})
+		})
+
+		When("an invalid filter is specified", func() {
+			BeforeEach(func() {
+				expectedFilter = gofakeit.LetterN(10)
+
+				filterer.
+					EXPECT().
+					ParseExpression(expectedFilter).
+					Return(nil, errors.New(gofakeit.LetterN(10)))
+			})
+
+			It("should not send a request to elasticsearch", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(0))
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+		})
+
+		When("elasticsearch successfully returns project document(s)", func() {
+			It("should return the Grafeas project(s)", func() {
+				Expect(actualProjects).ToNot(BeNil())
+				Expect(actualProjects).To(Equal(expectedProjects))
 			})
 
 			It("should return without an error", func() {
-				Expect(getProjectErr).ToNot(HaveOccurred())
+				Expect(actualErr).ToNot(HaveOccurred())
 			})
 		})
 
-		When("elasticsearch can not find the specified project document", func() {
+		When("elasticsearch returns zero hits", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
 						StatusCode: http.StatusOK,
-						Body:       createEsSearchResponse("project"),
+						Body:       createGenericEsSearchResponse(),
 					},
 				}
 			})
 
 			It("should return an empty array of grafeas projects", func() {
-				Expect(expectedProjects).To(BeNil())
+				Expect(actualProjects).To(BeNil())
 			})
 
 			It("should not return an error", func() {
-				Expect(getProjectErr).ToNot(HaveOccurred())
+				Expect(actualErr).ToNot(HaveOccurred())
 			})
 		})
 
@@ -341,7 +405,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should return an error", func() {
-				Expect(getProjectErr).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
 			})
 		})
 
@@ -349,13 +413,13 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
-						StatusCode: http.StatusBadRequest,
+						StatusCode: http.StatusInternalServerError,
 					},
 				}
 			})
 
 			It("should return an error", func() {
-				Expect(getProjectErr).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
 			})
 		})
 	})
@@ -457,7 +521,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("deleting a Grafeas project", func() {
 		var (
-			deleteProjectErr         error
+			actualErr                error
 			expectedProjectIndex     string
 			expectedNotesIndex       string
 			expectedOccurrencesIndex string
@@ -482,10 +546,10 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		JustBeforeEach(func() {
-			deleteProjectErr = elasticsearchStorage.DeleteProject(ctx, expectedProjectId)
+			actualErr = elasticsearchStorage.DeleteProject(ctx, expectedProjectId)
 		})
 
-		It("should have sent the correct HTTP request", func() {
+		It("should have sent a request to delete the project document", func() {
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodPost))
 			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_delete_by_query", expectedProjectIndex)))
 
@@ -496,7 +560,7 @@ var _ = Describe("elasticsearch storage", func() {
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect((*searchBody.Query.Bool.Must)[0].(map[string]interface{})["term"].(map[string]interface{})["name"]).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
+			Expect((*searchBody.Query.Term)["name"]).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
 		})
 
 		When("elasticsearch successfully deletes the project document", func() {
@@ -513,7 +577,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 			When("elasticsearch successfully deletes the indices for notes / occurrences", func() {
 				It("should not return an error", func() {
-					Expect(deleteProjectErr).ToNot(HaveOccurred())
+					Expect(actualErr).ToNot(HaveOccurred())
 				})
 			})
 
@@ -523,7 +587,7 @@ var _ = Describe("elasticsearch storage", func() {
 				})
 
 				It("should return an error", func() {
-					assertErrorHasGrpcStatusCode(deleteProjectErr, codes.Internal)
+					assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
 				})
 			})
 		})
@@ -536,7 +600,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should return an error", func() {
-				Expect(deleteProjectErr).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
 			})
 
 			It("should not attempt to delete the indices for notes / occurrences", func() {
@@ -544,13 +608,17 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 
-		When("deleting the project fails", func() {
+		When("deleting the project document fails", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses[0].StatusCode = http.StatusInternalServerError
 			})
 
 			It("should return an error", func() {
-				Expect(deleteProjectErr).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+
+			It("should not attempt to delete the indices for notes / occurrences", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
 			})
 		})
 	})
@@ -885,8 +953,16 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 	})
-
 })
+
+func createProjectEsSearchResponse(projects ...*prpb.Project) io.ReadCloser {
+	var messages []proto.Message
+	for _, p := range projects {
+		messages = append(messages, p)
+	}
+
+	return createGenericEsSearchResponse(messages...)
+}
 
 func createGenericEsSearchResponse(messages ...proto.Message) io.ReadCloser {
 	var hits []*esSearchResponseHit
@@ -1001,6 +1077,15 @@ func generateTestProject(name string) *prpb.Project {
 	}
 }
 
+func generateTestProjects(l int) []*prpb.Project {
+	var result []*prpb.Project
+	for i := 0; i < l; i++ {
+		result = append(result, generateTestProject(gofakeit.LetterN(10)))
+	}
+
+	return result
+}
+
 func generateTestOccurrence(name string) *pb.Occurrence {
 	return &pb.Occurrence{
 		Name: name,
@@ -1029,10 +1114,6 @@ func generateTestNote(name string) *pb.Note {
 		Name: name,
 		Kind: common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
 	}
-}
-
-func formatJson(json string, args ...interface{}) io.ReadCloser {
-	return ioutil.NopCloser(strings.NewReader(fmt.Sprintf(json, args...)))
 }
 
 func structToJsonBody(i interface{}) io.ReadCloser {

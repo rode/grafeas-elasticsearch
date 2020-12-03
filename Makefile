@@ -1,4 +1,4 @@
-.PHONY: test fmtcheck vet fmt
+.PHONY: test fmtcheck vet fmt mocks
 GOFMT_FILES?=$$(find . -name '*.go' | grep -v proto)
 
 GO111MODULE=on
@@ -12,5 +12,8 @@ fmt:
 vet:
 	go vet ./...
 
-test: fmtcheck vet
+mocks:
+	mockgen -package mocks -destination go/mocks/filtering.go github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering Filterer
+
+test: fmtcheck vet mocks
 	go test ./... -coverprofile=coverage.txt -covermode atomic

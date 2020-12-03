@@ -6,16 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/golang/protobuf/proto"
+	"google.golang.org/protobuf/encoding/protojson"
 	"io"
-	"io/ioutil"
 	"net/http"
 	"strings"
 
-	"github.com/Jeffail/gabs/v2"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 
 	"github.com/elastic/go-elasticsearch/v7"
-	"github.com/gogo/protobuf/jsonpb"
 	"github.com/golang/protobuf/ptypes"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
@@ -119,7 +118,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 	}
 
 	p.Name = projectName
-	str, err := (&jsonpb.Marshaler{}).MarshalToString(p)
+	str, err := protojson.Marshal(proto.MessageV2(p))
 	if err != nil {
 		return nil, createError(log, "error marshalling occurrence to json", err)
 	}
@@ -127,7 +126,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 	// Create new project document
 	res, err = es.client.Index(
 		projectIndex,
-		bytes.NewReader([]byte(str)),
+		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),
 	)
 	if err != nil || res.IsError() {
@@ -136,8 +135,8 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 
 	// Create indices for occurrences and notes
 	for _, index := range []string{
-		fmt.Sprintf("%s-%s-%s", indexPrefix, projectID, "occurrences"),
-		fmt.Sprintf("%s-%s-%s", indexPrefix, projectID, "notes"),
+		occurrencesIndex(projectID),
+		notesIndex(projectID),
 	} {
 		res, err = es.client.Indices.Create(
 			index,
@@ -187,7 +186,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 	}
 
 	project := &prpb.Project{}
-	err = jsonpb.Unmarshal(strings.NewReader(string(searchResults.Hits.Hits[0].Source)), project)
+	err = protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(project))
 	if err != nil {
 		return nil, createError(log, "error unmarshalling project from elasticsearch", err)
 	}
@@ -240,8 +239,8 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 
 	res, err = es.client.Indices.Delete(
 		[]string{
-			fmt.Sprintf("%s-%s-occurrences", indexPrefix, projectID),
-			fmt.Sprintf("%s-%s-notes", indexPrefix, projectID),
+			occurrencesIndex(projectID),
+			notesIndex(projectID),
 		},
 		es.client.Indices.Delete.WithContext(ctx),
 	)
@@ -295,7 +294,7 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectID, ob
 	log.Debug("hit raw source", zap.Any("raw _source", getDocumentResponse.Hits.Hits[0].Source))
 
 	occurrence := &pb.Occurrence{}
-	jsonpb.Unmarshal(strings.NewReader(string(getDocumentResponse.Hits.Hits[0].Source)), occurrence)
+	protojson.Unmarshal(getDocumentResponse.Hits.Hits[0].Source, proto.MessageV2(occurrence))
 
 	log.Debug("converted occurrence", zap.Any("unmarshaled occurrence", occurrence))
 
@@ -383,78 +382,125 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectID,
 		o.CreateTime = ptypes.TimestampNow()
 	}
 
-	m := jsonpb.Marshaler{}
-	str, err := m.MarshalToString(o)
+	str, err := protojson.Marshal(proto.MessageV2(o))
 	if err != nil {
 		return nil, createError(log, "error marshalling occurrence to json", err)
 	}
 
 	res, err := es.client.Index(
-		projectID,
-		bytes.NewReader([]byte(str)),
+		occurrencesIndex(projectID),
+		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),
 	)
 	if err != nil {
 		return nil, createError(log, "error creating occurrence in elasticsearch", err)
 	}
 
-	if res.StatusCode != http.StatusCreated {
+	if res.IsError() {
 		return nil, createError(log, "got unexpected status code from elasticsearch", nil, zap.Int("status", res.StatusCode))
 	}
 
-	response, err := ioutil.ReadAll(res.Body)
+	esResponse := &esIndexDocResponse{}
+	err = decodeResponse(res.Body, esResponse)
 	if err != nil {
-		return nil, createError(log, "error parsing elasticsearch response", err)
+		return nil, createError(log, "error decoding elasticsearch response", err)
 	}
 
-	log.Debug("elasticsearch response", zap.String("response", string(response)))
+	log.Debug("elasticsearch response", zap.Any("response", esResponse))
 
-	parsedResponse, err := gabs.ParseJSON(response)
-	if err != nil {
-		return nil, createError(log, "error parsing elasticsearch response", err)
-	}
-
-	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectID, parsedResponse.Path("_id").Data().(string))
+	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectID, esResponse.Id)
 
 	return o, nil
 }
 
 // BatchCreateOccurrences batch creates the specified occurrences in Elasticsearch.
-func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, pID string, uID string, occs []*pb.Occurrence) ([]*pb.Occurrence, []error) {
-	log := es.logger.Named("BatchCreateOccurrence")
+// This method uses the ES "_bulk" API: https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html
+func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, projectId string, uID string, occurrences []*pb.Occurrence) ([]*pb.Occurrence, []error) {
+	log := es.logger.Named("BatchCreateOccurrences")
 
-	var buf bytes.Buffer
+	indexMetadata := &esBulkQueryFragment{
+		Index: &esBulkQueryIndexFragment{
+			Index: occurrencesIndex(projectId),
+		},
+	}
 
-	// Prepare payload
-	metadata := []byte(fmt.Sprintf(`{ "index" : { "_index" : "%s"} }%s`, pID, "\n"))
+	metadata, err := json.Marshal(indexMetadata)
+	if err != nil {
+		return nil, []error{
+			createError(log, "error marshaling bulk index request metadata", err),
+		}
+	}
+	metadata = append(metadata, "\n"...)
 
-	// Encode occurrences to JSON
-	for _, occ := range occs {
-		data, err := json.Marshal(occ)
+	// build the request body using newline delimited JSON (ndjson)
+	// each occurrence is represented by two JSON structures:
+	// the first is the metadata that represents the ES operation, in this case "index"
+	// the second is the source payload to index
+	// in total, this body will consist of (len(occurrences) * 2) JSON structures, separated by newlines, with a trailing newline at the end
+	var body bytes.Buffer
+	for _, occurrence := range occurrences {
+		data, err := protojson.Marshal(proto.MessageV2(occurrence))
 		if err != nil {
-			log.Error("Cannot encode occurrence", zap.Any(occ.Name, err))
+			return nil, []error{
+				createError(log, "error marshaling occurrence", err),
+			}
 		}
 
-		data = append(data, "\n"...)
-		buf.Grow(len(metadata) + len(data))
-		buf.Write(metadata)
-		buf.Write(data)
+		dataBytes := append(data, "\n"...)
+		body.Grow(len(metadata) + len(dataBytes))
+		body.Write(metadata)
+		body.Write(dataBytes)
 	}
 
-	log.Debug("Bulk payload", zap.Any("es bulk payload", string(buf.Bytes())))
+	log.Debug("attempting ES bulk index", zap.String("payload", string(body.Bytes())))
 
-	res, err := es.client.Bulk(bytes.NewReader(buf.Bytes()))
+	res, err := es.client.Bulk(
+		bytes.NewReader(body.Bytes()),
+		es.client.Bulk.WithContext(ctx),
+	)
 	if err != nil {
-		log.Error("error creating occurrence", zap.NamedError("error", err))
-		return nil, []error{status.Error(codes.Internal, "failed to create occurrence in elasticsearch")}
+		return nil, []error{
+			createError(log, "failed while sending request to ES", err),
+		}
+	}
+	if res.IsError() {
+		return nil, []error{
+			createError(log, "unexpected response from ES", nil),
+		}
 	}
 
-	if res.StatusCode != http.StatusOK {
-		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
-		return nil, []error{status.Error(codes.Internal, "unexpected response from elasticsearch when creating occurrence")}
+	response := &esBulkResponse{}
+	err = decodeResponse(res.Body, response)
+	if err != nil {
+		return nil, []error{
+			createError(log, "error decoding ES response", nil),
+		}
 	}
 
-	return occs, nil
+	var (
+		createdOccurrences []*pb.Occurrence
+		errs               []error
+	)
+	for i, occurrence := range occurrences {
+		indexItem := response.Items[i].Index
+		if occErr := indexItem.Error; occErr != nil {
+			errs = append(errs, createError(log, "error creating occurrence in ES", fmt.Errorf("[%d] %s: %s", indexItem.Status, occErr.Type, occErr.Reason), zap.Any("occurrence", occurrence)))
+			continue
+		}
+
+		occurrence.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, indexItem.Id)
+		createdOccurrences = append(createdOccurrences, occurrence)
+	}
+
+	if len(errs) > 0 {
+		log.Info("errors while creating occurrences", zap.Any("errors", errs))
+
+		return createdOccurrences, errs
+	}
+
+	log.Info("occurrences created successfully")
+
+	return createdOccurrences, nil
 }
 
 // UpdateOccurrence updates the existing occurrence with the given projectID and occurrenceID
@@ -634,4 +680,12 @@ func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
 
 func decodeResponse(r io.ReadCloser, i interface{}) error {
 	return json.NewDecoder(r).Decode(i)
+}
+
+func occurrencesIndex(projectId string) string {
+	return fmt.Sprintf("%s-%s-occurrences", indexPrefix, projectId)
+}
+
+func notesIndex(projectId string) string {
+	return fmt.Sprintf("%s-%s-notes", indexPrefix, projectId)
 }

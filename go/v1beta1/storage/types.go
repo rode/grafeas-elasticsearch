@@ -52,8 +52,42 @@ func createElasticsearchSearchTermQuery(term map[string]interface{}) (io.Reader,
 	return bytes.NewReader(b), nil
 }
 
+// Elasticsearch /_doc response
+
+type esIndexDocResponse struct {
+	Id     string           `json:"_id"`
+	Status int              `json:"status"`
+	Error  *esIndexDocError `json:"error,omitempty"`
+}
+
+type esIndexDocError struct {
+	Type   string `json:"type"`
+	Reason string `json:"reason"`
+}
+
 // Elasticsearch /_delete_by_query response
 
 type esDeleteResponse struct {
 	Deleted int `json:"deleted"`
+}
+
+// Elasticsearch /_bulk query fragments
+
+type esBulkQueryFragment struct {
+	Index *esBulkQueryIndexFragment `json:"index"`
+}
+
+type esBulkQueryIndexFragment struct {
+	Index string `json:"_index"`
+}
+
+// Elasticsearch /_bulk response
+
+type esBulkResponse struct {
+	Items  []*esBulkResponseItem `json:"items"`
+	Errors bool
+}
+
+type esBulkResponseItem struct {
+	Index *esIndexDocResponse `json:"index,omitempty"`
 }

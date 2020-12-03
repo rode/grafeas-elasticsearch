@@ -36,7 +36,6 @@ var _ = Describe("elasticsearch storage", func() {
 		elasticsearchStorage *ElasticsearchStorage
 		transport            *mockEsTransport
 		ctx                  context.Context
-		err                  error
 		expectedProjectId    string
 	)
 
@@ -557,6 +556,10 @@ var _ = Describe("elasticsearch storage", func() {
 	})
 
 	Context("retrieving a Grafeas occurrence", func() {
+		var (
+			actualErr error
+		)
+
 		When("elasticsearch successfully returns a occurrence document", func() {
 			var (
 				objectID           string
@@ -573,8 +576,8 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				}
 
-				expectedOccurrence, err = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, objectID)
-				Expect(err).ToNot(HaveOccurred())
+				expectedOccurrence, actualErr = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, objectID)
+				Expect(actualErr).ToNot(HaveOccurred())
 			})
 
 			It("should have sent the correct HTTP request", func() {
@@ -606,11 +609,11 @@ var _ = Describe("elasticsearch storage", func() {
 						StatusCode: http.StatusInternalServerError,
 					},
 				}
-				_, err = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, objectID)
+				_, actualErr = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, objectID)
 			})
 
 			It("should return an error", func() {
-				Expect(err).To(HaveOccurred())
+				Expect(actualErr).To(HaveOccurred())
 			})
 		})
 
@@ -626,11 +629,11 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				}
 
-				_, err = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, objectID)
+				_, actualErr = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, objectID)
 			})
 
 			It("should fail to decode response and return an error", func() {
-				Expect(err).To(HaveOccurred())
+				Expect(actualErr).To(HaveOccurred())
 			})
 		})
 
@@ -645,11 +648,11 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				}
 
-				_, err = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, objectID)
+				_, actualErr = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, objectID)
 			})
 
 			It("should return an error", func() {
-				Expect(err).To(HaveOccurred())
+				Expect(actualErr).To(HaveOccurred())
 			})
 		})
 	})

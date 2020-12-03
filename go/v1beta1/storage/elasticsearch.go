@@ -187,7 +187,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 		return nil, createError(log, "error sending request to elasticsearch", err)
 	}
 	if res.IsError() {
-		return nil, createError(log, "error searching elasticsearch for project", nil)
+		return nil, createError(log, "error searching elasticsearch for project", nil, zap.String("response", res.String()))
 	}
 
 	var searchResults esSearchResponse
@@ -323,49 +323,48 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 }
 
 // GetOccurrence returns the occurrence with pID and oID
-func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectID, objectID string) (*pb.Occurrence, error) {
-	log := es.logger.Named("GetOccurrence")
+func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectId, occurrenceId string) (*pb.Occurrence, error) {
+	occurrenceName := fmt.Sprintf("projects/%s/occurrences/%s", projectId, occurrenceId)
+	log := es.logger.Named("GetOccurrence").With(zap.String("occurrence", occurrenceName))
 
-	queryField := fmt.Sprintf("projects/%s/occurrences/%s", projectID, objectID)
-
-	var getDocumentBuffer bytes.Buffer
-	getDocumentBody := map[string]interface{}{
-		"query": map[string]interface{}{
-			"match": map[string]interface{}{
-				"name": queryField,
+	searchBody, err := encodeRequest(&esSearch{
+		Query: &filtering.Query{
+			Term: &filtering.Term{
+				"name": occurrenceName,
 			},
 		},
-	}
-	if err := json.NewEncoder(&getDocumentBuffer).Encode(getDocumentBody); err != nil {
-		return nil, createError(log, "error encoding elasticsearch get document body", err)
+	})
+	if err != nil {
+		return nil, createError(log, "error creating search body JSON", err)
 	}
 
 	res, err := es.client.Search(
 		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(projectID),
-		es.client.Search.WithBody(&getDocumentBuffer),
+		es.client.Search.WithIndex(occurrencesIndex(projectId)),
+		es.client.Search.WithBody(searchBody),
 	)
 	if err != nil {
-		return nil, createError(log, "error retrieving occurrence from elasticsearch", err)
+		return nil, createError(log, "error sending request to elasticsearch", err)
 	}
-	if res.StatusCode != http.StatusOK {
-		return nil, createError(log, "got unexpected status code from elasticsearch", nil, zap.Int("status", res.StatusCode))
-	}
-
-	log.Debug("elasticsearch response", zap.Any("response", res))
-
-	getDocumentResponse := &esSearchResponse{}
-	if err := json.NewDecoder(res.Body).Decode(getDocumentResponse); err != nil {
-		log.Error("error decoding elasticsearch response body", zap.NamedError("error", err))
-		return nil, err
+	if res.IsError() {
+		return nil, createError(log, "error searching elasticsearch for occurrence", nil, zap.String("response", res.String()))
 	}
 
-	log.Debug("hit raw source", zap.Any("raw _source", getDocumentResponse.Hits.Hits[0].Source))
+	var searchResults esSearchResponse
+	if err := decodeResponse(res.Body, &searchResults); err != nil {
+		return nil, createError(log, "error unmarshalling elasticsearch response", err)
+	}
+
+	if searchResults.Hits.Total.Value == 0 {
+		log.Info("occurrence not found")
+		return nil, status.Error(codes.NotFound, fmt.Sprintf("occurrence with name %s not found", occurrenceName))
+	}
 
 	occurrence := &pb.Occurrence{}
-	protojson.Unmarshal(getDocumentResponse.Hits.Hits[0].Source, proto.MessageV2(occurrence))
-
-	log.Debug("converted occurrence", zap.Any("unmarshaled occurrence", occurrence))
+	err = protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(occurrence))
+	if err != nil {
+		return nil, createError(log, "error unmarshalling occurrence from elasticsearch", err)
+	}
 
 	return occurrence, nil
 }
@@ -577,25 +576,44 @@ func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, pID, oID s
 }
 
 // DeleteOccurrence deletes the occurrence with the given pID and oID
-func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, pID, oID string) error {
-	log := es.logger.Named("DeleteOccurrence")
+func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, projectId, occurrenceId string) error {
+	occurrenceName := fmt.Sprintf("projects/%s/occurrences/%s", projectId, occurrenceId)
+	log := es.logger.Named("DeleteOccurrence").With(zap.String("occurrence", occurrenceName))
+	log.Info("deleting occurrence")
 
-	queryField := fmt.Sprintf("projects/%s/occurrences/%s", pID, oID)
-	query := []byte(fmt.Sprintf(`{ "query" : { "match" : { "name" :"%s" } } }`, queryField))
-	reader := bytes.NewReader(query)
-	res, err := es.client.DeleteByQuery([]string{pID}, reader)
-
+	searchBody, err := encodeRequest(&esSearch{
+		Query: &filtering.Query{
+			Term: &filtering.Term{
+				"name": occurrenceName,
+			},
+		},
+	})
 	if err != nil {
-		log.Error("error deleting occurrence", zap.NamedError("error", err))
-		return status.Error(codes.Internal, "failed to delete occurrence in elasticsearch")
+		return createError(log, "error creating search body JSON", err)
 	}
 
-	log.Debug("elasticsearch response", zap.Any("res", res))
-
-	if res.StatusCode != http.StatusOK {
-		log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
-		return status.Error(codes.Internal, "unexpected response from elasticsearch when deleting occurrence")
+	res, err := es.client.DeleteByQuery(
+		[]string{occurrencesIndex(projectId)},
+		searchBody,
+		es.client.DeleteByQuery.WithContext(ctx),
+	)
+	if err != nil {
+		return createError(log, "error sending request to elasticsearch", err)
 	}
+	if res.IsError() {
+		return createError(log, "received unexpected response from elasticsearch when deleting occurrence", nil)
+	}
+
+	var deletedResults esDeleteResponse
+	if err = decodeResponse(res.Body, &deletedResults); err != nil {
+		return createError(log, "error unmarshalling elasticsearch response", err)
+	}
+
+	if deletedResults.Deleted == 0 {
+		return createError(log, "elasticsearch returned zero deleted documents", nil, zap.Any("response", deletedResults))
+	}
+
+	log.Info("occurrence document deleted")
 
 	return nil
 }

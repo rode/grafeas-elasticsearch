@@ -168,7 +168,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 	projectName := fmt.Sprintf("projects/%s", projectID)
 	log := es.logger.Named("GetProject").With(zap.String("project", projectName))
 
-	filterQuery, errs := filtering.ParseExpressionEntrypoint(fmt.Sprintf(`name=="%s"`, projectName))
+	filterQuery, errs := filtering.ParseExpression(fmt.Sprintf(`name=="%s"`, projectName))
 	if errs != nil {
 		// There can be many parse errors in a filter, this returns the first error found
 		return nil, createError(log, "error while parsing filter", errors.New(errs[0].Message)) //library to consolidate array of errs
@@ -222,7 +222,7 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 	log := es.logger.Named("ListProjects")
 
 	if filter != "" {
-		filterQuery, err := filtering.ParseExpressionEntrypoint(filter)
+		filterQuery, err := filtering.ParseExpression(filter)
 		if err != nil {
 			// There can be many parse errors in a filter, this returns the first error found
 			return nil, "", createError(log, "error while parsing filter", errors.New(err[0].Message)) //library to consolidate array of errs
@@ -276,7 +276,7 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 	log := es.logger.Named("DeleteProject").With(zap.String("project", projectName))
 	log.Info("deleting project")
 
-	filterQuery, errs := filtering.ParseExpressionEntrypoint(fmt.Sprintf(`name=="%s"`, projectName))
+	filterQuery, errs := filtering.ParseExpression(fmt.Sprintf(`name=="%s"`, projectName))
 	if errs != nil {
 		// There can be many parse errors in a filter, this returns the first error found
 		return createError(log, "error while parsing filter", errors.New(errs[0].Message)) //library to consolidate array of errs
@@ -667,7 +667,7 @@ func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectID, filter
 	)
 	body := &esSearch{}
 	if filter != "" {
-		filterQuery, err := filtering.ParseExpressionEntrypoint(filter)
+		filterQuery, err := filtering.ParseExpression(filter)
 		stringVal, _ := json.Marshal(filterQuery)
 		fmt.Println(string(stringVal))
 		if err != nil {

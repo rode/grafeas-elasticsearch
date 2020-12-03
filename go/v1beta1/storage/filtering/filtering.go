@@ -6,9 +6,9 @@ import (
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 )
 
-// ParseExpressionEntrypoint will serve as the entrypoint to the filter
+// ParseExpression will serve as the entrypoint to the filter
 // that is eventually passed to parseExpression which will handle the recursive logic
-func ParseExpressionEntrypoint(filter string) (*Query, []common.Error) {
+func ParseExpression(filter string) (*Query, []common.Error) {
 	parsedExpr, err := parser.Parse(common.NewStringSource(filter, ""))
 	if len(err.GetErrors()) > 0 {
 		return nil, err.GetErrors()

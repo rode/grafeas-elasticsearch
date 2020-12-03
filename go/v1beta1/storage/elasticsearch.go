@@ -46,29 +46,27 @@ func NewElasticsearchStore(client *elasticsearch.Client, logger *zap.Logger) *El
 	}
 }
 
-// ElasticsearchStorageTypeProvider configures a Grafeas storage backend that utilizes ElasticSearch.
+// ElasticsearchStorageTypeProvider configures a Grafeas storage backend that utilizes Elasticsearch.
 // Configuring this backend will result in an index, representing projects, to be created.
 func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType string, storageConfig *grafeasConfig.StorageConfiguration) (*storage.Storage, error) {
 	log := es.logger.Named("ElasticsearchStorageTypeProvider")
 	log.Info("registering elasticsearch storage provider")
 
-	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
-
 	if storageType != "elasticsearch" {
 		return nil, fmt.Errorf("unknown storage type %s, must be 'elasticsearch'", storageType)
 	}
 
-	res, err := es.client.Indices.Exists([]string{projectIndex})
+	res, err := es.client.Indices.Exists([]string{projectsIndex()})
 	if err != nil || (res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound) {
 		return nil, createError(log, "error checking if project index already exists", err)
 	}
 
 	// the response is an error if the index was not found, so we need to create it
 	if res.IsError() {
-		log := log.With(zap.String("index", projectIndex))
+		log := log.With(zap.String("index", projectsIndex()))
 		log.Info("initial index for grafeas projects not found, creating...")
 		res, err = es.client.Indices.Create(
-			projectIndex,
+			projectsIndex(),
 			withIndexMetadataAndStringMapping(),
 		)
 		if err != nil {
@@ -93,7 +91,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 	projectName := fmt.Sprintf("projects/%s", projectID)
 	log := es.logger.Named("CreateProject").With(zap.String("project", projectName))
 
-	searchTerm, err := encodeRequest(&esSearch{
+	searchBody, err := encodeRequest(&esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": projectName,
@@ -105,11 +103,10 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 		return nil, createError(log, "error creating search body JSON", err)
 	}
 
-	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
 	res, err := es.client.Search(
 		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(projectIndex),
-		es.client.Search.WithBody(searchTerm),
+		es.client.Search.WithIndex(projectsIndex()),
+		es.client.Search.WithBody(searchBody),
 	)
 	if err != nil {
 		return nil, createError(log, "error sending request to elasticsearch", err)
@@ -135,7 +132,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 
 	// Create new project document
 	res, err = es.client.Index(
-		projectIndex,
+		projectsIndex(),
 		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),
 	)
@@ -163,34 +160,32 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 	return p, nil
 }
 
-// GetProject returns the project with the given pID from the store
+// GetProject returns the project with the given projectId from Elasticsearch
 func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string) (*prpb.Project, error) {
 	projectName := fmt.Sprintf("projects/%s", projectID)
 	log := es.logger.Named("GetProject").With(zap.String("project", projectName))
 
-	filterQuery, errs := filtering.ParseExpression(fmt.Sprintf(`name=="%s"`, projectName))
-	if errs != nil {
-		// There can be many parse errors in a filter, this returns the first error found
-		return nil, createError(log, "error while parsing filter", errors.New(errs[0].Message)) //library to consolidate array of errs
-	}
-
-	body := &esSearch{
-		Query: filterQuery,
-	}
-
-	searchTerm, err := encodeRequest(body)
+	searchBody, err := encodeRequest(&esSearch{
+		Query: &filtering.Query{
+			Term: &filtering.Term{
+				"name": projectName,
+			},
+		},
+	})
 	if err != nil {
 		return nil, createError(log, "error creating search body JSON", err)
 	}
 
-	projectIndex := fmt.Sprintf("%s-%s", indexPrefix, "projects")
 	res, err := es.client.Search(
 		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(projectIndex),
-		es.client.Search.WithBody(searchTerm),
+		es.client.Search.WithIndex(projectsIndex()),
+		es.client.Search.WithBody(searchBody),
 	)
-	if err != nil || res.IsError() {
-		return nil, createError(log, "error searching elasticsearch for project", err)
+	if err != nil {
+		return nil, createError(log, "error sending request to elasticsearch", err)
+	}
+	if res.IsError() {
+		return nil, createError(log, "error searching elasticsearch for project", nil)
 	}
 
 	var searchResults esSearchResponse
@@ -820,6 +815,10 @@ func encodeRequest(body interface{}) (io.Reader, error) {
 	}
 
 	return bytes.NewReader(b), nil
+}
+
+func projectsIndex() string {
+	return fmt.Sprintf("%s-projects", indexPrefix)
 }
 
 func occurrencesIndex(projectId string) string {

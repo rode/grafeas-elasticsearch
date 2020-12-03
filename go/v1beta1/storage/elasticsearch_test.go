@@ -362,9 +362,9 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("retrieving a Grafeas project", func() {
 		var (
-			getProjectErr        error
+			actualErr            error
 			expectedProjectIndex string
-			expectedProject      *prpb.Project
+			actualProject        *prpb.Project
 		)
 
 		BeforeEach(func() {
@@ -380,10 +380,12 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		JustBeforeEach(func() {
-			expectedProject, getProjectErr = elasticsearchStorage.GetProject(ctx, expectedProjectId)
+			actualProject, actualErr = elasticsearchStorage.GetProject(ctx, expectedProjectId)
 		})
 
-		It("should query Grafeas for the specified project", func() {
+		It("should query elasticsearch for the specified project", func() {
+			Expect(transport.receivedHttpRequests).To(HaveLen(1))
+
 			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectIndex)))
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 
@@ -394,18 +396,17 @@ var _ = Describe("elasticsearch storage", func() {
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect((*searchBody.Query.Bool.Must)[0].(map[string]interface{})["term"].(map[string]interface{})["name"]).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
-
+			Expect((*searchBody.Query.Term)["name"]).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
 		})
 
 		When("elasticsearch successfully returns a project document", func() {
 			It("should return the Grafeas project", func() {
-				Expect(expectedProject).ToNot(BeNil())
-				Expect(expectedProject.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
+				Expect(actualProject).ToNot(BeNil())
+				Expect(actualProject.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
 			})
 
 			It("should return without an error", func() {
-				Expect(getProjectErr).ToNot(HaveOccurred())
+				Expect(actualErr).ToNot(HaveOccurred())
 			})
 		})
 
@@ -414,13 +415,13 @@ var _ = Describe("elasticsearch storage", func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
 						StatusCode: http.StatusOK,
-						Body:       createEsSearchResponse("project"),
+						Body:       createGenericEsSearchResponse(),
 					},
 				}
 			})
 
-			It("should return an error", func() {
-				assertErrorHasGrpcStatusCode(getProjectErr, codes.NotFound)
+			It("should return a not found error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.NotFound)
 			})
 		})
 
@@ -429,27 +430,27 @@ var _ = Describe("elasticsearch storage", func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
 						StatusCode: http.StatusOK,
-						Body:       ioutil.NopCloser(strings.NewReader("bad object")),
+						Body:       ioutil.NopCloser(strings.NewReader(gofakeit.LetterN(10))),
 					},
 				}
 			})
 
 			It("should return an error", func() {
-				Expect(getProjectErr).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
 			})
 		})
 
-		When("returns an unexpected response", func() {
+		When("elasticsearch returns an error", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
-						StatusCode: http.StatusBadRequest,
+						StatusCode: http.StatusInternalServerError,
 					},
 				}
 			})
 
 			It("should return an error", func() {
-				Expect(getProjectErr).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
 			})
 		})
 	})

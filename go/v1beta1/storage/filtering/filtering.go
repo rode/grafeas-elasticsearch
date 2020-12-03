@@ -1,17 +1,34 @@
 package filtering
 
 import (
+	"fmt"
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/parser"
+	"github.com/hashicorp/go-multierror"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 )
 
+type Filterer interface {
+	ParseExpression(filter string) (*Query, error)
+}
+
+type filterer struct{}
+
+func NewFilterer() Filterer {
+	return &filterer{}
+}
+
 // ParseExpression will serve as the entrypoint to the filter
 // that is eventually passed to parseExpression which will handle the recursive logic
-func ParseExpression(filter string) (*Query, []common.Error) {
+func (f *filterer) ParseExpression(filter string) (*Query, error) {
 	parsedExpr, err := parser.Parse(common.NewStringSource(filter, ""))
 	if len(err.GetErrors()) > 0 {
-		return nil, err.GetErrors()
+		resultErr := fmt.Errorf("error parsing filter")
+		for _, e := range err.GetErrors() {
+			resultErr = multierror.Append(resultErr, fmt.Errorf("%s (%d:%d)", e.Message, e.Location.Line(), e.Location.Column()))
+		}
+
+		return nil, resultErr
 	}
 
 	expression := parsedExpr.GetExpr()

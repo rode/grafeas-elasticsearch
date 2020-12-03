@@ -22,7 +22,7 @@ func TestSingleTerm(t *testing.T) {
 		},
 	}
 
-	actualResult, _ := ParseExpression(filter)
+	actualResult, _ := NewFilterer().ParseExpression(filter)
 	assert.Equal(t, expectedResult, actualResult)
 }
 
@@ -42,7 +42,7 @@ func TestSingleTermLeftConstRightConst(t *testing.T) {
 		},
 	}
 
-	actualResult, _ := ParseExpression(filter)
+	actualResult, _ := NewFilterer().ParseExpression(filter)
 	assert.Equal(t, expectedResult, actualResult)
 }
 
@@ -62,7 +62,7 @@ func TestSingleTermLeftIdentRightIdent(t *testing.T) {
 		},
 	}
 
-	actualResult, _ := ParseExpression(filter)
+	actualResult, _ := NewFilterer().ParseExpression(filter)
 	assert.Equal(t, expectedResult, actualResult)
 }
 
@@ -82,7 +82,7 @@ func TestSingleTermLeftConstRightIdent(t *testing.T) {
 		},
 	}
 
-	actualResult, _ := ParseExpression(filter)
+	actualResult, _ := NewFilterer().ParseExpression(filter)
 	assert.Equal(t, expectedResult, actualResult)
 }
 
@@ -107,7 +107,7 @@ func TestAndingTwoTerm(t *testing.T) {
 		},
 	}
 
-	actualResult, _ := ParseExpression(filter)
+	actualResult, _ := NewFilterer().ParseExpression(filter)
 	assert.Equal(t, expectedResult, actualResult)
 }
 
@@ -143,7 +143,7 @@ func TestAndingThreeTerms(t *testing.T) {
 		},
 	}
 
-	actualResult, _ := ParseExpression(filter)
+	actualResult, _ := NewFilterer().ParseExpression(filter)
 	assert.Equal(t, expectedResult, actualResult)
 }
 
@@ -179,13 +179,13 @@ func TestAndingTermWithOrSet(t *testing.T) {
 		},
 	}
 
-	actualResult, _ := ParseExpression(filter)
+	actualResult, _ := NewFilterer().ParseExpression(filter)
 	assert.Equal(t, expectedResult, actualResult)
 }
 
 func TestAndingAndSetWithOrSet(t *testing.T) {
 	filter := `((a=="b")&&(g=="h")) && ((c=="d")||(e=="f"))`
-	actualResult, _ := ParseExpression(filter)
+	actualResult, _ := NewFilterer().ParseExpression(filter)
 
 	// `{"query":{"bool":{"must":[{"bool":{"must":[{"term":{"a":"b"}},{"term":{"g":"h"}}]}},{"bool":{"should":[{"term":{"c":"d"}},{"term":{"e":"f"}}]}}]}}}`
 	expectedResult := &Query{
@@ -232,10 +232,7 @@ func TestAndingAndSetWithOrSet(t *testing.T) {
 
 func TestBadFilter(t *testing.T) {
 	filter := `a==`
-	expectedErrorMessage := "Syntax error: mismatched input"
-	actualResult, err := ParseExpression(filter)
+	actualResult, err := NewFilterer().ParseExpression(filter)
 	assert.Nil(t, actualResult)
-	assert.Contains(t, err[0].Message, expectedErrorMessage)
-	assert.Equal(t, 1, err[0].Location.Line())
-	assert.Equal(t, 3, err[0].Location.Column())
+	assert.Error(t, err)
 }

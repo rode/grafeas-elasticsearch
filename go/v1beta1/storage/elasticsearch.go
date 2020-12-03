@@ -34,15 +34,17 @@ const indexPrefix = "grafeas-" + apiVersion
 
 // ElasticsearchStorage is...
 type ElasticsearchStorage struct {
-	client *elasticsearch.Client
-	logger *zap.Logger
+	client   *elasticsearch.Client
+	logger   *zap.Logger
+	filterer filtering.Filterer
 }
 
 // NewElasticsearchStore is...
-func NewElasticsearchStore(client *elasticsearch.Client, logger *zap.Logger) *ElasticsearchStorage {
+func NewElasticsearchStore(logger *zap.Logger, client *elasticsearch.Client, filterer filtering.Filterer) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
-		client: client,
-		logger: logger,
+		client:   client,
+		logger:   logger,
+		filterer: filterer,
 	}
 }
 
@@ -217,10 +219,9 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 	log := es.logger.Named("ListProjects")
 
 	if filter != "" {
-		filterQuery, err := filtering.ParseExpression(filter)
+		filterQuery, err := es.filterer.ParseExpression(filter)
 		if err != nil {
-			// There can be many parse errors in a filter, this returns the first error found
-			return nil, "", createError(log, "error while parsing filter", errors.New(err[0].Message)) //library to consolidate array of errs
+			return nil, "", createError(log, "error while parsing filter expression", err)
 		}
 
 		body.Query = filterQuery
@@ -271,10 +272,9 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 	log := es.logger.Named("DeleteProject").With(zap.String("project", projectName))
 	log.Info("deleting project")
 
-	filterQuery, errs := filtering.ParseExpression(fmt.Sprintf(`name=="%s"`, projectName))
-	if errs != nil {
-		// There can be many parse errors in a filter, this returns the first error found
-		return createError(log, "error while parsing filter", errors.New(errs[0].Message)) //library to consolidate array of errs
+	filterQuery, err := es.filterer.ParseExpression(fmt.Sprintf(`name=="%s"`, projectName))
+	if err != nil {
+		return createError(log, "error while parsing filter", err)
 	}
 
 	body := &esSearch{
@@ -662,12 +662,9 @@ func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectID, filter
 	)
 	body := &esSearch{}
 	if filter != "" {
-		filterQuery, err := filtering.ParseExpression(filter)
-		stringVal, _ := json.Marshal(filterQuery)
-		fmt.Println(string(stringVal))
+		filterQuery, err := es.filterer.ParseExpression(filter)
 		if err != nil {
-			// There can be many parse errors in a filter, this returns the first error found
-			return nil, "", createError(log, "error while parsing filter", errors.New(err[0].Message))
+			return nil, "", createError(log, "error while parsing filter", err)
 		}
 
 		body.Query = filterQuery

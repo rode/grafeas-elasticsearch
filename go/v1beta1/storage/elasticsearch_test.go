@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
+	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -47,7 +48,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		ctx = context.Background()
 
-		elasticsearchStorage = NewElasticsearchStore(mockEsClient, logger)
+		elasticsearchStorage = NewElasticsearchStore(logger, mockEsClient, filtering.NewFilterer())
 	})
 
 	Context("creating the elasticsearch storage provider", func() {

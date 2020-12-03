@@ -7,10 +7,12 @@ require (
 	github.com/brianvoe/gofakeit/v5 v5.10.1
 	github.com/elastic/go-elasticsearch/v7 v7.5.1-0.20201104130636-152864b47d96
 	github.com/gogo/protobuf v1.2.1
+	github.com/golang/mock v1.4.4
 	github.com/golang/protobuf v1.4.2
 	github.com/google/cel-go v0.6.0
 	github.com/google/go-cmp v0.5.2 // indirect
 	github.com/grafeas/grafeas v0.1.6
+	github.com/hashicorp/go-multierror v1.0.0
 	github.com/onsi/ginkgo v1.14.2
 	github.com/onsi/gomega v1.10.3
 	github.com/pelletier/go-toml v1.7.0 // indirect

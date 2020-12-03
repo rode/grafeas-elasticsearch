@@ -7,6 +7,7 @@ import (
 	"github.com/grafeas/grafeas/go/v1beta1/server"
 	grafeasStorage "github.com/grafeas/grafeas/go/v1beta1/storage"
 	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage"
+	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"go.uber.org/zap"
 	"log"
 )
@@ -32,7 +33,7 @@ func main() {
 		logger.Fatal("failed to connect to Elasticsearch", zap.NamedError("error", err))
 	}
 
-	elasticsearchStorage := storage.NewElasticsearchStore(esClient, logger.Named("ElasticsearchStore"))
+	elasticsearchStorage := storage.NewElasticsearchStore(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer())
 
 	// register a new storage type using the key 'elasticsearch'
 	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", elasticsearchStorage.ElasticsearchStorageTypeProvider)

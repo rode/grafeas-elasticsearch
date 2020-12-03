@@ -1,25 +1,38 @@
 package filtering
 
 import (
-	"encoding/json"
-
+	"fmt"
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/parser"
+	"github.com/hashicorp/go-multierror"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 )
 
-// ParseExpressionEntrypoint will serve as the entrypoint to the filter
+type Filterer interface {
+	ParseExpression(filter string) (*Query, error)
+}
+
+type filterer struct{}
+
+func NewFilterer() Filterer {
+	return &filterer{}
+}
+
+// ParseExpression will serve as the entrypoint to the filter
 // that is eventually passed to parseExpression which will handle the recursive logic
-func ParseExpressionEntrypoint(filter string) (string, []common.Error) {
+func (f *filterer) ParseExpression(filter string) (*Query, error) {
 	parsedExpr, err := parser.Parse(common.NewStringSource(filter, ""))
 	if len(err.GetErrors()) > 0 {
-		return "Bad Filter", err.GetErrors()
+		resultErr := fmt.Errorf("error parsing filter")
+		for _, e := range err.GetErrors() {
+			resultErr = multierror.Append(resultErr, fmt.Errorf("%s (%d:%d)", e.Message, e.Location.Line(), e.Location.Column()))
+		}
+
+		return nil, resultErr
 	}
 
 	expression := parsedExpr.GetExpr()
-	query := &Query{
-		Query: map[string]interface{}{},
-	}
+	query := &Query{}
 
 	_, isCallExpr := expression.ExprKind.(*expr.Expr_CallExpr)
 	if isCallExpr {
@@ -34,70 +47,72 @@ func ParseExpressionEntrypoint(filter string) (string, []common.Error) {
 		_, rightIsConst := rightarg.ExprKind.(*expr.Expr_ConstExpr)
 
 		if (leftIsConst || leftIsIdent) && (rightIsConst || rightIsIdent) {
-			query.Query = &Bool{Bool: &Must{
-				Must: []interface{}{parseExpression(expression)},
-			},
+			query.Bool = &Bool{
+				Must: &Must{parseExpression(expression)},
 			}
-			queryBytes, _ := json.Marshal(query)
-			return string(queryBytes), nil
+
+			return query, nil
 		}
 	}
-	query.Query = parseExpression(expression)
 
-	queryBytes, _ := json.Marshal(query)
-	return string(queryBytes), nil
+	query = parseExpression(expression).(*Query)
+
+	return query, nil
 }
 
 // ParseExpression to parse and create a query
 func parseExpression(expression *expr.Expr) interface{} {
-	var term *Term
 	function := Operation(expression.GetCallExpr().GetFunction()) // =
 
 	// Determine if left and right side are final and if so formulate query
-	leftarg := expression.GetCallExpr().Args[0]
-	rightarg := expression.GetCallExpr().Args[1]
+	leftArg := expression.GetCallExpr().Args[0]
+	rightArg := expression.GetCallExpr().Args[1]
 
 	// Check to see if each side is an identity or const expression
-	_, leftIsIdent := leftarg.ExprKind.(*expr.Expr_IdentExpr)
-	_, leftIsConst := leftarg.ExprKind.(*expr.Expr_ConstExpr)
-	_, rightIsIdent := rightarg.ExprKind.(*expr.Expr_IdentExpr)
-	_, rightIsConst := rightarg.ExprKind.(*expr.Expr_ConstExpr)
+	_, leftIsIdent := leftArg.ExprKind.(*expr.Expr_IdentExpr)
+	_, leftIsConst := leftArg.ExprKind.(*expr.Expr_ConstExpr)
+	_, rightIsIdent := rightArg.ExprKind.(*expr.Expr_IdentExpr)
+	_, rightIsConst := rightArg.ExprKind.(*expr.Expr_ConstExpr)
 
 	if function == AndOperation {
-		return &Bool{Bool: &Must{
-			Must: []interface{}{
-				parseExpression(leftarg),  //append left recursively and add to the must slice
-				parseExpression(rightarg), //append right recursively and add to the must slice
+		return &Query{
+			Bool: &Bool{
+				Must: &Must{
+					parseExpression(leftArg),  //append left recursively and add to the must slice
+					parseExpression(rightArg), //append right recursively and add to the must slice
+				},
 			},
-		}}
+		}
+
 	} else if function == OrOperation {
-		return &Bool{Bool: &Should{
-			Should: []interface{}{
-				parseExpression(leftarg),
-				parseExpression(rightarg),
+		return &Query{
+			Bool: &Bool{
+				Should: &Should{
+					parseExpression(leftArg),  //append left recursively and add to the must slice
+					parseExpression(rightArg), //append right recursively and add to the must slice
+				},
 			},
-		}}
+		}
 	} else { // currently the else block is used for _==_ operations
 		var leftString string
 		var rightString string
 		if leftIsIdent && rightIsConst {
-			leftString = leftarg.GetIdentExpr().Name
-			rightString = rightarg.GetConstExpr().GetStringValue()
+			leftString = leftArg.GetIdentExpr().Name
+			rightString = rightArg.GetConstExpr().GetStringValue()
 		} else if leftIsConst && rightIsConst {
-			leftString = leftarg.GetConstExpr().GetStringValue()
-			rightString = rightarg.GetConstExpr().GetStringValue()
+			leftString = leftArg.GetConstExpr().GetStringValue()
+			rightString = rightArg.GetConstExpr().GetStringValue()
 		} else if leftIsIdent && rightIsIdent {
-			leftString = leftarg.GetIdentExpr().Name
-			rightString = rightarg.GetIdentExpr().Name
+			leftString = leftArg.GetIdentExpr().Name
+			rightString = rightArg.GetIdentExpr().Name
 		} else if leftIsConst && rightIsIdent {
-			leftString = leftarg.GetConstExpr().GetStringValue()
-			rightString = rightarg.GetIdentExpr().Name
+			leftString = leftArg.GetConstExpr().GetStringValue()
+			rightString = rightArg.GetIdentExpr().Name
 		}
-		term = &Term{
-			Term: map[string]string{
+		return &Bool{
+			Term: &Term{
 				leftString: rightString,
 			},
 		}
-		return term
 	}
 }

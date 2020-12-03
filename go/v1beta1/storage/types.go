@@ -1,9 +1,9 @@
 package storage
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
+
+	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 )
 
 // Elasticsearch /_search response
@@ -32,24 +32,7 @@ type esSearchResponseHit struct {
 // Elasticsearch /_search query
 
 type esSearch struct {
-	Query *esSearchQuery `json:"query"`
-}
-
-type esSearchQuery struct {
-	Term map[string]interface{} `json:"term,omitempty"`
-}
-
-func createElasticsearchSearchTermQuery(term map[string]interface{}) (io.Reader, error) {
-	b, err := json.Marshal(&esSearch{
-		Query: &esSearchQuery{
-			Term: term,
-		},
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	return bytes.NewReader(b), nil
+	Query *filtering.Query `json:"query,omitempty"`
 }
 
 // Elasticsearch /_doc response

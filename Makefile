@@ -15,5 +15,5 @@ vet:
 mocks:
 	mockgen -package mocks -destination go/mocks/filtering.go github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering Filterer
 
-test: fmtcheck vet mocks
+test: fmtcheck vet
 	go test ./... -coverprofile=coverage.txt -covermode atomic

@@ -649,7 +649,7 @@ func (es *ElasticsearchStorage) GetNote(ctx context.Context, pID, nID string) (*
 	log.Debug("hit raw source", zap.Any("raw _source", getDocumentResponse.Hits.Hits[0].Source))
 
 	note := &pb.Note{}
-	jsonpb.Unmarshal(strings.NewReader(string(getDocumentResponse.Hits.Hits[0].Source)), note)
+	protojson.Unmarshal(getDocumentResponse.Hits.Hits[0].Source, proto.MessageV2(note))
 
 	log.Debug("converted note", zap.Any("unmarshaled occurrence", note))
 

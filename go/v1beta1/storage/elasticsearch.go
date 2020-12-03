@@ -126,7 +126,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 	// Create new project document
 	res, err = es.client.Index(
 		projectIndex,
-		bytes.NewReader([]byte(str)),
+		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),
 	)
 	if err != nil || res.IsError() {
@@ -135,8 +135,8 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 
 	// Create indices for occurrences and notes
 	for _, index := range []string{
-		fmt.Sprintf("%s-%s-%s", indexPrefix, projectID, "occurrences"),
-		fmt.Sprintf("%s-%s-%s", indexPrefix, projectID, "notes"),
+		occurrencesIndex(projectID),
+		notesIndex(projectID),
 	} {
 		res, err = es.client.Indices.Create(
 			index,
@@ -239,8 +239,8 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 
 	res, err = es.client.Indices.Delete(
 		[]string{
-			fmt.Sprintf("%s-%s-occurrences", indexPrefix, projectID),
-			fmt.Sprintf("%s-%s-notes", indexPrefix, projectID),
+			occurrencesIndex(projectID),
+			notesIndex(projectID),
 		},
 		es.client.Indices.Delete.WithContext(ctx),
 	)
@@ -387,9 +387,8 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectID,
 		return nil, createError(log, "error marshalling occurrence to json", err)
 	}
 
-	occurrenceIndex := fmt.Sprintf("%s-%s-%s", indexPrefix, projectID, "occurrences")
 	res, err := es.client.Index(
-		occurrenceIndex,
+		occurrencesIndex(projectID),
 		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),
 	)
@@ -421,7 +420,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 
 	indexMetadata := &esBulkQueryFragment{
 		Index: &esBulkQueryIndexFragment{
-			Index: fmt.Sprintf("%s-%s-occurrences", indexPrefix, projectId),
+			Index: occurrencesIndex(projectId),
 		},
 	}
 
@@ -447,7 +446,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 			}
 		}
 
-		dataBytes := append([]byte(data), "\n"...)
+		dataBytes := append(data, "\n"...)
 		body.Grow(len(metadata) + len(dataBytes))
 		body.Write(metadata)
 		body.Write(dataBytes)
@@ -681,4 +680,12 @@ func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
 
 func decodeResponse(r io.ReadCloser, i interface{}) error {
 	return json.NewDecoder(r).Decode(i)
+}
+
+func occurrencesIndex(projectId string) string {
+	return fmt.Sprintf("%s-%s-occurrences", indexPrefix, projectId)
+}
+
+func notesIndex(projectId string) string {
+	return fmt.Sprintf("%s-%s-notes", indexPrefix, projectId)
 }

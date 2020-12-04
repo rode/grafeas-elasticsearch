@@ -851,7 +851,10 @@ var _ = Describe("elasticsearch storage", func() {
 					Expect(metadata.Index.Index).To(Equal(expectedOccurrencesIndex))
 				} else { // occurrence
 					occurrence := payload.(*pb.Occurrence)
-					Expect(occurrence).To(Equal(expectedOccurrences[(i-1)/2]))
+					expectedOccurrence := expectedOccurrences[(i-1)/2]
+					expectedOccurrence.Name = occurrence.Name
+
+					Expect(occurrence).To(Equal(expectedOccurrence))
 				}
 			}
 		})

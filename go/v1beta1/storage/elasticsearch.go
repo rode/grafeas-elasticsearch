@@ -506,6 +506,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	// in total, this body will consist of (len(occurrences) * 2) JSON structures, separated by newlines, with a trailing newline at the end
 	var body bytes.Buffer
 	for _, occurrence := range occurrences {
+		occurrence.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, uuid.New().String())
 		data, err := protojson.Marshal(proto.MessageV2(occurrence))
 		if err != nil {
 			return nil, []error{
@@ -555,7 +556,6 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 			continue
 		}
 
-		occurrence.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, indexItem.Id)
 		createdOccurrences = append(createdOccurrences, occurrence)
 	}
 

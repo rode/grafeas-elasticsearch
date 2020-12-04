@@ -760,6 +760,16 @@ var _ = Describe("elasticsearch storage", func() {
 
 		It("should attempt to index the occurrence as a document", func() {
 			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedOccurrencesIndex)))
+
+			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
+			Expect(err).ToNot(HaveOccurred())
+
+			indexedOccurrence := &pb.Occurrence{}
+			err = protojson.Unmarshal(requestBody, proto.MessageV2(indexedOccurrence))
+			Expect(err).ToNot(HaveOccurred())
+
+			expectedOccurrence.Name = actualOccurrence.Name
+			Expect(indexedOccurrence).To(Equal(expectedOccurrence))
 		})
 
 		When("indexing the document fails", func() {
@@ -785,7 +795,7 @@ var _ = Describe("elasticsearch storage", func() {
 			It("should return the occurrence that was created", func() {
 				Expect(actualErr).ToNot(HaveOccurred())
 
-				expectedOccurrence.Name = fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)
+				expectedOccurrence.Name = actualOccurrence.Name
 				Expect(actualOccurrence).To(Equal(expectedOccurrence))
 			})
 		})

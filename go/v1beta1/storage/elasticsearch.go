@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"github.com/golang/protobuf/proto"
+	"github.com/google/uuid"
 	"google.golang.org/protobuf/encoding/protojson"
 	"io"
 	"net/http"
@@ -448,6 +449,7 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectID,
 	if o.CreateTime == nil {
 		o.CreateTime = ptypes.TimestampNow()
 	}
+	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectID, uuid.New().String())
 
 	str, err := protojson.Marshal(proto.MessageV2(o))
 	if err != nil {
@@ -474,8 +476,6 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectID,
 	}
 
 	log.Debug("elasticsearch response", zap.Any("response", esResponse))
-
-	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectID, esResponse.Id)
 
 	return o, nil
 }

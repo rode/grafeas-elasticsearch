@@ -54,6 +54,7 @@ func createESClient(logger *zap.Logger, elasticsearchEndpoint string) (*elastics
 		},
 		Username: "grafeas",
 		Password: "grafeas",
+
 	})
 
 	if err != nil {

@@ -134,6 +134,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 		projectsIndex(),
 		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),
+		es.client.Index.WithRefresh("true"),
 	)
 	if err != nil {
 		return nil, createError(log, "error sending request to elasticsearch", err)
@@ -449,6 +450,7 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectID,
 		occurrencesIndex(projectID),
 		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),
+		es.client.Index.WithRefresh("true"),
 	)
 	if err != nil {
 		return nil, createError(log, "error creating occurrence in elasticsearch", err)
@@ -509,6 +511,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	res, err := es.client.Bulk(
 		bytes.NewReader(body.Bytes()),
 		es.client.Bulk.WithContext(ctx),
+		es.client.Bulk.WithRefresh("true"),
 	)
 	if err != nil {
 		return nil, []error{

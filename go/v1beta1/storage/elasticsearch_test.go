@@ -274,7 +274,7 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("listing grafeas projects", func() {
+	Context("listing Grafeas projects", func() {
 		var (
 			actualErr            error
 			actualProjects       []*prpb.Project
@@ -331,7 +331,7 @@ var _ = Describe("elasticsearch storage", func() {
 					Return(expectedQuery, nil)
 			})
 
-			It("should send the query to elasticsearch", func() {
+			It("should send the parsed query to elasticsearch", func() {
 				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectIndex)))
 				Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 
@@ -997,11 +997,170 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 	})
+
+	Context("listing Grafeas occurrences", func() {
+		var (
+			actualErr                error
+			actualOccurrences        []*pb.Occurrence
+			expectedOccurrences      []*pb.Occurrence
+			expectedOccurrencesIndex string
+			expectedFilter           string
+			expectedQuery            *filtering.Query
+		)
+
+		BeforeEach(func() {
+			expectedQuery = &filtering.Query{}
+			expectedFilter = ""
+			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-occurrences", indexPrefix, expectedProjectId)
+			expectedOccurrences = generateTestOccurrences(gofakeit.Number(2, 5))
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body: createOccurrenceEsSearchResponse(
+						expectedOccurrences...,
+					),
+				},
+			}
+		})
+
+		JustBeforeEach(func() {
+			actualOccurrences, _, actualErr = elasticsearchStorage.ListOccurrences(ctx, expectedProjectId, expectedFilter, "", 0)
+		})
+
+		It("should query elasticsearch for occurrences", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedOccurrencesIndex)))
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+
+			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
+			Expect(err).ToNot(HaveOccurred())
+
+			searchBody := &esSearch{}
+			err = json.Unmarshal(requestBody, searchBody)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(searchBody.Query).To(BeNil())
+		})
+
+		When("a valid filter is specified", func() {
+			BeforeEach(func() {
+				expectedQuery = &filtering.Query{
+					Term: &filtering.Term{
+						gofakeit.LetterN(10): gofakeit.LetterN(10),
+					},
+				}
+				expectedFilter = gofakeit.LetterN(10)
+
+				filterer.
+					EXPECT().
+					ParseExpression(expectedFilter).
+					Return(expectedQuery, nil)
+			})
+
+			It("should send the parsed query to elasticsearch", func() {
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedOccurrencesIndex)))
+				Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+
+				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				searchBody := &esSearch{}
+				err = json.Unmarshal(requestBody, searchBody)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(searchBody.Query).To(Equal(expectedQuery))
+			})
+		})
+
+		When("an invalid filter is specified", func() {
+			BeforeEach(func() {
+				expectedFilter = gofakeit.LetterN(10)
+
+				filterer.
+					EXPECT().
+					ParseExpression(expectedFilter).
+					Return(nil, errors.New(gofakeit.LetterN(10)))
+			})
+
+			It("should not send a request to elasticsearch", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(0))
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+		})
+
+		When("elasticsearch successfully returns occurrence(s)", func() {
+			It("should return the Grafeas occurrence(s)", func() {
+				Expect(actualOccurrences).ToNot(BeNil())
+				Expect(actualOccurrences).To(Equal(expectedOccurrences))
+			})
+
+			It("should return without an error", func() {
+				Expect(actualErr).ToNot(HaveOccurred())
+			})
+		})
+
+		When("elasticsearch returns zero hits", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body:       createGenericEsSearchResponse(),
+					},
+				}
+			})
+
+			It("should return an empty slice of grafeas occurrences", func() {
+				Expect(actualOccurrences).To(BeNil())
+			})
+
+			It("should not return an error", func() {
+				Expect(actualErr).ToNot(HaveOccurred())
+			})
+		})
+
+		When("elasticsearch returns a bad object", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body:       ioutil.NopCloser(strings.NewReader("bad object")),
+					},
+				}
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+		})
+
+		When("returns an unexpected response", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusInternalServerError,
+					},
+				}
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+		})
+	})
 })
 
 func createProjectEsSearchResponse(projects ...*prpb.Project) io.ReadCloser {
 	var messages []proto.Message
 	for _, p := range projects {
+		messages = append(messages, p)
+	}
+
+	return createGenericEsSearchResponse(messages...)
+}
+
+func createOccurrenceEsSearchResponse(occurrences ...*pb.Occurrence) io.ReadCloser {
+	var messages []proto.Message
+	for _, p := range occurrences {
 		messages = append(messages, p)
 	}
 
@@ -1193,9 +1352,9 @@ func assertJsonHasValues(body io.ReadCloser, values map[string]interface{}) {
 func assertIndexCreateBodyHasMetadataAndStringMapping(body io.ReadCloser) {
 	assertJsonHasValues(body, map[string]interface{}{
 		"mappings._meta.type": "grafeas",
-		"mappings.dynamic_templates.0.strings.match_mapping_type": "string",
-		"mappings.dynamic_templates.0.strings.mapping.type":       "keyword",
-		"mappings.dynamic_templates.0.strings.mapping.norms":      false,
+		"mappings.dynamic_templates.0.strings_as_keywords.match_mapping_type": "string",
+		"mappings.dynamic_templates.0.strings_as_keywords.mapping.type":       "keyword",
+		"mappings.dynamic_templates.0.strings_as_keywords.mapping.norms":      false,
 	})
 }
 

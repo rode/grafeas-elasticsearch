@@ -728,8 +728,6 @@ func (es *ElasticsearchStorage) DeleteNote(ctx context.Context, pID, nID string)
 	return nil
 }
 
-// -------------------------------------------
-
 // GetOccurrenceNote gets the note for the specified occurrence from PostgreSQL.
 func (es *ElasticsearchStorage) GetOccurrenceNote(ctx context.Context, pID, oID string) (*pb.Note, error) {
 	return nil, nil

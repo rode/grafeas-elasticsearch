@@ -6,7 +6,6 @@ require (
 	github.com/Jeffail/gabs/v2 v2.6.0
 	github.com/brianvoe/gofakeit/v5 v5.10.1
 	github.com/elastic/go-elasticsearch/v7 v7.5.1-0.20201104130636-152864b47d96
-	github.com/gogo/protobuf v1.2.1
 	github.com/golang/mock v1.4.4
 	github.com/golang/protobuf v1.4.2
 	github.com/google/cel-go v0.6.0
@@ -24,7 +23,6 @@ require (
 	golang.org/x/sys v0.0.0-20201118182958-a01c418693c7 // indirect
 	google.golang.org/genproto v0.0.0-20200806141610-86f49bd18e98
 	google.golang.org/grpc v1.33.1
-	google.golang.org/grpc/examples v0.0.0-20201112215255-90f1b3ee835b // indirect
 	google.golang.org/protobuf v1.25.0
 )
 

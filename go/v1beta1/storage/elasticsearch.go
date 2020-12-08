@@ -6,15 +6,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
+	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"google.golang.org/protobuf/encoding/protojson"
 	"io"
 	"net/http"
-	"strings"
-
-	"github.com/elastic/go-elasticsearch/v7/esapi"
-	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/golang/protobuf/ptypes"
@@ -78,7 +76,7 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 		if res.IsError() {
 			return nil, createError(log, "error creating index in elasticsearch", errors.New(res.String()))
 		}
-		log.Info("index created")
+		log.Info("project index created", zap.String("index", projectsIndex()))
 	}
 
 	return &storage.Storage{
@@ -90,8 +88,8 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 // CreateProject creates a project document within the project index, along with two indices that can be used
 // to store notes and occurrences.
 // Additional metadata is attached to the newly created indices to help identify them as part of a Grafeas project
-func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID string, p *prpb.Project) (*prpb.Project, error) {
-	projectName := fmt.Sprintf("projects/%s", projectID)
+func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId string, p *prpb.Project) (*prpb.Project, error) {
+	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("CreateProject").With(zap.String("project", projectName))
 
 	searchBody := encodeRequest(&esSearch{
@@ -119,7 +117,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 		return nil, err
 	}
 	if searchResults.Hits.Total.Value > 0 {
-		log.Info("project already exists")
+		log.Debug("project already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s already exists", projectName))
 	}
 
@@ -144,8 +142,8 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 
 	// Create indices for occurrences and notes
 	for _, index := range []string{
-		occurrencesIndex(projectID),
-		notesIndex(projectID),
+		occurrencesIndex(projectId),
+		notesIndex(projectId),
 	} {
 		res, err = es.client.Indices.Create(
 			index,
@@ -160,15 +158,16 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectID str
 		}
 	}
 
-	log.Info("created project")
+	log.Debug("created project")
 
 	return p, nil
 }
 
 // GetProject returns the project with the given projectId from Elasticsearch
-func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string) (*prpb.Project, error) {
-	projectName := fmt.Sprintf("projects/%s", projectID)
+func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectId string) (*prpb.Project, error) {
+	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("GetProject").With(zap.String("project", projectName))
+	log.Debug("getting project")
 
 	searchBody := encodeRequest(&esSearch{
 		Query: &filtering.Query{
@@ -196,7 +195,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 	}
 
 	if searchResults.Hits.Total.Value == 0 {
-		log.Info("project not found")
+		log.Debug("project not found")
 		return nil, status.Error(codes.NotFound, fmt.Sprintf("project with name %s not found", projectName))
 	}
 
@@ -213,12 +212,11 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectID string
 // start if pageToken is the empty string).
 func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string, pageSize int, pageToken string) ([]*prpb.Project, string, error) {
 	var projects []*prpb.Project
-
-	body := &esSearch{}
-
 	log := es.logger.Named("ListProjects")
 
+	body := &esSearch{}
 	if filter != "" {
+		log = log.With(zap.String("filter", filter))
 		filterQuery, err := es.filterer.ParseExpression(filter)
 		if err != nil {
 			return nil, "", createError(log, "error while parsing filter expression", err)
@@ -227,14 +225,19 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 		body.Query = filterQuery
 	}
 
+	log.Debug("listing projects")
+
 	encodedBody := encodeRequest(body)
 	res, err := es.client.Search(
 		es.client.Search.WithContext(ctx),
 		es.client.Search.WithIndex(projectsIndex()),
 		es.client.Search.WithBody(encodedBody),
 	)
-	if err != nil || res.IsError() {
-		return nil, "", createError(log, "error searching elasticsearch for projects", err)
+	if err != nil {
+		return nil, "", createError(log, "error sending request to elasticsearch", err)
+	}
+	if res.IsError() {
+		return nil, "", createError(log, "unexpected response from elasticsearch when listing projects", nil, zap.String("response", res.String()))
 	}
 
 	var searchResults esSearchResponse
@@ -246,7 +249,7 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 		hitLogger := log.With(zap.String("project raw", string(hit.Source)))
 
 		project := &prpb.Project{}
-		err := json.Unmarshal(hit.Source, &project)
+		err := protojson.Unmarshal(hit.Source, proto.MessageV2(project))
 		if err != nil {
 			log.Error("failed to convert _doc to project", zap.Error(err))
 			return nil, "", createError(hitLogger, "error converting _doc to project", err)
@@ -257,16 +260,15 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 		projects = append(projects, project)
 	}
 
-	log.Info("listed projects")
-
 	return projects, "", nil
 }
 
-// DeleteProject deletes the project with the given pID from the store
-func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID string) error {
-	projectName := fmt.Sprintf("projects/%s", projectID)
+// DeleteProject deletes the project with the given projectId from Elasticsearch
+// Note that this will always return a 500 due to a bug in Grafeas
+func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId string) error {
+	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("DeleteProject").With(zap.String("project", projectName))
-	log.Info("deleting project")
+	log.Debug("deleting project")
 
 	searchBody := encodeRequest(&esSearch{
 		Query: &filtering.Query{
@@ -297,12 +299,12 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 		return createError(log, "elasticsearch returned zero deleted documents", nil, zap.Any("response", deletedResults))
 	}
 
-	log.Info("project document deleted")
+	log.Debug("project document deleted")
 
 	res, err = es.client.Indices.Delete(
 		[]string{
-			occurrencesIndex(projectID),
-			notesIndex(projectID),
+			occurrencesIndex(projectId),
+			notesIndex(projectId),
 		},
 		es.client.Indices.Delete.WithContext(ctx),
 	)
@@ -310,15 +312,16 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 		return createError(log, "error deleting elasticsearch indices", err)
 	}
 
-	log.Info("project indices for notes / occurrences deleted")
+	log.Debug("project indices for notes / occurrences deleted")
 
 	return nil
 }
 
-// GetOccurrence returns the occurrence with pID and oID
+// GetOccurrence returns the occurrence with name projects/${projectId}/occurrences/${occurrenceId} from Elasticsearch
 func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectId, occurrenceId string) (*pb.Occurrence, error) {
 	occurrenceName := fmt.Sprintf("projects/%s/occurrences/%s", projectId, occurrenceId)
 	log := es.logger.Named("GetOccurrence").With(zap.String("occurrence", occurrenceName))
+	log.Debug("getting occurrence")
 
 	searchBody := encodeRequest(&esSearch{
 		Query: &filtering.Query{
@@ -346,7 +349,7 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectId, oc
 	}
 
 	if searchResults.Hits.Total.Value == 0 {
-		log.Info("occurrence not found")
+		log.Debug("occurrence not found")
 		return nil, status.Error(codes.NotFound, fmt.Sprintf("occurrence with name %s not found", occurrenceName))
 	}
 
@@ -361,84 +364,68 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectId, oc
 
 // ListOccurrences returns up to pageSize number of occurrences for this project beginning
 // at pageToken, or from start if pageToken is the empty string.
-func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, pID, filter, pageToken string, pageSize int32) ([]*pb.Occurrence, string, error) {
-	log := es.logger.Named("ListOccurrences")
+func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, projectId, filter, pageToken string, pageSize int32) ([]*pb.Occurrence, string, error) {
+	var occurrences []*pb.Occurrence
+	projectName := fmt.Sprintf("projects/%s", projectId)
+	log := es.logger.Named("ListOccurrences").With(zap.String("project", projectName))
 
-	var (
-		os   []*pb.Occurrence
-		body strings.Builder
-	)
+	body := &esSearch{}
+	if filter != "" {
+		log = log.With(zap.String("filter", filter))
+		filterQuery, err := es.filterer.ParseExpression(filter)
+		if err != nil {
+			return nil, "", createError(log, "error while parsing filter expression", err)
+		}
 
-	log.Debug("Project ID", zap.String("pID", pID))
-
-	body.WriteString("{\n")
-
-	if filter == "" {
-		body.WriteString(`"query" : { "match_all" : {} },`)
-	} else {
-		body.WriteString(filter)
+		body.Query = filterQuery
 	}
 
-	body.WriteString(fmt.Sprintf(`"size": %d`, pageSize))
-	body.WriteString("\n}")
+	log.Debug("listing occurrences")
 
+	encodedBody := encodeRequest(body)
 	res, err := es.client.Search(
-		es.client.Search.WithIndex(pID),
-		es.client.Search.WithBody(strings.NewReader(body.String())),
+		es.client.Search.WithContext(ctx),
+		es.client.Search.WithIndex(occurrencesIndex(projectId)),
+		es.client.Search.WithBody(encodedBody),
 	)
 	if err != nil {
-		log.Error("Failed to retrieve documents from Elasticsearch", zap.Error(err))
-		return nil, "", err
+		return nil, "", createError(log, "error sending request to elasticsearch", err)
 	}
-
 	if res.IsError() {
-		//log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
-		var e map[string]interface{}
-		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
-			fmt.Printf("Error parsing the response body: %s", err)
-		} else {
-			// Print the response status and error information.
-			fmt.Printf("[%s] %s: %s",
-				res.Status(),
-				e["error"].(map[string]interface{})["type"],
-				e["error"].(map[string]interface{})["reason"],
-			)
-		}
+		return nil, "", createError(log, "unexpected response from elasticsearch when listing occurrences", nil, zap.String("response", res.String()))
 	}
 
 	var searchResults esSearchResponse
-	if err := json.NewDecoder(res.Body).Decode(&searchResults); err != nil {
-		return nil, "", err
+	if err := decodeResponse(res.Body, &searchResults); err != nil {
+		return nil, "", createError(log, "error decoding elasticsearch response", err)
 	}
-
-	log.Debug("ES Search hits", zap.Any("Total Hits", searchResults.Hits.Total.Value))
 
 	for _, hit := range searchResults.Hits.Hits {
-		log.Debug("Occurrence Hit", zap.String("Occ RAW", fmt.Sprintf("%+v", string(hit.Source))))
+		hitLogger := log.With(zap.String("occurrence raw", string(hit.Source)))
 
-		occ := &pb.Occurrence{}
-		err := json.Unmarshal(hit.Source, &occ)
+		occurrence := &pb.Occurrence{}
+		err := protojson.Unmarshal(hit.Source, proto.MessageV2(occurrence))
 		if err != nil {
-			log.Error("Failed to convert _doc to occurrence", zap.Error(err))
-			return nil, "", err
+			log.Error("failed to convert _doc to occurrence", zap.Error(err))
+			return nil, "", createError(hitLogger, "error converting _doc to occurrence", err)
 		}
 
-		log.Debug("Occurrence Hit", zap.String("Occ", fmt.Sprintf("%+v", occ)))
+		hitLogger.Debug("occurrence hit", zap.Any("occurrence", occurrence))
 
-		os = append(os, occ)
+		occurrences = append(occurrences, occurrence)
 	}
 
-	return nil, "", nil
+	return occurrences, "", nil
 }
 
-// CreateOccurrence adds the specified occurrence
-func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectID, userID string, o *pb.Occurrence) (*pb.Occurrence, error) {
+// CreateOccurrence adds the specified occurrence to Elasticsearch
+func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId, userID string, o *pb.Occurrence) (*pb.Occurrence, error) {
 	log := es.logger.Named("CreateOccurrence")
 
 	if o.CreateTime == nil {
 		o.CreateTime = ptypes.TimestampNow()
 	}
-	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectID, uuid.New().String())
+	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, uuid.New().String())
 
 	str, err := protojson.Marshal(proto.MessageV2(o))
 	if err != nil {
@@ -446,7 +433,7 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectID,
 	}
 
 	res, err := es.client.Index(
-		occurrencesIndex(projectID),
+		occurrencesIndex(projectId),
 		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),
 	)
@@ -471,8 +458,10 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectID,
 
 // BatchCreateOccurrences batch creates the specified occurrences in Elasticsearch.
 // This method uses the ES "_bulk" API: https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html
+// This method will return all of the occurrences that were successfully created, and all of the errors that were encountered (if any)
 func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, projectId string, uID string, occurrences []*pb.Occurrence) ([]*pb.Occurrence, []error) {
 	log := es.logger.Named("BatchCreateOccurrences")
+	log.Debug("creating occurrences")
 
 	indexMetadata := &esBulkQueryFragment{
 		Index: &esBulkQueryIndexFragment{
@@ -529,6 +518,8 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 		}
 	}
 
+	// each indexing operation in this bulk request has its own status
+	// we need to iterate over each of the items in the response to know whether or not that particular occurrence was created successfully
 	var (
 		createdOccurrences []*pb.Occurrence
 		errs               []error
@@ -549,21 +540,21 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 		return createdOccurrences, errs
 	}
 
-	log.Info("occurrences created successfully")
+	log.Debug("occurrences created successfully")
 
 	return createdOccurrences, nil
 }
 
-// UpdateOccurrence updates the existing occurrence with the given projectID and occurrenceID
-func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, pID, oID string, o *pb.Occurrence, mask *fieldmaskpb.FieldMask) (*pb.Occurrence, error) {
+// UpdateOccurrence updates the existing occurrence with the given projectId and occurrenceId
+func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, projectId, occurrenceId string, o *pb.Occurrence, mask *fieldmaskpb.FieldMask) (*pb.Occurrence, error) {
 	return nil, nil
 }
 
-// DeleteOccurrence deletes the occurrence with the given pID and oID
+// DeleteOccurrence deletes the occurrence with the given projectId and occurrenceId
 func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, projectId, occurrenceId string) error {
 	occurrenceName := fmt.Sprintf("projects/%s/occurrences/%s", projectId, occurrenceId)
 	log := es.logger.Named("DeleteOccurrence").With(zap.String("occurrence", occurrenceName))
-	log.Info("deleting occurrence")
+	log.Debug("deleting occurrence")
 
 	searchBody := encodeRequest(&esSearch{
 		Query: &filtering.Query{
@@ -594,22 +585,19 @@ func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, projectId,
 		return createError(log, "elasticsearch returned zero deleted documents", nil, zap.Any("response", deletedResults))
 	}
 
-	log.Info("occurrence document deleted")
-
 	return nil
 }
 
 // GetNote returns the note with project (pID) and note ID (nID)
-func (es *ElasticsearchStorage) GetNote(ctx context.Context, pID, nID string) (*pb.Note, error) {
-	log := es.logger.Named("GetNote")
-
-	queryField := fmt.Sprintf("projects/%s/notes/%s", pID, nID)
+func (es *ElasticsearchStorage) GetNote(ctx context.Context, projectId, noteId string) (*pb.Note, error) {
+	noteName := fmt.Sprintf("projects/%s/notes/%s", projectId, noteId)
+	log := es.logger.Named("GetNote").With(zap.String("note", noteName))
 
 	var getDocumentBuffer bytes.Buffer
 	getDocumentBody := map[string]interface{}{
 		"query": map[string]interface{}{
 			"match": map[string]interface{}{
-				"name": queryField,
+				"name": noteName,
 			},
 		},
 	}
@@ -619,7 +607,7 @@ func (es *ElasticsearchStorage) GetNote(ctx context.Context, pID, nID string) (*
 
 	res, err := es.client.Search(
 		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(pID),
+		es.client.Search.WithIndex(projectId),
 		es.client.Search.WithBody(&getDocumentBuffer),
 	)
 	if err != nil {
@@ -777,7 +765,7 @@ func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
 			},
 			"dynamic_templates": []map[string]interface{}{
 				{
-					"strings": map[string]interface{}{
+					"strings_as_keywords": map[string]interface{}{
 						"match_mapping_type": "string",
 						"mapping": map[string]interface{}{
 							"type":  "keyword",

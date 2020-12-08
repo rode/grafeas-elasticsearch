@@ -1265,6 +1265,20 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(transport.receivedHttpRequests).To(HaveLen(1))
 			})
 		})
+
+		When("checking for the existence of the note fails", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+
+			It("should not attempt to index a note document", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
+			})
+		})
 	})
 })
 

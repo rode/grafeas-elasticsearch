@@ -709,8 +709,41 @@ func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectID, filter
 }
 
 // CreateNote adds the specified note
-func (es *ElasticsearchStorage) CreateNote(ctx context.Context, pID, nID, uID string, n *pb.Note) (*pb.Note, error) {
-	return nil, nil
+func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteId, uID string, n *pb.Note) (*pb.Note, error) {
+	log := es.logger.Named("CreateNote")
+
+	if n.CreateTime == nil {
+		n.CreateTime = ptypes.TimestampNow()
+	}
+	n.Name = fmt.Sprintf("projects/%s/notes/%s", projectId, noteId)
+
+	str, err := protojson.Marshal(proto.MessageV2(n))
+	if err != nil {
+		return nil, createError(log, "error marshalling note to json", err)
+	}
+
+	res, err := es.client.Index(
+		notesIndex(projectId),
+		bytes.NewReader(str),
+		es.client.Index.WithContext(ctx),
+	)
+	if err != nil {
+		return nil, createError(log, "error creating note in elasticsearch", err)
+	}
+
+	if res.IsError() {
+		return nil, createError(log, "got unexpected status code from elasticsearch", nil, zap.Int("status", res.StatusCode))
+	}
+
+	esResponse := &esIndexDocResponse{}
+	err = decodeResponse(res.Body, esResponse)
+	if err != nil {
+		return nil, createError(log, "error decoding elasticsearch response", err)
+	}
+
+	log.Debug("elasticsearch response", zap.Any("response", esResponse))
+
+	return n, nil
 }
 
 // BatchCreateNotes batch creates the specified notes in memstore.

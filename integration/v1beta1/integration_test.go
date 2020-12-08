@@ -18,8 +18,6 @@ type setup struct {
 }
 
 func newSetup() (*setup, error) {
-	gofakeit.Seed(0)
-
 	ctx := context.Background()
 
 	projectsCC, err := grpc.DialContext(ctx, "localhost:8080", grpc.WithInsecure())
@@ -35,22 +33,33 @@ func newSetup() (*setup, error) {
 }
 
 var _ = Describe("Integration", func() {
-	s, err := newSetup()
+	var (
+		err error
+		s   *setup
+	)
 
-	if err != nil {
-		log.Fatalf("Failed to create integration test setup.\nError: %v", err)
-	}
+	gofakeit.Seed(0)
+
+	BeforeEach(func() {
+		s, err = newSetup()
+
+		if err != nil {
+			log.Fatalf("Failed to create integration test setup.\nError: %v", err)
+		}
+	})
 
 	Describe("Creating a project", func() {
-		It("should work", func() {
-			name := randomProjectName()
+		When("a valid name is used", func() {
+			It("should be successful", func() {
+				name := randomProjectName()
 
-			project, err := s.projectsClient.CreateProject(s.ctx, &project_go_proto.CreateProjectRequest{Project: &project_go_proto.Project{Name: name}})
+				project, err := s.projectsClient.CreateProject(s.ctx, &project_go_proto.CreateProjectRequest{Project: &project_go_proto.Project{Name: name}})
 
-			Expect(err).ToNot(HaveOccurred())
+				Expect(err).ToNot(HaveOccurred())
 
-			_, err = s.projectsClient.GetProject(s.ctx, &project_go_proto.GetProjectRequest{Name: project.GetName()})
-			Expect(err).ToNot(HaveOccurred())
+				_, err = s.projectsClient.GetProject(s.ctx, &project_go_proto.GetProjectRequest{Name: project.GetName()})
+				Expect(err).ToNot(HaveOccurred())
+			})
 		})
 	})
 })

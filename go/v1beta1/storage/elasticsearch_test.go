@@ -1172,6 +1172,10 @@ var _ = Describe("elasticsearch storage", func() {
 
 			transport.preparedHttpResponses = []*http.Response{
 				{
+					StatusCode: http.StatusOK,
+					Body:       createGenericEsSearchResponse(), // happy path: a note with this ID does not exist (0 hits), so we create one
+				},
+				{
 					StatusCode: http.StatusCreated,
 					Body: structToJsonBody(&esIndexDocResponse{
 						Id: expectedNoteESId,
@@ -1184,50 +1188,81 @@ var _ = Describe("elasticsearch storage", func() {
 		JustBeforeEach(func() {
 			note := deepCopyNote(expectedNote)
 
-			transport.preparedHttpResponses[0].Body = structToJsonBody(&esIndexDocResponse{
-				Id: expectedNoteId,
-			})
 			actualNote, actualErr = elasticsearchStorage.CreateNote(context.Background(), expectedProjectId, expectedNoteId, "", note)
 		})
 
-		It("should attempt to index the note as a document", func() {
-			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedNotesIndex)))
+		It("should check elasticsearch to see if a note with the specified noteId already exists", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedNotesIndex)))
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
-			indexedNote := &pb.Note{}
-			err = protojson.Unmarshal(requestBody, proto.MessageV2(indexedNote))
+			searchBody := &esSearch{}
+			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 
-			Expect(indexedNote).To(BeEquivalentTo(expectedNote))
+			Expect((*searchBody.Query.Term)["name"]).To(Equal(expectedNoteName))
 		})
 
-		When("indexing the document fails", func() {
+		When("a note with the specified noteId does not exist", func() {
+			It("should attempt to index the note as a document", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(2))
+
+				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedNotesIndex)))
+
+				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[1].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				indexedNote := &pb.Note{}
+				err = protojson.Unmarshal(requestBody, proto.MessageV2(indexedNote))
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(indexedNote).To(BeEquivalentTo(expectedNote))
+			})
+
+			When("indexing the document fails", func() {
+				BeforeEach(func() {
+					transport.preparedHttpResponses[0] = &http.Response{
+						StatusCode: http.StatusInternalServerError,
+						Body: structToJsonBody(&esIndexDocResponse{
+							Error: &esIndexDocError{
+								Type:   gofakeit.LetterN(10),
+								Reason: gofakeit.LetterN(10),
+							},
+						}),
+					}
+				})
+
+				It("should return an error", func() {
+					Expect(actualNote).To(BeNil())
+					Expect(actualErr).To(HaveOccurred())
+				})
+			})
+
+			When("indexing the document succeeds", func() {
+				It("should return the note that was created", func() {
+					Expect(actualErr).ToNot(HaveOccurred())
+
+					expectedNote.Name = actualNote.Name
+					Expect(actualNote).To(Equal(expectedNote))
+				})
+			})
+		})
+
+		When("a note with the specified noteId exists", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponses[0] = &http.Response{
-					StatusCode: http.StatusInternalServerError,
-					Body: structToJsonBody(&esIndexDocResponse{
-						Error: &esIndexDocError{
-							Type:   gofakeit.LetterN(10),
-							Reason: gofakeit.LetterN(10),
-						},
-					}),
-				}
+				transport.preparedHttpResponses[0].Body = createGenericEsSearchResponse(&pb.Note{
+					Name: expectedNoteName,
+				})
 			})
 
 			It("should return an error", func() {
-				Expect(actualNote).To(BeNil())
-				Expect(actualErr).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(actualErr, codes.AlreadyExists)
 			})
-		})
 
-		When("indexing the document succeeds", func() {
-			It("should return the note that was created", func() {
-				Expect(actualErr).ToNot(HaveOccurred())
-
-				expectedNote.Name = actualNote.Name
-				Expect(actualNote).To(Equal(expectedNote))
+			It("should not attempt to index a note document", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
 			})
 		})
 	})

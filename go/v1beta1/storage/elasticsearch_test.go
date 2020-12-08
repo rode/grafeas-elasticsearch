@@ -1279,6 +1279,20 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(transport.receivedHttpRequests).To(HaveLen(1))
 			})
 		})
+
+		When("elasticsearch returns a bad response when checking if a note exists", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].Body = ioutil.NopCloser(strings.NewReader("bad object"))
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+
+			It("should not attempt to index a note document", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
+			})
+		})
 	})
 })
 

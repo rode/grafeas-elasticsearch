@@ -58,6 +58,11 @@ var _ = Describe("Grafeas Elasticsearch", func() {
 		}
 	})
 
+	AfterEach(func() {
+		err = nil
+		s = nil
+	})
+
 	Describe("Projects", func() {
 		Context("creating a project", func() {
 			When("using a valid name", func() {
@@ -76,6 +81,24 @@ var _ = Describe("Grafeas Elasticsearch", func() {
 				})
 			})
 		})
+
+		//Context("deleting a project", func() {
+		//	When("it exists", func() {
+		//		It("should be successfully removed", func() {
+		//			name := randomProjectName()
+		//
+		//			By("creating the project")
+		//
+		//			p, err := s.pc.CreateProject(s.ctx, &project_go_proto.CreateProjectRequest{Project: &project_go_proto.Project{Name: name}})
+		//			Expect(err).ToNot(HaveOccurred())
+		//
+		//			By("deleting the project")
+		//
+		//			_, err = s.pc.DeleteProject(s.ctx, &project_go_proto.DeleteProjectRequest{Name: p.GetName()})
+		//			Expect(err).ToNot(HaveOccurred())
+		//		})
+		//	})
+		//})
 	})
 
 	Describe("Occurrences", func() {

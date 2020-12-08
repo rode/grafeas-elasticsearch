@@ -11,7 +11,6 @@ require (
 	github.com/google/cel-go v0.6.0
 	github.com/google/go-cmp v0.5.2 // indirect
 	github.com/google/uuid v1.1.2
-	github.com/grafeas/client-go v0.0.0-20190625211527-39fa98b49d38
 	github.com/grafeas/grafeas v0.1.6
 	github.com/hashicorp/go-multierror v1.0.0
 	github.com/onsi/ginkgo v1.14.2

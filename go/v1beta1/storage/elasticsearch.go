@@ -689,36 +689,18 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 	log := es.logger.Named("CreateNote").With(zap.String("note", noteName))
 
 	// since note IDs are provided up front by the client, we need to search ES to see if this note already exists before creating it
-	// we can replace this implementation with a call to GetNote once that's finished :)
-	log.Debug("searching for note")
-	searchBody := encodeRequest(&esSearch{
+	err := es.genericGet(ctx, log, &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": noteName,
 			},
 		},
-	})
-
-	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(notesIndex(projectId)),
-		es.client.Search.WithBody(searchBody),
-	)
-	if err != nil {
-		return nil, createError(log, "error sending request to elasticsearch", err)
-	}
-	if res.IsError() {
-		return nil, createError(log, "error searching elasticsearch for note", nil, zap.String("response", res.String()))
-	}
-
-	var searchResults esSearchResponse
-	if err := decodeResponse(res.Body, &searchResults); err != nil {
-		return nil, createError(log, "error unmarshalling elasticsearch response", err)
-	}
-
-	if searchResults.Hits.Total.Value > 0 {
+	}, notesIndex(projectId), &pb.Note{})
+	if err == nil { // note exists
 		log.Debug("note already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("note with name %s already exists", noteName))
+	} else if status.Code(err) != codes.NotFound { // unexpected error (we expect a not found here)
+		return nil, err
 	}
 
 	if n.CreateTime == nil {
@@ -731,7 +713,7 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 		return nil, createError(log, "error marshalling note to json", err)
 	}
 
-	res, err = es.client.Index(
+	res, err := es.client.Index(
 		notesIndex(projectId),
 		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),

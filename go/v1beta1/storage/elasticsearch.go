@@ -593,44 +593,19 @@ func (es *ElasticsearchStorage) GetNote(ctx context.Context, projectId, noteId s
 	noteName := fmt.Sprintf("projects/%s/notes/%s", projectId, noteId)
 	log := es.logger.Named("GetNote").With(zap.String("note", noteName))
 
-	var getDocumentBuffer bytes.Buffer
-	getDocumentBody := map[string]interface{}{
-		"query": map[string]interface{}{
-			"match": map[string]interface{}{
+	search := &esSearch{
+		Query: &filtering.Query{
+			Term: &filtering.Term{
 				"name": noteName,
 			},
 		},
 	}
-	if err := json.NewEncoder(&getDocumentBuffer).Encode(getDocumentBody); err != nil {
-		return nil, createError(log, "error encoding elasticsearch get document body", err)
-	}
+	note := &pb.Note{}
 
-	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(projectId),
-		es.client.Search.WithBody(&getDocumentBuffer),
-	)
+	err := es.genericGet(ctx, log, search, notesIndex(projectId), note)
 	if err != nil {
-		return nil, createError(log, "error retrieving note from elasticsearch", err)
-	}
-	if res.StatusCode != http.StatusOK {
-		return nil, createError(log, "got unexpected status code from elasticsearch", nil, zap.Int("status", res.StatusCode))
-	}
-
-	log.Debug("elasticsearch response", zap.Any("response", res))
-
-	getDocumentResponse := &esSearchResponse{}
-	if err := json.NewDecoder(res.Body).Decode(&getDocumentResponse); err != nil {
-		log.Error("error decoding elasticsearch response body", zap.NamedError("error", err))
 		return nil, err
 	}
-
-	log.Debug("hit raw source", zap.Any("raw _source", getDocumentResponse.Hits.Hits[0].Source))
-
-	note := &pb.Note{}
-	protojson.Unmarshal(getDocumentResponse.Hits.Hits[0].Source, proto.MessageV2(note))
-
-	log.Debug("converted note", zap.Any("unmarshaled occurrence", note))
 
 	return note, nil
 }
@@ -808,6 +783,32 @@ func (es *ElasticsearchStorage) ListNoteOccurrences(ctx context.Context, project
 // GetVulnerabilityOccurrencesSummary gets a summary of vulnerability occurrences from storage.
 func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.Context, projectID, filter string) (*pb.VulnerabilityOccurrencesSummary, error) {
 	return &pb.VulnerabilityOccurrencesSummary{}, nil
+}
+
+func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *esSearch, index string, i interface{}) error {
+	res, err := es.client.Search(
+		es.client.Search.WithContext(ctx),
+		es.client.Search.WithIndex(index),
+		es.client.Search.WithBody(encodeRequest(search)),
+	)
+	if err != nil {
+		return createError(log, "error sending request to elasticsearch", err)
+	}
+	if res.IsError() {
+		return createError(log, "error searching elasticsearch for document", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
+	}
+
+	var searchResults esSearchResponse
+	if err := decodeResponse(res.Body, &searchResults); err != nil {
+		return createError(log, "error unmarshalling elasticsearch response", err)
+	}
+
+	if searchResults.Hits.Total.Value == 0 {
+		log.Debug("document not found", zap.Any("search", search))
+		return status.Error(codes.NotFound, fmt.Sprintf("%T not found", i))
+	}
+
+	return protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(i))
 }
 
 // createError is a helper function that allows you to easily log an error and return a gRPC formatted error.

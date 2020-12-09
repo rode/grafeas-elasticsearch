@@ -641,28 +641,9 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 	}
 	n.Name = noteName
 
-	str, err := protojson.Marshal(proto.MessageV2(n))
+	err = es.genericCreate(ctx, log, notesIndex(projectId), n)
 	if err != nil {
-		return nil, createError(log, "error marshalling note to json", err)
-	}
-
-	res, err := es.client.Index(
-		notesIndex(projectId),
-		bytes.NewReader(str),
-		es.client.Index.WithContext(ctx),
-	)
-	if err != nil {
-		return nil, createError(log, "error sending request to elasticsearch", err)
-	}
-
-	if res.IsError() {
-		return nil, createError(log, "error creating note in elasticsearch", nil, zap.String("response", res.String()))
-	}
-
-	esResponse := &esIndexDocResponse{}
-	err = decodeResponse(res.Body, esResponse)
-	if err != nil {
-		return nil, createError(log, "error decoding elasticsearch response", err)
+		return nil, err
 	}
 
 	return n, nil

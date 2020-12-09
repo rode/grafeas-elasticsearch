@@ -92,60 +92,36 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("CreateProject").With(zap.String("project", projectName))
 
-	searchBody := encodeRequest(&esSearch{
+	// check if project already exists
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": projectName,
 			},
 		},
-	})
-
-	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(projectsIndex()),
-		es.client.Search.WithBody(searchBody),
-	)
-	if err != nil {
-		return nil, createError(log, "error sending request to elasticsearch", err)
 	}
-	if res.IsError() {
-		return nil, createError(log, "error searching elasticsearch for projects", nil)
-	}
-
-	var searchResults esSearchResponse
-	if err := json.NewDecoder(res.Body).Decode(&searchResults); err != nil {
-		return nil, err
-	}
-	if searchResults.Hits.Total.Value > 0 {
+	err := es.genericGet(ctx, log, search, projectsIndex(), &prpb.Project{})
+	if err == nil { // project exists
 		log.Debug("project already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s already exists", projectName))
+	} else if status.Code(err) != codes.NotFound { // unexpected error (we expect a not found error here)
+		return nil, err
 	}
 
 	p.Name = projectName
-	str, err := protojson.Marshal(proto.MessageV2(p))
+
+	// create project document
+	err = es.genericCreate(ctx, log, projectsIndex(), p)
 	if err != nil {
-		return nil, createError(log, "error marshalling occurrence to json", err)
+		return nil, err
 	}
 
-	// Create new project document
-	res, err = es.client.Index(
-		projectsIndex(),
-		bytes.NewReader(str),
-		es.client.Index.WithContext(ctx),
-	)
-	if err != nil {
-		return nil, createError(log, "error sending request to elasticsearch", err)
-	}
-	if res.IsError() {
-		return nil, createError(log, "error creating project document within elasticsearch", nil)
-	}
-
-	// Create indices for occurrences and notes
+	// create indices for occurrences and notes
 	for _, index := range []string{
 		occurrencesIndex(projectId),
 		notesIndex(projectId),
 	} {
-		res, err = es.client.Indices.Create(
+		res, err := es.client.Indices.Create(
 			index,
 			es.client.Indices.Create.WithContext(ctx),
 			withIndexMetadataAndStringMapping(),
@@ -622,13 +598,14 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 	log := es.logger.Named("CreateNote").With(zap.String("note", noteName))
 
 	// since note IDs are provided up front by the client, we need to search ES to see if this note already exists before creating it
-	err := es.genericGet(ctx, log, &esSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": noteName,
 			},
 		},
-	}, notesIndex(projectId), &pb.Note{})
+	}
+	err := es.genericGet(ctx, log, search, notesIndex(projectId), &pb.Note{})
 	if err == nil { // note exists
 		log.Debug("note already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("note with name %s already exists", noteName))

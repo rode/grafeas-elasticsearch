@@ -155,6 +155,9 @@ var _ = Describe("elasticsearch storage", func() {
 				},
 				{
 					StatusCode: http.StatusOK,
+					Body: structToJsonBody(&esIndexDocResponse{
+						Id: gofakeit.LetterN(10),
+					}),
 				},
 				{
 					StatusCode: http.StatusOK,
@@ -216,10 +219,6 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		When("the project does not exist", func() {
-			BeforeEach(func() {
-				transport.preparedHttpResponses[1] = &http.Response{StatusCode: http.StatusCreated}
-			})
-
 			It("should create a new document for the project", func() {
 				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedProjectIndex)))
 				Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodPost))

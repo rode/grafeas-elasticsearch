@@ -281,6 +281,7 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectID str
 		[]string{projectsIndex()},
 		searchBody,
 		es.client.DeleteByQuery.WithContext(ctx),
+		es.client.DeleteByQuery.WithRefresh(true),
 	)
 	if err != nil {
 		return createError(log, "error sending request to elasticsearch", err)

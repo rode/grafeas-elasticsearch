@@ -9,6 +9,7 @@ import (
 	"github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/provenance_go_proto"
 	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
 	"google.golang.org/grpc"
 	"log"
@@ -50,17 +51,12 @@ var _ = Describe("Grafeas Elasticsearch", func() {
 
 	fake.Seed(0)
 
-	BeforeEach(func() {
+	BeforeSuite(func() {
 		s, err = newSetup()
 
 		if err != nil {
 			log.Fatalf("Failed to create test setup.\nError: %v", err)
 		}
-	})
-
-	AfterEach(func() {
-		err = nil
-		s = nil
 	})
 
 	Describe("Projects", func() {
@@ -80,6 +76,60 @@ var _ = Describe("Grafeas Elasticsearch", func() {
 					Expect(err).ToNot(HaveOccurred())
 				})
 			})
+		})
+
+		Context("listing projects", func() {
+			var names []string
+
+			BeforeEach(func() {
+				names = []string{
+					"projects/foo",
+					"projects/bar",
+					"projects/foo-bar-123",
+				}
+
+				By("creating projects")
+
+				for _, n := range names {
+					_, err = s.pc.CreateProject(s.ctx, &project_go_proto.CreateProjectRequest{Project: &project_go_proto.Project{Name: n}})
+					Expect(err).ToNot(HaveOccurred())
+				}
+			})
+
+			AfterEach(func() {
+				By("removing projects")
+
+				for _, n := range names {
+					_, err = s.pc.DeleteProject(s.ctx, &project_go_proto.DeleteProjectRequest{Name: n})
+					Expect(err).To(HaveOccurred())
+				}
+			})
+
+			DescribeTable("filters",
+				func(filter string, expected []string) {
+					By("listing projects")
+
+					response, err := s.pc.ListProjects(s.ctx, &project_go_proto.ListProjectsRequest{Filter: filter})
+					Expect(err).ToNot(HaveOccurred())
+
+					By("comparing projects")
+
+					Expect(len(response.Projects)).To(Equal(len(expected)))
+					for _, p := range response.Projects {
+						Expect(p.GetName()).To(BeElementOf(expected))
+					}
+				},
+				Entry(
+					"single exact name match",
+					"name==\"projects/foo\"",
+					[]string{"projects/foo"},
+				),
+				Entry(
+					"or exact name matches",
+					"name==\"projects/foo\"||name==\"projects/bar\"",
+					[]string{"projects/foo", "projects/bar"},
+				),
+			)
 		})
 
 		//Context("deleting a project", func() {

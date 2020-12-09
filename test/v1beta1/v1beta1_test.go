@@ -43,6 +43,10 @@ func newSetup() (*setup, error) {
 }
 
 func TestGrafeasElasticsearch(t *testing.T) {
+	if testing.Short() {
+		t.Skipf("Test run with -short flag, skipping.")
+	}
+
 	fake.Seed(0)
 
 	g := NewGomegaWithT(t)

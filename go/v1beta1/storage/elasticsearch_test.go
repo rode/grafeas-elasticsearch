@@ -726,7 +726,7 @@ var _ = Describe("elasticsearch storage", func() {
 		var (
 			actualOccurrence         *pb.Occurrence
 			expectedOccurrence       *pb.Occurrence
-			expectedOccurrenceId     string
+			expectedOccurrenceESId   string
 			expectedOccurrencesIndex string
 			actualErr                error
 		)
@@ -734,15 +734,15 @@ var _ = Describe("elasticsearch storage", func() {
 		// BeforeEach configures the happy path for this context
 		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
-			expectedOccurrenceId = gofakeit.LetterN(10)
-			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")
+			expectedOccurrenceESId = gofakeit.LetterN(10)
+			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-occurrences", indexPrefix, expectedProjectId)
 			expectedOccurrence = generateTestOccurrence("")
 
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusCreated,
 					Body: structToJsonBody(&esIndexDocResponse{
-						Id: expectedOccurrenceId,
+						Id: expectedOccurrenceESId,
 					}),
 				},
 			}
@@ -753,7 +753,7 @@ var _ = Describe("elasticsearch storage", func() {
 			occurrence := deepCopyOccurrence(expectedOccurrence)
 
 			transport.preparedHttpResponses[0].Body = structToJsonBody(&esIndexDocResponse{
-				Id: expectedOccurrenceId,
+				Id: expectedOccurrenceESId,
 			})
 			actualOccurrence, actualErr = elasticsearchStorage.CreateOccurrence(context.Background(), expectedProjectId, "", occurrence)
 		})
@@ -1147,6 +1147,153 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 	})
+
+	Context("creating a new Grafeas note", func() {
+		var (
+			actualNote         *pb.Note
+			expectedNote       *pb.Note
+			expectedNoteId     string
+			expectedNoteName   string
+			expectedNoteESId   string
+			expectedNotesIndex string
+			actualErr          error
+		)
+
+		// BeforeEach configures the happy path for this context
+		// Variables configured here may be overridden in nested BeforeEach blocks
+		BeforeEach(func() {
+			// this setup is a bit different when compared to the tests for creating occurrences
+			// grafeas requires that the user specify a note's ID (and thus its name) beforehand
+			expectedNoteId = gofakeit.LetterN(10)
+			expectedNoteName = fmt.Sprintf("projects/%s/notes/%s", expectedProjectId, expectedNoteId)
+			expectedNotesIndex = fmt.Sprintf("%s-%s-notes", indexPrefix, expectedProjectId)
+			expectedNote = generateTestNote(expectedNoteName)
+			expectedNoteESId = gofakeit.LetterN(10)
+
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body:       createGenericEsSearchResponse(), // happy path: a note with this ID does not exist (0 hits), so we create one
+				},
+				{
+					StatusCode: http.StatusCreated,
+					Body: structToJsonBody(&esIndexDocResponse{
+						Id: expectedNoteESId,
+					}),
+				},
+			}
+		})
+
+		// JustBeforeEach actually invokes the system under test
+		JustBeforeEach(func() {
+			note := deepCopyNote(expectedNote)
+
+			actualNote, actualErr = elasticsearchStorage.CreateNote(context.Background(), expectedProjectId, expectedNoteId, "", note)
+		})
+
+		It("should check elasticsearch to see if a note with the specified noteId already exists", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedNotesIndex)))
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+
+			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
+			Expect(err).ToNot(HaveOccurred())
+
+			searchBody := &esSearch{}
+			err = json.Unmarshal(requestBody, searchBody)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect((*searchBody.Query.Term)["name"]).To(Equal(expectedNoteName))
+		})
+
+		When("a note with the specified noteId does not exist", func() {
+			It("should attempt to index the note as a document", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(2))
+
+				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedNotesIndex)))
+
+				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[1].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				indexedNote := &pb.Note{}
+				err = protojson.Unmarshal(requestBody, proto.MessageV2(indexedNote))
+				Expect(err).ToNot(HaveOccurred())
+
+				Expect(indexedNote).To(BeEquivalentTo(expectedNote))
+			})
+
+			When("indexing the document fails", func() {
+				BeforeEach(func() {
+					transport.preparedHttpResponses[0] = &http.Response{
+						StatusCode: http.StatusInternalServerError,
+						Body: structToJsonBody(&esIndexDocResponse{
+							Error: &esIndexDocError{
+								Type:   gofakeit.LetterN(10),
+								Reason: gofakeit.LetterN(10),
+							},
+						}),
+					}
+				})
+
+				It("should return an error", func() {
+					Expect(actualNote).To(BeNil())
+					Expect(actualErr).To(HaveOccurred())
+				})
+			})
+
+			When("indexing the document succeeds", func() {
+				It("should return the note that was created", func() {
+					Expect(actualErr).ToNot(HaveOccurred())
+
+					expectedNote.Name = actualNote.Name
+					Expect(actualNote).To(Equal(expectedNote))
+				})
+			})
+		})
+
+		When("a note with the specified noteId exists", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].Body = createGenericEsSearchResponse(&pb.Note{
+					Name: expectedNoteName,
+				})
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.AlreadyExists)
+			})
+
+			It("should not attempt to index a note document", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
+			})
+		})
+
+		When("checking for the existence of the note fails", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+
+			It("should not attempt to index a note document", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
+			})
+		})
+
+		When("elasticsearch returns a bad response when checking if a note exists", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].Body = ioutil.NopCloser(strings.NewReader("bad object"))
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+
+			It("should not attempt to index a note document", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
+			})
+		})
+	})
 })
 
 func createProjectEsSearchResponse(projects ...*prpb.Project) io.ReadCloser {
@@ -1314,8 +1461,11 @@ func generateTestOccurrences(l int) []*pb.Occurrence {
 
 func generateTestNote(name string) *pb.Note {
 	return &pb.Note{
-		Name: name,
-		Kind: common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
+		Name:             name,
+		ShortDescription: gofakeit.Phrase(),
+		LongDescription:  gofakeit.Phrase(),
+		Kind:             common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
+		CreateTime:       ptypes.TimestampNow(),
 	}
 }
 
@@ -1409,6 +1559,35 @@ func deepCopyOccurrence(occ *pb.Occurrence) *pb.Occurrence {
 	Expect(err).ToNot(HaveOccurred())
 
 	return result
+}
+
+func deepCopyNote(note *pb.Note) *pb.Note {
+	result := &pb.Note{}
+
+	str, err := protojson.Marshal(proto.MessageV2(note))
+	Expect(err).ToNot(HaveOccurred())
+
+	err = protojson.Unmarshal(str, proto.MessageV2(result))
+	Expect(err).ToNot(HaveOccurred())
+
+	return result
+}
+
+// helper function for asserting two messages are equivalent based on their JSON representations
+// you can use this to get a cleaner error message when a test fails to help determine the difference
+// between two messages
+func assertProtoMessagesAreEquivalent(m1, m2 proto.Message) {
+	m := protojson.MarshalOptions{
+		Indent: "  ",
+	}
+
+	str1, err := m.Marshal(proto.MessageV2(m1))
+	Expect(err).ToNot(HaveOccurred())
+
+	str2, err := m.Marshal(proto.MessageV2(m2))
+	Expect(err).ToNot(HaveOccurred())
+
+	Expect(string(str1)).To(BeEquivalentTo(string(str2)))
 }
 
 func ioReadCloserToByteSlice(r io.ReadCloser) []byte {

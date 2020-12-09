@@ -699,7 +699,7 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 	if err == nil { // note exists
 		log.Debug("note already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("note with name %s already exists", noteName))
-	} else if status.Code(err) != codes.NotFound { // unexpected error (we expect a not found here)
+	} else if status.Code(err) != codes.NotFound { // unexpected error (we expect a not found error here)
 		return nil, err
 	}
 

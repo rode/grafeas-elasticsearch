@@ -167,42 +167,19 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectId string) (*prpb.Project, error) {
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("GetProject").With(zap.String("project", projectName))
-	log.Debug("getting project")
 
-	searchBody := encodeRequest(&esSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": projectName,
 			},
 		},
-	})
-
-	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(projectsIndex()),
-		es.client.Search.WithBody(searchBody),
-	)
-	if err != nil {
-		return nil, createError(log, "error sending request to elasticsearch", err)
 	}
-	if res.IsError() {
-		return nil, createError(log, "error searching elasticsearch for project", nil, zap.String("response", res.String()))
-	}
-
-	var searchResults esSearchResponse
-	if err := decodeResponse(res.Body, &searchResults); err != nil {
-		return nil, createError(log, "error unmarshalling elasticsearch response", err)
-	}
-
-	if searchResults.Hits.Total.Value == 0 {
-		log.Debug("project not found")
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("project with name %s not found", projectName))
-	}
-
 	project := &prpb.Project{}
-	err = protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(project))
+
+	err := es.genericGet(ctx, log, search, projectsIndex(), project)
 	if err != nil {
-		return nil, createError(log, "error unmarshalling project from elasticsearch", err)
+		return nil, err
 	}
 
 	return project, nil

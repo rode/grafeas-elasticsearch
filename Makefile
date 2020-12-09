@@ -20,3 +20,4 @@ test: fmtcheck vet
 
 integration:
 	go test ./test/...
+	

@@ -121,6 +121,27 @@ func TestGrafeasElasticsearch(t *testing.T) {
 				Expect(err).To(HaveOccurred())
 			}
 		})
+
+		t.Run("deleting a project", func(t *testing.T) {
+			t.Run("should successfully remove an existing project", func(t *testing.T) {
+				name := randomProjectName()
+
+				p, err := s.pc.CreateProject(s.ctx, &project_go_proto.CreateProjectRequest{Project: &project_go_proto.Project{Name: name}})
+				Expect(err).ToNot(HaveOccurred())
+
+				// Currently Grafeas returns an error even on successful delete.
+				// This makes testing delete scenarios awkward.
+				// For now we ignore response on delete, and check for error on a subsequent lookup, assuming it won't be found.
+				//
+				// TODO: Once https://github.com/grafeas/grafeas/pull/468 is merged and released,
+				//   refactor this test to actual review delete results and expect
+
+				s.pc.DeleteProject(s.ctx, &project_go_proto.DeleteProjectRequest{Name: name})
+
+				_, err = s.pc.GetProject(s.ctx, &project_go_proto.GetProjectRequest{Name: p.GetName()})
+				Expect(err).To(HaveOccurred())
+			})
+		})
 	})
 
 	t.Run("occurrences", func(t *testing.T) {

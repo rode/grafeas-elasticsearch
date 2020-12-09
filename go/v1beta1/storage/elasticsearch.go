@@ -321,42 +321,19 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectId, occurrenceId string) (*pb.Occurrence, error) {
 	occurrenceName := fmt.Sprintf("projects/%s/occurrences/%s", projectId, occurrenceId)
 	log := es.logger.Named("GetOccurrence").With(zap.String("occurrence", occurrenceName))
-	log.Debug("getting occurrence")
 
-	searchBody := encodeRequest(&esSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": occurrenceName,
 			},
 		},
-	})
-
-	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(occurrencesIndex(projectId)),
-		es.client.Search.WithBody(searchBody),
-	)
-	if err != nil {
-		return nil, createError(log, "error sending request to elasticsearch", err)
 	}
-	if res.IsError() {
-		return nil, createError(log, "error searching elasticsearch for occurrence", nil, zap.String("response", res.String()))
-	}
-
-	var searchResults esSearchResponse
-	if err := decodeResponse(res.Body, &searchResults); err != nil {
-		return nil, createError(log, "error unmarshalling elasticsearch response", err)
-	}
-
-	if searchResults.Hits.Total.Value == 0 {
-		log.Debug("occurrence not found")
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("occurrence with name %s not found", occurrenceName))
-	}
-
 	occurrence := &pb.Occurrence{}
-	err = protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(occurrence))
+
+	err := es.genericGet(ctx, log, search, occurrencesIndex(projectId), occurrence)
 	if err != nil {
-		return nil, createError(log, "error unmarshalling occurrence from elasticsearch", err)
+		return nil, err
 	}
 
 	return occurrence, nil

@@ -381,31 +381,10 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId,
 	}
 	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, uuid.New().String())
 
-	str, err := protojson.Marshal(proto.MessageV2(o))
+	err := es.genericCreate(ctx, log, occurrencesIndex(projectId), o)
 	if err != nil {
-		return nil, createError(log, "error marshalling occurrence to json", err)
+		return nil, err
 	}
-
-	res, err := es.client.Index(
-		occurrencesIndex(projectId),
-		bytes.NewReader(str),
-		es.client.Index.WithContext(ctx),
-	)
-	if err != nil {
-		return nil, createError(log, "error creating occurrence in elasticsearch", err)
-	}
-
-	if res.IsError() {
-		return nil, createError(log, "got unexpected status code from elasticsearch", nil, zap.Int("status", res.StatusCode))
-	}
-
-	esResponse := &esIndexDocResponse{}
-	err = decodeResponse(res.Body, esResponse)
-	if err != nil {
-		return nil, createError(log, "error decoding elasticsearch response", err)
-	}
-
-	log.Debug("elasticsearch response", zap.Any("response", esResponse))
 
 	return o, nil
 }
@@ -686,8 +665,6 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 		return nil, createError(log, "error decoding elasticsearch response", err)
 	}
 
-	log.Debug("elasticsearch response", zap.Any("response", esResponse))
-
 	return n, nil
 }
 
@@ -745,6 +722,36 @@ func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger,
 	}
 
 	return protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(i))
+}
+
+func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logger, index string, i interface{}) error {
+	str, err := protojson.Marshal(proto.MessageV2(i))
+	if err != nil {
+		return createError(log, fmt.Sprintf("error marshalling %T to json", i), err)
+	}
+
+	res, err := es.client.Index(
+		index,
+		bytes.NewReader(str),
+		es.client.Index.WithContext(ctx),
+	)
+	if err != nil {
+		return createError(log, "error sending request to elasticsearch", err)
+	}
+
+	if res.IsError() {
+		return createError(log, "error indexing document in elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
+	}
+
+	esResponse := &esIndexDocResponse{}
+	err = decodeResponse(res.Body, esResponse)
+	if err != nil {
+		return createError(log, "error decoding elasticsearch response", err)
+	}
+
+	log.Debug("elasticsearch response", zap.Any("response", esResponse))
+
+	return nil
 }
 
 // createError is a helper function that allows you to easily log an error and return a gRPC formatted error.

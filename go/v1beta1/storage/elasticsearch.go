@@ -167,42 +167,19 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectId string) (*prpb.Project, error) {
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("GetProject").With(zap.String("project", projectName))
-	log.Debug("getting project")
 
-	searchBody := encodeRequest(&esSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": projectName,
 			},
 		},
-	})
-
-	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(projectsIndex()),
-		es.client.Search.WithBody(searchBody),
-	)
-	if err != nil {
-		return nil, createError(log, "error sending request to elasticsearch", err)
 	}
-	if res.IsError() {
-		return nil, createError(log, "error searching elasticsearch for project", nil, zap.String("response", res.String()))
-	}
-
-	var searchResults esSearchResponse
-	if err := decodeResponse(res.Body, &searchResults); err != nil {
-		return nil, createError(log, "error unmarshalling elasticsearch response", err)
-	}
-
-	if searchResults.Hits.Total.Value == 0 {
-		log.Debug("project not found")
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("project with name %s not found", projectName))
-	}
-
 	project := &prpb.Project{}
-	err = protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(project))
+
+	err := es.genericGet(ctx, log, search, projectsIndex(), project)
 	if err != nil {
-		return nil, createError(log, "error unmarshalling project from elasticsearch", err)
+		return nil, err
 	}
 
 	return project, nil
@@ -321,42 +298,19 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectId, occurrenceId string) (*pb.Occurrence, error) {
 	occurrenceName := fmt.Sprintf("projects/%s/occurrences/%s", projectId, occurrenceId)
 	log := es.logger.Named("GetOccurrence").With(zap.String("occurrence", occurrenceName))
-	log.Debug("getting occurrence")
 
-	searchBody := encodeRequest(&esSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": occurrenceName,
 			},
 		},
-	})
-
-	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(occurrencesIndex(projectId)),
-		es.client.Search.WithBody(searchBody),
-	)
-	if err != nil {
-		return nil, createError(log, "error sending request to elasticsearch", err)
 	}
-	if res.IsError() {
-		return nil, createError(log, "error searching elasticsearch for occurrence", nil, zap.String("response", res.String()))
-	}
-
-	var searchResults esSearchResponse
-	if err := decodeResponse(res.Body, &searchResults); err != nil {
-		return nil, createError(log, "error unmarshalling elasticsearch response", err)
-	}
-
-	if searchResults.Hits.Total.Value == 0 {
-		log.Debug("occurrence not found")
-		return nil, status.Error(codes.NotFound, fmt.Sprintf("occurrence with name %s not found", occurrenceName))
-	}
-
 	occurrence := &pb.Occurrence{}
-	err = protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(occurrence))
+
+	err := es.genericGet(ctx, log, search, occurrencesIndex(projectId), occurrence)
 	if err != nil {
-		return nil, createError(log, "error unmarshalling occurrence from elasticsearch", err)
+		return nil, err
 	}
 
 	return occurrence, nil
@@ -593,44 +547,19 @@ func (es *ElasticsearchStorage) GetNote(ctx context.Context, projectId, noteId s
 	noteName := fmt.Sprintf("projects/%s/notes/%s", projectId, noteId)
 	log := es.logger.Named("GetNote").With(zap.String("note", noteName))
 
-	var getDocumentBuffer bytes.Buffer
-	getDocumentBody := map[string]interface{}{
-		"query": map[string]interface{}{
-			"match": map[string]interface{}{
+	search := &esSearch{
+		Query: &filtering.Query{
+			Term: &filtering.Term{
 				"name": noteName,
 			},
 		},
 	}
-	if err := json.NewEncoder(&getDocumentBuffer).Encode(getDocumentBody); err != nil {
-		return nil, createError(log, "error encoding elasticsearch get document body", err)
-	}
+	note := &pb.Note{}
 
-	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(projectId),
-		es.client.Search.WithBody(&getDocumentBuffer),
-	)
+	err := es.genericGet(ctx, log, search, notesIndex(projectId), note)
 	if err != nil {
-		return nil, createError(log, "error retrieving note from elasticsearch", err)
-	}
-	if res.StatusCode != http.StatusOK {
-		return nil, createError(log, "got unexpected status code from elasticsearch", nil, zap.Int("status", res.StatusCode))
-	}
-
-	log.Debug("elasticsearch response", zap.Any("response", res))
-
-	getDocumentResponse := &esSearchResponse{}
-	if err := json.NewDecoder(res.Body).Decode(&getDocumentResponse); err != nil {
-		log.Error("error decoding elasticsearch response body", zap.NamedError("error", err))
 		return nil, err
 	}
-
-	log.Debug("hit raw source", zap.Any("raw _source", getDocumentResponse.Hits.Hits[0].Source))
-
-	note := &pb.Note{}
-	protojson.Unmarshal(getDocumentResponse.Hits.Hits[0].Source, proto.MessageV2(note))
-
-	log.Debug("converted note", zap.Any("unmarshaled occurrence", note))
 
 	return note, nil
 }
@@ -714,36 +643,18 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 	log := es.logger.Named("CreateNote").With(zap.String("note", noteName))
 
 	// since note IDs are provided up front by the client, we need to search ES to see if this note already exists before creating it
-	// we can replace this implementation with a call to GetNote once that's finished :)
-	log.Debug("searching for note")
-	searchBody := encodeRequest(&esSearch{
+	err := es.genericGet(ctx, log, &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": noteName,
 			},
 		},
-	})
-
-	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(notesIndex(projectId)),
-		es.client.Search.WithBody(searchBody),
-	)
-	if err != nil {
-		return nil, createError(log, "error sending request to elasticsearch", err)
-	}
-	if res.IsError() {
-		return nil, createError(log, "error searching elasticsearch for note", nil, zap.String("response", res.String()))
-	}
-
-	var searchResults esSearchResponse
-	if err := decodeResponse(res.Body, &searchResults); err != nil {
-		return nil, createError(log, "error unmarshalling elasticsearch response", err)
-	}
-
-	if searchResults.Hits.Total.Value > 0 {
+	}, notesIndex(projectId), &pb.Note{})
+	if err == nil { // note exists
 		log.Debug("note already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("note with name %s already exists", noteName))
+	} else if status.Code(err) != codes.NotFound { // unexpected error (we expect a not found error here)
+		return nil, err
 	}
 
 	if n.CreateTime == nil {
@@ -756,7 +667,7 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 		return nil, createError(log, "error marshalling note to json", err)
 	}
 
-	res, err = es.client.Index(
+	res, err := es.client.Index(
 		notesIndex(projectId),
 		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),
@@ -808,6 +719,32 @@ func (es *ElasticsearchStorage) ListNoteOccurrences(ctx context.Context, project
 // GetVulnerabilityOccurrencesSummary gets a summary of vulnerability occurrences from storage.
 func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.Context, projectID, filter string) (*pb.VulnerabilityOccurrencesSummary, error) {
 	return &pb.VulnerabilityOccurrencesSummary{}, nil
+}
+
+func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *esSearch, index string, i interface{}) error {
+	res, err := es.client.Search(
+		es.client.Search.WithContext(ctx),
+		es.client.Search.WithIndex(index),
+		es.client.Search.WithBody(encodeRequest(search)),
+	)
+	if err != nil {
+		return createError(log, "error sending request to elasticsearch", err)
+	}
+	if res.IsError() {
+		return createError(log, "error searching elasticsearch for document", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
+	}
+
+	var searchResults esSearchResponse
+	if err := decodeResponse(res.Body, &searchResults); err != nil {
+		return createError(log, "error unmarshalling elasticsearch response", err)
+	}
+
+	if searchResults.Hits.Total.Value == 0 {
+		log.Debug("document not found", zap.Any("search", search))
+		return status.Error(codes.NotFound, fmt.Sprintf("%T not found", i))
+	}
+
+	return protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(i))
 }
 
 // createError is a helper function that allows you to easily log an error and return a gRPC formatted error.

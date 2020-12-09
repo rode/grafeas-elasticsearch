@@ -1,4 +1,4 @@
-package v1beta1Std_test
+package v1beta1_test
 
 import (
 	"context"
@@ -44,6 +44,7 @@ func newSetup() (*setup, error) {
 
 func TestGrafeasElasticsearch(t *testing.T) {
 	fake.Seed(0)
+
 	g := NewGomegaWithT(t)
 	Expect := g.Expect
 

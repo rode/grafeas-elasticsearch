@@ -246,6 +246,10 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(expectedProject.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
 			})
 
+			It("should immediately refresh the index", func() {
+				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
+			})
+
 			When("creating a new document fails", func() {
 				BeforeEach(func() {
 					transport.preparedHttpResponses[1] = &http.Response{StatusCode: http.StatusBadRequest}
@@ -563,6 +567,10 @@ var _ = Describe("elasticsearch storage", func() {
 			Expect((*searchBody.Query.Term)["name"]).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
 		})
 
+		It("should immediately refresh the index", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
+		})
+
 		When("elasticsearch successfully deletes the project document", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses[0].Body = structToJsonBody(&esDeleteResponse{
@@ -772,6 +780,10 @@ var _ = Describe("elasticsearch storage", func() {
 			Expect(indexedOccurrence).To(Equal(expectedOccurrence))
 		})
 
+		It("should immediately refresh the index", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
+		})
+
 		When("indexing the document fails", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses[0] = &http.Response{
@@ -857,6 +869,10 @@ var _ = Describe("elasticsearch storage", func() {
 					Expect(occurrence).To(Equal(expectedOccurrence))
 				}
 			}
+		})
+
+		It("should immediately refresh the index", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
 		})
 
 		When("the bulk request returns no errors", func() {
@@ -961,6 +977,10 @@ var _ = Describe("elasticsearch storage", func() {
 			Expect(err).ToNot(HaveOccurred())
 
 			Expect((*searchBody.Query.Term)["name"]).To(Equal(expectedOccurrenceName))
+		})
+
+		It("should immediately refresh the index", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
 		})
 
 		When("elasticsearch successfully deletes the occurrence document", func() {

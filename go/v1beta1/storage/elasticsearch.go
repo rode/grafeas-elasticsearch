@@ -581,6 +581,7 @@ func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, projectId,
 		[]string{occurrencesIndex(projectId)},
 		searchBody,
 		es.client.DeleteByQuery.WithContext(ctx),
+		es.client.DeleteByQuery.WithRefresh(true),
 	)
 	if err != nil {
 		return createError(log, "error sending request to elasticsearch", err)

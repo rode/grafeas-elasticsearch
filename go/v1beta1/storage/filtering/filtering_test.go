@@ -174,9 +174,14 @@ var _ = Describe("Filter", func() {
 			Expect(err).To(HaveOccurred())
 			Expect(result).To(BeNil())
 		},
-			Entry("single term missing right value", `a==`),
-			Entry("single term missing left value", `==b`),
-			Entry("const containing unknown operator without quotes", `a==b/c`),
+			Entry("single term missing lhs value", `==b`),
+			Entry("single term missing rhs value", `a==`),
+			Entry("equal comparison with lhs value containing unknown operator without quotes", `a/b==c`),
+			Entry("equal comparison with rhs value containing unknown operator without quotes", `a==b/c`),
+			Entry("or comparison with lhs value containing unknown operator without quotes", `a/b||c==d`),
+			Entry("or comparison with rhs value containing unknown operator without quotes", `a==b||c/d`),
+			Entry("and comparison with lhs value containing unknown operator without quotes", `a/b&&c==d`),
+			Entry("and comparison with rhs value containing unknown operator without quotes", `a==b&&c/d`),
 		)
 	})
 })

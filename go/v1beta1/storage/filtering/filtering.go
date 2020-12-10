@@ -21,10 +21,10 @@ func NewFilterer() Filterer {
 // ParseExpression will serve as the entrypoint to the filter
 // that is eventually passed to parseExpression which will handle the recursive logic
 func (f *filterer) ParseExpression(filter string) (*Query, error) {
-	parsedExpr, err := parser.Parse(common.NewStringSource(filter, ""))
-	if len(err.GetErrors()) > 0 {
+	parsedExpr, commonErr := parser.Parse(common.NewStringSource(filter, ""))
+	if len(commonErr.GetErrors()) > 0 {
 		resultErr := fmt.Errorf("error parsing filter")
-		for _, e := range err.GetErrors() {
+		for _, e := range commonErr.GetErrors() {
 			resultErr = multierror.Append(resultErr, fmt.Errorf("%s (%d:%d)", e.Message, e.Location.Line(), e.Location.Column()))
 		}
 
@@ -32,7 +32,6 @@ func (f *filterer) ParseExpression(filter string) (*Query, error) {
 	}
 
 	expression := parsedExpr.GetExpr()
-	query := &Query{}
 
 	_, isCallExpr := expression.ExprKind.(*expr.Expr_CallExpr)
 	if isCallExpr {
@@ -47,21 +46,32 @@ func (f *filterer) ParseExpression(filter string) (*Query, error) {
 		_, rightIsConst := rightarg.ExprKind.(*expr.Expr_ConstExpr)
 
 		if (leftIsConst || leftIsIdent) && (rightIsConst || rightIsIdent) {
-			query.Bool = &Bool{
-				Must: &Must{parseExpression(expression)},
+			pe, err := parseExpression(expression)
+			if err != nil {
+				return nil, err
 			}
 
-			return query, nil
+			return &Query{Bool: &Bool{
+				Must: &Must{pe},
+			}}, nil
 		}
 	}
 
-	query = parseExpression(expression).(*Query)
+	pe, err := parseExpression(expression)
+	if err != nil {
+		return nil, err
+	}
+
+	query, ok := pe.(*Query)
+	if !ok {
+		return nil, fmt.Errorf("cannot cast parse expression result")
+	}
 
 	return query, nil
 }
 
 // ParseExpression to parse and create a query
-func parseExpression(expression *expr.Expr) interface{} {
+func parseExpression(expression *expr.Expr) (interface{}, error) {
 	function := Operation(expression.GetCallExpr().GetFunction()) // =
 
 	// Determine if left and right side are final and if so formulate query
@@ -74,26 +84,44 @@ func parseExpression(expression *expr.Expr) interface{} {
 	_, rightIsIdent := rightArg.ExprKind.(*expr.Expr_IdentExpr)
 	_, rightIsConst := rightArg.ExprKind.(*expr.Expr_ConstExpr)
 
-	if function == AndOperation {
+	switch function {
+	case AndOperation:
+		l, err := parseExpression(leftArg)
+		if err != nil {
+			return nil, err
+		}
+		r, err := parseExpression(rightArg)
+		if err != nil {
+			return nil, err
+		}
+
 		return &Query{
 			Bool: &Bool{
 				Must: &Must{
-					parseExpression(leftArg),  //append left recursively and add to the must slice
-					parseExpression(rightArg), //append right recursively and add to the must slice
+					l, //append left recursively and add to the must slice
+					r, //append right recursively and add to the must slice
 				},
 			},
+		}, nil
+	case OrOperation:
+		l, err := parseExpression(leftArg)
+		if err != nil {
+			return nil, err
+		}
+		r, err := parseExpression(rightArg)
+		if err != nil {
+			return nil, err
 		}
 
-	} else if function == OrOperation {
 		return &Query{
 			Bool: &Bool{
 				Should: &Should{
-					parseExpression(leftArg),  //append left recursively and add to the must slice
-					parseExpression(rightArg), //append right recursively and add to the must slice
+					l, //append left recursively and add to the must slice
+					r, //append right recursively and add to the must slice
 				},
 			},
-		}
-	} else { // currently the else block is used for _==_ operations
+		}, nil
+	case EqualOperation:
 		var leftString string
 		var rightString string
 		if leftIsIdent && rightIsConst {
@@ -113,6 +141,8 @@ func parseExpression(expression *expr.Expr) interface{} {
 			Term: &Term{
 				leftString: rightString,
 			},
-		}
+		}, nil
+	default:
+		return nil, fmt.Errorf("unknown parse expression function")
 	}
 }

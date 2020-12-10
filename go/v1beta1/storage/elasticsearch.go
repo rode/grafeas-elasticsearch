@@ -235,6 +235,7 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 		[]string{projectsIndex()},
 		searchBody,
 		es.client.DeleteByQuery.WithContext(ctx),
+		es.client.DeleteByQuery.WithRefresh(true),
 	)
 	if err != nil {
 		return createError(log, "error sending request to elasticsearch", err)
@@ -407,6 +408,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	res, err := es.client.Bulk(
 		bytes.NewReader(body.Bytes()),
 		es.client.Bulk.WithContext(ctx),
+		es.client.Bulk.WithRefresh("true"),
 	)
 	if err != nil {
 		return nil, []error{
@@ -477,6 +479,7 @@ func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, projectId,
 		[]string{occurrencesIndex(projectId)},
 		searchBody,
 		es.client.DeleteByQuery.WithContext(ctx),
+		es.client.DeleteByQuery.WithRefresh(true),
 	)
 	if err != nil {
 		return createError(log, "error sending request to elasticsearch", err)
@@ -692,6 +695,7 @@ func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logg
 		index,
 		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),
+		es.client.Index.WithRefresh("true"),
 	)
 	if err != nil {
 		return createError(log, "error sending request to elasticsearch", err)

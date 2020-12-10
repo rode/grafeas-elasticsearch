@@ -24,7 +24,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - name: Start services
-        run: docker-compose up -d elasticsearch server
+        run: docker-compose up -d --build elasticsearch server
       - name: Run Integration Tests
         run: make integration
 

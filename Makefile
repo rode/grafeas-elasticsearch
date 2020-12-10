@@ -1,4 +1,4 @@
-.PHONY: test fmtcheck vet fmt mocks
+.PHONY: test fmtcheck vet fmt mocks integration
 GOFMT_FILES?=$$(find . -name '*.go' | grep -v proto)
 
 GO111MODULE=on

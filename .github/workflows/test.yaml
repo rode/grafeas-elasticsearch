@@ -11,7 +11,7 @@ jobs:
       - name: Download dependencies
         run: go mod tidy
 
-      - name: Run Unit Tests
+      - name: Run unit tests
         run: |
           make test
           bash -c '/bin/bash <(curl -s https://codecov.io/bash)'
@@ -25,6 +25,8 @@ jobs:
       - uses: actions/checkout@v2
       - name: Start services
         run: docker-compose up -d --build elasticsearch server
-      - name: Run Integration Tests
+      - name: Run integration tests
         run: make integration
-
+      - name: Teardown services
+        if: ${{ always() }}
+        run : docker-compose down

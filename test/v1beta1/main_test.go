@@ -62,7 +62,7 @@ func TestGrafeasElasticsearch(t *testing.T) {
 			t.Run("should succeed with a valid name", func(t *testing.T) {
 				name := randomProjectName()
 
-				p, err := s.pc.CreateProject(s.ctx, &project_go_proto.CreateProjectRequest{Project: &project_go_proto.Project{Name: name}})
+				p, err := createProject(s, name)
 				Expect(err).ToNot(HaveOccurred())
 
 				_, err = s.pc.GetProject(s.ctx, &project_go_proto.GetProjectRequest{Name: p.GetName()})
@@ -83,7 +83,7 @@ func TestGrafeasElasticsearch(t *testing.T) {
 			}
 
 			for _, n := range names {
-				_, err = s.pc.CreateProject(s.ctx, &project_go_proto.CreateProjectRequest{Project: &project_go_proto.Project{Name: n}})
+				_, err = createProject(s, n)
 				Expect(err).ToNot(HaveOccurred())
 			}
 
@@ -126,7 +126,7 @@ func TestGrafeasElasticsearch(t *testing.T) {
 			t.Run("should successfully remove an existing project", func(t *testing.T) {
 				name := randomProjectName()
 
-				p, err := s.pc.CreateProject(s.ctx, &project_go_proto.CreateProjectRequest{Project: &project_go_proto.Project{Name: name}})
+				p, err := createProject(s, name)
 				Expect(err).ToNot(HaveOccurred())
 
 				// Currently Grafeas returns an error even on successful delete.
@@ -148,7 +148,7 @@ func TestGrafeasElasticsearch(t *testing.T) {
 		t.Run("creating an occurrence", func(t *testing.T) {
 			projectName := randomProjectName()
 
-			_, err = s.pc.CreateProject(s.ctx, &project_go_proto.CreateProjectRequest{Project: &project_go_proto.Project{Name: projectName}})
+			_, err = createProject(s, projectName)
 			Expect(err).ToNot(HaveOccurred())
 
 			t.Run("should be successful", func(t *testing.T) {
@@ -177,4 +177,12 @@ func TestGrafeasElasticsearch(t *testing.T) {
 
 func randomProjectName() string {
 	return fmt.Sprintf("projects/%s", fake.UUID())
+}
+
+func createProject(s *setup, n string) (*project_go_proto.Project, error) {
+	return s.pc.CreateProject(s.ctx, &project_go_proto.CreateProjectRequest{
+		Project: &project_go_proto.Project{
+			Name: n,
+		},
+	})
 }

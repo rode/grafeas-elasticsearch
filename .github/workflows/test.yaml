@@ -18,3 +18,13 @@ jobs:
 
       - name: Build executable
         run: go build -v ./...
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Start services
+        run: docker-compose up -d elasticsearch server
+      - name: Run Integration Tests
+        run: make integration
+

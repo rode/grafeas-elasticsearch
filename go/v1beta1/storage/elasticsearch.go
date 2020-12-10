@@ -659,7 +659,7 @@ func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.C
 	return &pb.VulnerabilityOccurrencesSummary{}, nil
 }
 
-func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *esSearch, index string, i interface{}) error {
+func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *esSearch, index string, protoMessage interface{}) error {
 	res, err := es.client.Search(
 		es.client.Search.WithContext(ctx),
 		es.client.Search.WithIndex(index),
@@ -679,16 +679,16 @@ func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger,
 
 	if searchResults.Hits.Total.Value == 0 {
 		log.Debug("document not found", zap.Any("search", search))
-		return status.Error(codes.NotFound, fmt.Sprintf("%T not found", i))
+		return status.Error(codes.NotFound, fmt.Sprintf("%T not found", protoMessage))
 	}
 
-	return protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(i))
+	return protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(protoMessage))
 }
 
-func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logger, index string, i interface{}) error {
-	str, err := protojson.Marshal(proto.MessageV2(i))
+func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logger, index string, protoMessage interface{}) error {
+	str, err := protojson.Marshal(proto.MessageV2(protoMessage))
 	if err != nil {
-		return createError(log, fmt.Sprintf("error marshalling %T to json", i), err)
+		return createError(log, fmt.Sprintf("error marshalling %T to json", protoMessage), err)
 	}
 
 	res, err := es.client.Index(

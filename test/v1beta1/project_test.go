@@ -37,18 +37,29 @@ func TestProject(t *testing.T) {
 
 		t.Run("filters", func(t *testing.T) {
 			for _, tc := range []struct {
-				name, filter string
-				expected     []string
+				name, filter     string
+				expected         *[]string
+				shouldErrorOccur bool
 			}{
 				{
 					name:     "single exact name match",
-					filter:   "name==\"projects/foo\"",
-					expected: []string{"projects/foo"},
+					filter:   `name=="projects/foo"`,
+					expected: &[]string{"projects/foo"},
 				},
 				{
 					name:     "or exact name match",
-					filter:   "name==\"projects/foo\"||name==\"projects/bar\"",
-					expected: []string{"projects/foo", "projects/bar"},
+					filter:   `name=="projects/foo"||name=="projects/bar"`,
+					expected: &[]string{"projects/foo", "projects/bar"},
+				},
+				{
+					name:     "no name match",
+					filter:   `name=="projects/does-not-exist"`,
+					expected: &[]string{},
+				},
+				{
+					name:             "bad filter expression",
+					filter:           `name==projects/no-quotes`,
+					shouldErrorOccur: true,
 				},
 			} {
 				// ensure parallel tests are run with correct test case
@@ -58,11 +69,16 @@ func TestProject(t *testing.T) {
 					t.Parallel()
 
 					response, err := s.Pc.ListProjects(s.Ctx, &project_go_proto.ListProjectsRequest{Filter: tc.filter})
-					Expect(err).ToNot(HaveOccurred())
 
-					Expect(len(response.Projects)).To(Equal(len(tc.expected)))
-					for _, p := range response.Projects {
-						Expect(p.GetName()).To(BeElementOf(tc.expected))
+					if tc.shouldErrorOccur {
+						Expect(err).To(HaveOccurred())
+					} else {
+						Expect(err).ToNot(HaveOccurred())
+
+						Expect(len(response.Projects)).To(Equal(len(*tc.expected)))
+						for _, p := range response.Projects {
+							Expect(p.GetName()).To(BeElementOf(*tc.expected))
+						}
 					}
 				})
 			}

@@ -1,7 +1,7 @@
 # grafeas-elasticsearch
 
 [![codecov](https://codecov.io/gh/liatrio/grafeas-elasticsearch/branch/main/graph/badge.svg)](https://codecov.io/gh/liatrio/grafeas-elasticsearch)
-[![test](https://github.com/liatrio/grafeas-elasticsearch/workflows/test/badge.svg)](https://github.com/liatrio/grafeas-elasticsearch/actions?query=workflow%3Atest+branch%3Amain)
+[![test](https://github.com/liatrio/grafeas-elasticsearch/workflows/test/badge.svg??branch=main)](https://github.com/liatrio/grafeas-elasticsearch/actions?query=workflow%3Atest+branch%3Amain)
 
 [Elasticsearch](https://www.elastic.co/elasticsearch/) storage backend for [Grafeas](https://grafeas.io/).
 

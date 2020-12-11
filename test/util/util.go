@@ -60,3 +60,7 @@ func CreateProject(s *Setup, n string) (*project_go_proto.Project, error) {
 		},
 	})
 }
+
+func RandomNoteName(project string) string {
+	return fmt.Sprintf("%s/notes/%s", project, fake.UUID())
+}

@@ -102,7 +102,7 @@ func TestProject(t *testing.T) {
 			// For now we ignore response on delete, and check for error on a subsequent lookup, assuming it won't be found.
 			//
 			// TODO: Once https://github.com/grafeas/grafeas/pull/468 is merged and released,
-			//   refactor this test to actual review delete results and expect
+			//   refactor this test to actually review delete results
 
 			s.Pc.DeleteProject(s.Ctx, &project_go_proto.DeleteProjectRequest{Name: name})
 

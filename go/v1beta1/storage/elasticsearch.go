@@ -223,39 +223,22 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 	log := es.logger.Named("DeleteProject").With(zap.String("project", projectName))
 	log.Debug("deleting project")
 
-	searchBody := encodeRequest(&esSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": projectName,
 			},
 		},
-	})
+	}
 
-	res, err := es.client.DeleteByQuery(
-		[]string{projectsIndex()},
-		searchBody,
-		es.client.DeleteByQuery.WithContext(ctx),
-		es.client.DeleteByQuery.WithRefresh(true),
-	)
+	err := es.genericDelete(ctx, log, search, projectsIndex())
 	if err != nil {
-		return createError(log, "error sending request to elasticsearch", err)
-	}
-	if res.IsError() {
-		return createError(log, "received unexpected response from elasticsearch when deleting project", nil)
-	}
-
-	var deletedResults esDeleteResponse
-	if err = decodeResponse(res.Body, &deletedResults); err != nil {
-		return createError(log, "error unmarshalling elasticsearch response", err)
-	}
-
-	if deletedResults.Deleted == 0 {
-		return createError(log, "elasticsearch returned zero deleted documents", nil, zap.Any("response", deletedResults))
+		return err
 	}
 
 	log.Debug("project document deleted")
 
-	res, err = es.client.Indices.Delete(
+	res, err := es.client.Indices.Delete(
 		[]string{
 			occurrencesIndex(projectId),
 			notesIndex(projectId),
@@ -439,39 +422,18 @@ func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, projectId,
 func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, projectId, occurrenceId string) error {
 	occurrenceName := fmt.Sprintf("projects/%s/occurrences/%s", projectId, occurrenceId)
 	log := es.logger.Named("DeleteOccurrence").With(zap.String("occurrence", occurrenceName))
+
 	log.Debug("deleting occurrence")
 
-	searchBody := encodeRequest(&esSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": occurrenceName,
 			},
 		},
-	})
-
-	res, err := es.client.DeleteByQuery(
-		[]string{occurrencesIndex(projectId)},
-		searchBody,
-		es.client.DeleteByQuery.WithContext(ctx),
-		es.client.DeleteByQuery.WithRefresh(true),
-	)
-	if err != nil {
-		return createError(log, "error sending request to elasticsearch", err)
-	}
-	if res.IsError() {
-		return createError(log, "received unexpected response from elasticsearch when deleting occurrence", nil)
 	}
 
-	var deletedResults esDeleteResponse
-	if err = decodeResponse(res.Body, &deletedResults); err != nil {
-		return createError(log, "error unmarshalling elasticsearch response", err)
-	}
-
-	if deletedResults.Deleted == 0 {
-		return createError(log, "elasticsearch returned zero deleted documents", nil, zap.Any("response", deletedResults))
-	}
-
-	return nil
+	return es.genericDelete(ctx, log, search, occurrencesIndex(projectId))
 }
 
 // GetNote returns the note with project (pID) and note ID (nID)
@@ -571,41 +533,21 @@ func (es *ElasticsearchStorage) UpdateNote(ctx context.Context, pID, nID string,
 }
 
 // DeleteNote deletes the note with the given pID and nID
-func (es *ElasticsearchStorage) DeleteNote(ctx context.Context, pID, nID string) error {
-	noteName := fmt.Sprintf("projects/%s/notes/%s", pID, nID)
+func (es *ElasticsearchStorage) DeleteNote(ctx context.Context, projectId, noteId string) error {
+	noteName := fmt.Sprintf("projects/%s/notes/%s", projectId, noteId)
 	log := es.logger.Named("DeleteNote").With(zap.String("note", noteName))
+
 	log.Debug("deleting note")
-	searchBody := encodeRequest(&esSearch{
+
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": noteName,
 			},
 		},
-	})
-
-	res, err := es.client.DeleteByQuery(
-		[]string{notesIndex(pID)},
-		searchBody,
-		es.client.DeleteByQuery.WithContext(ctx),
-		es.client.DeleteByQuery.WithRefresh(true),
-	)
-	if err != nil {
-		return createError(log, "error sending request to elasticsearch", err)
-	}
-	if res.IsError() {
-		return createError(log, "received unexpected response from elasticsearch when deleting note", nil)
 	}
 
-	var deletedResults esDeleteResponse
-	if err = decodeResponse(res.Body, &deletedResults); err != nil {
-		return createError(log, "error unmarshalling elasticsearch response", err)
-	}
-
-	if deletedResults.Deleted == 0 {
-		return createError(log, "elasticsearch returned zero deleted documents", nil, zap.Any("response", deletedResults))
-	}
-
-	return nil
+	return es.genericDelete(ctx, log, search, notesIndex(projectId))
 }
 
 // GetOccurrenceNote gets the note for the specified occurrence from PostgreSQL.
@@ -676,6 +618,32 @@ func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logg
 	}
 
 	log.Debug("elasticsearch response", zap.Any("response", esResponse))
+
+	return nil
+}
+
+func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logger, search *esSearch, index string) error {
+	res, err := es.client.DeleteByQuery(
+		[]string{index},
+		encodeRequest(search),
+		es.client.DeleteByQuery.WithContext(ctx),
+		es.client.DeleteByQuery.WithRefresh(true),
+	)
+	if err != nil {
+		return createError(log, "error sending request to elasticsearch", err)
+	}
+	if res.IsError() {
+		return createError(log, "received unexpected response from elasticsearch", nil)
+	}
+
+	var deletedResults esDeleteResponse
+	if err = decodeResponse(res.Body, &deletedResults); err != nil {
+		return createError(log, "error unmarshalling elasticsearch response", err)
+	}
+
+	if deletedResults.Deleted == 0 {
+		return createError(log, "elasticsearch returned zero deleted documents", nil, zap.Any("response", deletedResults))
+	}
 
 	return nil
 }

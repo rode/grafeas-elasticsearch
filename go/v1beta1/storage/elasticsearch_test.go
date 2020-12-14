@@ -531,7 +531,7 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
+			expectedProjectIndex = fmt.Sprintf("%s-projects", indexPrefix)
 			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")
 			expectedNotesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "notes")
 
@@ -943,7 +943,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			expectedOccurrenceId = gofakeit.LetterN(10)
-			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")
+			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-occurrences", indexPrefix, expectedProjectId)
 			expectedOccurrenceName = fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)
 
 			transport.preparedHttpResponses = []*http.Response{
@@ -1573,7 +1573,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			expectedNoteId = gofakeit.LetterN(10)
-			expectedNotesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "notes")
+			expectedNotesIndex = fmt.Sprintf("%s-%s-notes", indexPrefix, expectedProjectId)
 			expectedNoteName = fmt.Sprintf("projects/%s/notes/%s", expectedProjectId, expectedNoteId)
 
 			transport.preparedHttpResponses = []*http.Response{

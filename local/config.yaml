@@ -8,3 +8,4 @@ grafeas:
   storage_type: elasticsearch
   elasticsearch:
     uri: "http://elasticsearch:9200"
+    refresh: "true"

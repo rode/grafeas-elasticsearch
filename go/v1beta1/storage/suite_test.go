@@ -1,6 +1,7 @@
 package storage
 
 import (
+	"github.com/brianvoe/gofakeit/v5"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"go.uber.org/zap"
@@ -17,6 +18,8 @@ func TestStoragePackage(t *testing.T) {
 
 var _ = BeforeSuite(func() {
 	logger = zap.NewNop()
+
+	gofakeit.Seed(0)
 })
 
 type mockEsTransport struct {

@@ -33,7 +33,7 @@ func main() {
 		logger.Fatal("failed to connect to Elasticsearch", zap.NamedError("error", err))
 	}
 
-	elasticsearchStorage := storage.NewElasticsearchStore(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer())
+	elasticsearchStorage := storage.NewElasticsearchStore(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), nil)
 
 	// register a new storage type using the key 'elasticsearch'
 	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", elasticsearchStorage.ElasticsearchStorageTypeProvider)

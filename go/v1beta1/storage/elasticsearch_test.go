@@ -1562,6 +1562,90 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 	})
+
+	Context("deleting a Grafeas note", func() {
+		var (
+			actualErr          error
+			expectedNotesIndex string
+			expectedNoteId     string
+			expectedNoteName   string
+		)
+
+		BeforeEach(func() {
+			expectedNoteId = gofakeit.LetterN(10)
+			expectedNotesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "notes")
+			expectedNoteName = fmt.Sprintf("projects/%s/notes/%s", expectedProjectId, expectedNoteId)
+
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body: structToJsonBody(&esDeleteResponse{
+						Deleted: 1,
+					}),
+				},
+				{
+					StatusCode: http.StatusOK,
+				},
+			}
+		})
+
+		JustBeforeEach(func() {
+			actualErr = elasticsearchStorage.DeleteNote(ctx, expectedProjectId, expectedNoteId)
+		})
+
+		It("should have sent a request to elasticsearch to delete the note document", func() {
+			Expect(transport.receivedHttpRequests).To(HaveLen(1))
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodPost))
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_delete_by_query", expectedNotesIndex)))
+
+			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
+			Expect(err).ToNot(HaveOccurred())
+
+			searchBody := &esSearch{}
+			err = json.Unmarshal(requestBody, searchBody)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect((*searchBody.Query.Term)["name"]).To(Equal(expectedNoteName))
+		})
+
+		It("should immediately refresh the index", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
+		})
+
+		When("elasticsearch successfully deletes the note document", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].Body = structToJsonBody(&esDeleteResponse{
+					Deleted: 1,
+				})
+			})
+
+			It("should not return an error", func() {
+				Expect(actualErr).ToNot(HaveOccurred())
+			})
+		})
+
+		When("the note does not exist", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].Body = structToJsonBody(&esDeleteResponse{
+					Deleted: 0,
+				})
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+		})
+
+		When("deleting the note document fails", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+		})
+	})
 })
 
 func createProjectEsSearchResponse(projects ...*prpb.Project) io.ReadCloser {

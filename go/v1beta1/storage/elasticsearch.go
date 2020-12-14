@@ -572,6 +572,39 @@ func (es *ElasticsearchStorage) UpdateNote(ctx context.Context, pID, nID string,
 
 // DeleteNote deletes the note with the given pID and nID
 func (es *ElasticsearchStorage) DeleteNote(ctx context.Context, pID, nID string) error {
+	noteName := fmt.Sprintf("projects/%s/notes/%s", pID, nID)
+	log := es.logger.Named("DeleteNote").With(zap.String("note", noteName))
+	log.Debug("deleting note")
+	searchBody := encodeRequest(&esSearch{
+		Query: &filtering.Query{
+			Term: &filtering.Term{
+				"name": noteName,
+			},
+		},
+	})
+
+	res, err := es.client.DeleteByQuery(
+		[]string{notesIndex(pID)},
+		searchBody,
+		es.client.DeleteByQuery.WithContext(ctx),
+		es.client.DeleteByQuery.WithRefresh(true),
+	)
+	if err != nil {
+		return createError(log, "error sending request to elasticsearch", err)
+	}
+	if res.IsError() {
+		return createError(log, "received unexpected response from elasticsearch when deleting note", nil)
+	}
+
+	var deletedResults esDeleteResponse
+	if err = decodeResponse(res.Body, &deletedResults); err != nil {
+		return createError(log, "error unmarshalling elasticsearch response", err)
+	}
+
+	if deletedResults.Deleted == 0 {
+		return createError(log, "elasticsearch returned zero deleted documents", nil, zap.Any("response", deletedResults))
+	}
+
 	return nil
 }
 

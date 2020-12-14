@@ -296,42 +296,16 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectId, oc
 // ListOccurrences returns up to pageSize number of occurrences for this project beginning
 // at pageToken, or from start if pageToken is the empty string.
 func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, projectId, filter, pageToken string, pageSize int32) ([]*pb.Occurrence, string, error) {
-	var occurrences []*pb.Occurrence
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("ListOccurrences").With(zap.String("project", projectName))
 
-	body := &esSearch{}
-	if filter != "" {
-		log = log.With(zap.String("filter", filter))
-		filterQuery, err := es.filterer.ParseExpression(filter)
-		if err != nil {
-			return nil, "", createError(log, "error while parsing filter expression", err)
-		}
-
-		body.Query = filterQuery
-	}
-
-	log.Debug("listing occurrences")
-
-	encodedBody := encodeRequest(body)
-	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(occurrencesIndex(projectId)),
-		es.client.Search.WithBody(encodedBody),
-	)
+	res, err := es.genericList(ctx, log, occurrencesIndex(projectId), filter)
 	if err != nil {
-		return nil, "", createError(log, "error sending request to elasticsearch", err)
-	}
-	if res.IsError() {
-		return nil, "", createError(log, "unexpected response from elasticsearch when listing occurrences", nil, zap.String("response", res.String()))
+		return nil, "", err
 	}
 
-	var searchResults esSearchResponse
-	if err := decodeResponse(res.Body, &searchResults); err != nil {
-		return nil, "", createError(log, "error decoding elasticsearch response", err)
-	}
-
-	for _, hit := range searchResults.Hits.Hits {
+	var occurrences []*pb.Occurrence
+	for _, hit := range res.Hits {
 		hitLogger := log.With(zap.String("occurrence raw", string(hit.Source)))
 
 		occurrence := &pb.Occurrence{}
@@ -524,75 +498,32 @@ func (es *ElasticsearchStorage) GetNote(ctx context.Context, projectId, noteId s
 
 // ListNotes returns up to pageSize number of notes for this project (pID) beginning
 // at pageToken (or from start if pageToken is the empty string).
-func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectID, filter, pageToken string, pageSize int32) ([]*pb.Note, string, error) {
-	log := es.logger.Named("ListNotes")
-	log.Debug("Project ID", zap.String("projectID", projectID))
+func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectId, filter, pageToken string, pageSize int32) ([]*pb.Note, string, error) {
+	projectName := fmt.Sprintf("projects/%s", projectId)
+	log := es.logger.Named("ListNotes").With(zap.String("project", projectName))
 
-	var (
-		notes []*pb.Note
-	)
-	body := &esSearch{}
-	if filter != "" {
-		filterQuery, err := es.filterer.ParseExpression(filter)
-		if err != nil {
-			return nil, "", createError(log, "error while parsing filter", err)
-		}
-
-		body.Query = filterQuery
-	}
-
-	encodedBody := encodeRequest(body)
-
-	noteIndex := fmt.Sprintf("%s-%s-notes", indexPrefix, projectID)
-	res, err := es.client.Search(
-		es.client.Search.WithIndex(noteIndex),
-		es.client.Search.WithBody(encodedBody),
-	)
+	res, err := es.genericList(ctx, log, notesIndex(projectId), filter)
 	if err != nil {
-		log.Error("Failed to retrieve documents from Elasticsearch", zap.Error(err))
-		return nil, "", err
-	}
-	defer res.Body.Close()
-
-	if res.IsError() {
-		//log.Error("got unexpected status code from elasticsearch", zap.Int("status", res.StatusCode))
-		var e map[string]interface{}
-		if err := json.NewDecoder(res.Body).Decode(&e); err != nil {
-			fmt.Printf("Error parsing the response body: %s", err)
-		} else {
-			// Print the response status and error information.
-			fmt.Printf("[%s] %s: %s",
-				res.Status(),
-				e["error"].(map[string]interface{})["type"],
-				e["error"].(map[string]interface{})["reason"],
-			)
-		}
-	}
-
-	var searchResults esSearchResponse
-	if err := json.NewDecoder(res.Body).Decode(&searchResults); err != nil {
 		return nil, "", err
 	}
 
-	log.Debug("ES Search hits", zap.Any("Total Hits", searchResults.Hits.Total.Value))
-
-	for _, hit := range searchResults.Hits.Hits {
-		log.Debug("Note Hit", zap.String("Note RAW", fmt.Sprintf("%+v", string(hit.Source))))
+	var notes []*pb.Note
+	for _, hit := range res.Hits {
+		hitLogger := log.With(zap.String("note raw", string(hit.Source)))
 
 		note := &pb.Note{}
-		err := json.Unmarshal(hit.Source, &note)
+		err := protojson.Unmarshal(hit.Source, proto.MessageV2(note))
 		if err != nil {
-			log.Error("Failed to convert _doc to Note", zap.Error(err))
-			return nil, "", err
+			log.Error("failed to convert _doc to note", zap.Error(err))
+			return nil, "", createError(hitLogger, "error converting _doc to note", err)
 		}
 
-		log.Debug("Note Hit", zap.String("Note", fmt.Sprintf("%+v", note)))
+		hitLogger.Debug("note hit", zap.Any("note", note))
 
 		notes = append(notes, note)
 	}
 
 	return notes, "", nil
-
 }
 
 // CreateNote adds the specified note
@@ -714,6 +645,39 @@ func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logg
 	log.Debug("elasticsearch response", zap.Any("response", esResponse))
 
 	return nil
+}
+
+func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger, index, filter string) (*esSearchResponseHits, error) {
+	body := &esSearch{}
+	if filter != "" {
+		log = log.With(zap.String("filter", filter))
+		filterQuery, err := es.filterer.ParseExpression(filter)
+		if err != nil {
+			return nil, createError(log, "error while parsing filter expression", err)
+		}
+
+		body.Query = filterQuery
+	}
+
+	encodedBody := encodeRequest(body)
+	res, err := es.client.Search(
+		es.client.Search.WithContext(ctx),
+		es.client.Search.WithIndex(index),
+		es.client.Search.WithBody(encodedBody),
+	)
+	if err != nil {
+		return nil, createError(log, "error sending request to elasticsearch", err)
+	}
+	if res.IsError() {
+		return nil, createError(log, "unexpected response from elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
+	}
+
+	var searchResults esSearchResponse
+	if err := decodeResponse(res.Body, &searchResults); err != nil {
+		return nil, createError(log, "error decoding elasticsearch response", err)
+	}
+
+	return searchResults.Hits, nil
 }
 
 // createError is a helper function that allows you to easily log an error and return a gRPC formatted error.

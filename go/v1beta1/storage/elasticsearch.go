@@ -9,6 +9,7 @@ import (
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/protobuf/proto"
 	"github.com/google/uuid"
+	"github.com/liatrio/grafeas-elasticsearch/go/config"
 	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"google.golang.org/protobuf/encoding/protojson"
 	"io"
@@ -34,16 +35,18 @@ const indexPrefix = "grafeas-" + apiVersion
 // ElasticsearchStorage is...
 type ElasticsearchStorage struct {
 	client   *elasticsearch.Client
-	logger   *zap.Logger
+	config   *config.ElasticsearchConfig
 	filterer filtering.Filterer
+	logger   *zap.Logger
 }
 
 // NewElasticsearchStore is...
-func NewElasticsearchStore(logger *zap.Logger, client *elasticsearch.Client, filterer filtering.Filterer) *ElasticsearchStorage {
+func NewElasticsearchStore(logger *zap.Logger, client *elasticsearch.Client, filterer filtering.Filterer, config *config.ElasticsearchConfig) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
-		client:   client,
-		logger:   logger,
-		filterer: filterer,
+		client,
+		config,
+		filterer,
+		logger,
 	}
 }
 
@@ -55,6 +58,16 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 
 	if storageType != "elasticsearch" {
 		return nil, fmt.Errorf("unknown storage type %s, must be 'elasticsearch'", storageType)
+	}
+
+	err := grafeasConfig.ConvertGenericConfigToSpecificType(storageConfig, &es.config)
+	if err != nil {
+		return nil, errors.New(fmt.Sprintf("unable to convert config for Elasticsearch, %s", err))
+	}
+
+	err = es.config.IsValid()
+	if err != nil {
+		return nil, err
 	}
 
 	res, err := es.client.Indices.Exists([]string{projectsIndex()})
@@ -365,7 +378,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	res, err := es.client.Bulk(
 		bytes.NewReader(body.Bytes()),
 		es.client.Bulk.WithContext(ctx),
-		es.client.Bulk.WithRefresh("true"),
+		es.client.Bulk.WithRefresh(es.config.Refresh.String()),
 	)
 	if err != nil {
 		return nil, []error{
@@ -601,7 +614,7 @@ func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logg
 		index,
 		bytes.NewReader(str),
 		es.client.Index.WithContext(ctx),
-		es.client.Index.WithRefresh("true"),
+		es.client.Index.WithRefresh(es.config.Refresh.String()),
 	)
 	if err != nil {
 		return createError(log, "error sending request to elasticsearch", err)
@@ -627,7 +640,7 @@ func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logg
 		[]string{index},
 		encodeRequest(search),
 		es.client.DeleteByQuery.WithContext(ctx),
-		es.client.DeleteByQuery.WithRefresh(true),
+		es.client.DeleteByQuery.WithRefresh(withRefreshBool(es.config.Refresh)),
 	)
 	if err != nil {
 		return createError(log, "error sending request to elasticsearch", err)
@@ -744,4 +757,14 @@ func occurrencesIndex(projectId string) string {
 
 func notesIndex(projectId string) string {
 	return fmt.Sprintf("%s-%s-notes", indexPrefix, projectId)
+}
+
+// DeleteByQuery does not support `wait_for` value, although API docs say it is available.
+// Immediately refresh on `wait_for` config, assuming that is likely closer to the desired Grafeas user functionality.
+// https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-delete-by-query.html#docs-delete-by-query-api-query-params
+func withRefreshBool(o config.RefreshOption) bool {
+	if o == config.RefreshFalse {
+		return false
+	}
+	return true
 }

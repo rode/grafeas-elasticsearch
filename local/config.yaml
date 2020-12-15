@@ -7,4 +7,5 @@ grafeas:
     cors_allowed_origins:
   storage_type: elasticsearch
   elasticsearch:
-    uri: "http://elasticsearch:9200"
+    url: "http://elasticsearch:9200"
+    refresh: "true"

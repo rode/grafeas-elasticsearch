@@ -18,19 +18,19 @@ var _ = Describe("ElasticsearchConfig", func() {
 		}
 	},
 		Entry("valid url, refresh true", ElasticsearchConfig{
-			URI:     gofakeit.URL(),
+			URL:     gofakeit.URL(),
 			Refresh: RefreshTrue,
 		}, false),
 		Entry("valid url, refresh wait_for", ElasticsearchConfig{
-			URI:     gofakeit.URL(),
+			URL:     gofakeit.URL(),
 			Refresh: RefreshWaitFor,
 		}, false),
 		Entry("valid url, refresh false", ElasticsearchConfig{
-			URI:     gofakeit.URL(),
+			URL:     gofakeit.URL(),
 			Refresh: RefreshFalse,
 		}, false),
 		Entry("valid url, invalid refresh option", ElasticsearchConfig{
-			URI:     gofakeit.URL(),
+			URL:     gofakeit.URL(),
 			Refresh: "somethingInvalid",
 		}, true),
 	)

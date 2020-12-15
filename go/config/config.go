@@ -6,8 +6,8 @@ import (
 )
 
 type ElasticsearchConfig struct {
-	URI     string        `mapstructure:"uri"`
-	Refresh RefreshOption `mapstructure:"refresh"`
+	Refresh RefreshOption
+	URL     string
 }
 
 func (c ElasticsearchConfig) IsValid() (e error) {

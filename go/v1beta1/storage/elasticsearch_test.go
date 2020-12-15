@@ -54,7 +54,7 @@ var _ = Describe("elasticsearch storage", func() {
 		filterer = mocks.NewMockFilterer(mockCtrl)
 		transport = &mockEsTransport{}
 		esConfig = &config.ElasticsearchConfig{
-			URI:     gofakeit.URL(),
+			URL:     gofakeit.URL(),
 			Refresh: config.RefreshTrue,
 		}
 	})

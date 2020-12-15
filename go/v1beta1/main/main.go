@@ -18,11 +18,6 @@ func main() {
 	flag.StringVar(&elasticsearchHost, "elasticsearch-host", "http://elasticsearch:9200", "the host to use to connect to grafeas")
 	flag.Parse()
 
-	err := grafeasStorage.RegisterDefaultStorageTypeProviders()
-	if err != nil {
-		log.Panicf("Error when registering storage type providers, %s", err)
-	}
-
 	logger, err := createLogger(true)
 	if err != nil {
 		log.Fatalf("failed to create logger: %v", err)

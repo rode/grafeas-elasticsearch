@@ -1612,6 +1612,156 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
+	Context("listing Grafeas notes", func() {
+		var (
+			actualErr          error
+			actualNotes        []*pb.Note
+			expectedNotes      []*pb.Note
+			expectedNotesIndex string
+			expectedFilter     string
+			expectedQuery      *filtering.Query
+		)
+
+		BeforeEach(func() {
+			expectedQuery = &filtering.Query{}
+			expectedFilter = ""
+			expectedNotesIndex = fmt.Sprintf("%s-%s-notes", indexPrefix, expectedProjectId)
+			expectedNotes = generateTestNotes(gofakeit.Number(2, 5), expectedProjectId)
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body: createNoteEsSearchResponse(
+						expectedNotes...,
+					),
+				},
+			}
+		})
+
+		JustBeforeEach(func() {
+			actualNotes, _, actualErr = elasticsearchStorage.ListNotes(ctx, expectedProjectId, expectedFilter, "", 0)
+		})
+
+		It("should query elasticsearch for notes", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedNotesIndex)))
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+
+			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
+			Expect(err).ToNot(HaveOccurred())
+
+			searchBody := &esSearch{}
+			err = json.Unmarshal(requestBody, searchBody)
+			Expect(err).ToNot(HaveOccurred())
+			Expect(searchBody.Query).To(BeNil())
+		})
+
+		When("a valid filter is specified", func() {
+			BeforeEach(func() {
+				expectedQuery = &filtering.Query{
+					Term: &filtering.Term{
+						gofakeit.LetterN(10): gofakeit.LetterN(10),
+					},
+				}
+				expectedFilter = gofakeit.LetterN(10)
+
+				filterer.
+					EXPECT().
+					ParseExpression(expectedFilter).
+					Return(expectedQuery, nil)
+			})
+
+			It("should send the parsed query to elasticsearch", func() {
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedNotesIndex)))
+				Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+
+				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				searchBody := &esSearch{}
+				err = json.Unmarshal(requestBody, searchBody)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(searchBody.Query).To(Equal(expectedQuery))
+			})
+		})
+
+		When("an invalid filter is specified", func() {
+			BeforeEach(func() {
+				expectedFilter = gofakeit.LetterN(10)
+
+				filterer.
+					EXPECT().
+					ParseExpression(expectedFilter).
+					Return(nil, errors.New(gofakeit.LetterN(10)))
+			})
+
+			It("should not send a request to elasticsearch", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(0))
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+		})
+
+		When("elasticsearch successfully returns note(s)", func() {
+			It("should return the Grafeas note(s)", func() {
+				Expect(actualNotes).ToNot(BeNil())
+				Expect(actualNotes).To(Equal(expectedNotes))
+			})
+
+			It("should return without an error", func() {
+				Expect(actualErr).ToNot(HaveOccurred())
+			})
+		})
+
+		When("elasticsearch returns zero hits", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body:       createGenericEsSearchResponse(),
+					},
+				}
+			})
+
+			It("should return an empty slice of notes", func() {
+				Expect(actualNotes).To(BeNil())
+			})
+
+			It("should not return an error", func() {
+				Expect(actualErr).ToNot(HaveOccurred())
+			})
+		})
+
+		When("elasticsearch returns a bad object", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body:       ioutil.NopCloser(strings.NewReader("bad object")),
+					},
+				}
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+		})
+
+		When("returns an unexpected response", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusInternalServerError,
+					},
+				}
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+		})
+	})
+
 	Context("deleting a Grafeas note", func() {
 		var (
 			actualErr          error
@@ -1735,6 +1885,15 @@ func createProjectEsSearchResponse(projects ...*prpb.Project) io.ReadCloser {
 func createOccurrenceEsSearchResponse(occurrences ...*pb.Occurrence) io.ReadCloser {
 	var messages []proto.Message
 	for _, p := range occurrences {
+		messages = append(messages, p)
+	}
+
+	return createGenericEsSearchResponse(messages...)
+}
+
+func createNoteEsSearchResponse(notes ...*pb.Note) io.ReadCloser {
+	var messages []proto.Message
+	for _, p := range notes {
 		messages = append(messages, p)
 	}
 
@@ -1894,6 +2053,15 @@ func generateTestNote(name string) *pb.Note {
 		Kind:             common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
 		CreateTime:       ptypes.TimestampNow(),
 	}
+}
+
+func generateTestNotes(l int, project string) []*pb.Note {
+	var result []*pb.Note
+	for i := 0; i < l; i++ {
+		result = append(result, generateTestNote(fmt.Sprintf("projects/%s/notes/%s", project, gofakeit.LetterN(10))))
+	}
+
+	return result
 }
 
 func structToJsonBody(i interface{}) io.ReadCloser {

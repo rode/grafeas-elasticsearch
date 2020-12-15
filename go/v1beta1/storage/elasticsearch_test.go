@@ -103,9 +103,20 @@ var _ = Describe("elasticsearch storage", func() {
 			Expect(err).ToNot(HaveOccurred())
 		})
 
-		When("storage configuration is not valid", func() {
+		When("storage configuration is not parsable", func() {
 			BeforeEach(func() {
 				storageConfig = grafeasConfig.StorageConfiguration("")
+			})
+
+			It("should return error", func() {
+				Expect(err).To(HaveOccurred())
+			})
+		})
+
+		When("storage configuration is not valid", func() {
+			BeforeEach(func() {
+				esConfig.Refresh = "invalid"
+				storageConfig = grafeasConfig.StorageConfiguration(esConfig)
 			})
 
 			It("should return error", func() {

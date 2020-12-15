@@ -65,6 +65,11 @@ func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType str
 		return nil, errors.New(fmt.Sprintf("unable to convert config for Elasticsearch, %s", err))
 	}
 
+	err = es.config.IsValid()
+	if err != nil {
+		return nil, err
+	}
+
 	res, err := es.client.Indices.Exists([]string{projectsIndex()})
 	if err != nil || (res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound) {
 		return nil, createError(log, "error checking if project index already exists", err)

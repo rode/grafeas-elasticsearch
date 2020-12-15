@@ -704,7 +704,7 @@ func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logg
 		[]string{index},
 		encodeRequest(search),
 		es.client.DeleteByQuery.WithContext(ctx),
-		es.client.DeleteByQuery.WithRefresh(true),
+		es.client.DeleteByQuery.WithRefresh(withRefreshBool(es.config.Refresh)),
 	)
 	if err != nil {
 		return createError(log, "error sending request to elasticsearch", err)

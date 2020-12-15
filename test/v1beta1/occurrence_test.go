@@ -15,6 +15,12 @@ import (
 	"testing"
 )
 
+type occurrenceFilterTestCase struct {
+	name, filter     string
+	expected         []*grafeas_go_proto.Occurrence
+	shouldErrorOccur bool
+}
+
 func TestOccurrence(t *testing.T) {
 	Expect := util.NewExpect(t)
 	s := util.NewSetup()
@@ -84,32 +90,101 @@ func TestOccurrence(t *testing.T) {
 		Expect(err).ToNot(HaveOccurred())
 
 		// creating three different occurrences to test against
-		occurrences := []*grafeas_go_proto.Occurrence{
-			createFakeBuildOccurrence(listProjectName),
-			createFakeVulnerabilityOccurrence(listProjectName),
-			createFakeAttestationOccurrence(listProjectName),
-		}
+		buildOccurrence := createFakeBuildOccurrence(listProjectName)
+		vulnerabilityOccurrence := createFakeVulnerabilityOccurrence(listProjectName)
+		attestationOccurrence := createFakeAttestationOccurrence(listProjectName)
 
-		// ensure the first two occurrences have something in common to filter against
-		occurrences[0].Resource.Uri = occurrences[1].Resource.Uri
+		// ensure occurrences have something in common to filter against
+		buildOccurrence.Resource.Uri = vulnerabilityOccurrence.Resource.Uri
+		vulnerabilityOccurrence.NoteName = attestationOccurrence.NoteName
 
 		// create
-		_, err = s.Gc.BatchCreateOccurrences(s.Ctx, &grafeas_go_proto.BatchCreateOccurrencesRequest{
-			Parent:      listProjectName,
-			Occurrences: occurrences,
+		batchResponse, err := s.Gc.BatchCreateOccurrences(s.Ctx, &grafeas_go_proto.BatchCreateOccurrencesRequest{
+			Parent: listProjectName,
+			Occurrences: []*grafeas_go_proto.Occurrence{
+				buildOccurrence,
+				vulnerabilityOccurrence,
+				attestationOccurrence,
+			},
 		})
 		Expect(err).ToNot(HaveOccurred())
+
+		// reassign pointer values for test occurrences, since the created occurrences will have a new `Name` field that
+		// will need to be included in our assertions
+		buildOccurrence = batchResponse.Occurrences[0]
+		vulnerabilityOccurrence = batchResponse.Occurrences[1]
+		attestationOccurrence = batchResponse.Occurrences[2]
 
 		t.Run("should be successful", func(t *testing.T) {
 			res, err := s.Gc.ListOccurrences(s.Ctx, &grafeas_go_proto.ListOccurrencesRequest{
 				Parent: listProjectName,
 			})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(res.Occurrences).To(HaveLen(len(occurrences)))
+			Expect(res.Occurrences).To(HaveLen(3))
+		})
+
+		t.Run("filters", func(t *testing.T) {
+			for _, tc := range []occurrenceFilterTestCase{
+				{
+					name:   "match resource uri",
+					filter: fmt.Sprintf(`"resource.uri"=="%s"`, buildOccurrence.Resource.Uri),
+					expected: []*grafeas_go_proto.Occurrence{
+						buildOccurrence,
+						vulnerabilityOccurrence,
+					},
+				},
+				{
+					name:   "match note name",
+					filter: fmt.Sprintf(`"noteName"=="%s"`, vulnerabilityOccurrence.NoteName),
+					expected: []*grafeas_go_proto.Occurrence{
+						vulnerabilityOccurrence,
+						attestationOccurrence,
+					},
+				},
+				{
+					name:   "match all occurrence types via OR",
+					filter: `"kind"=="VULNERABILITY" || "kind"=="ATTESTATION" || "kind"=="BUILD"`,
+					expected: []*grafeas_go_proto.Occurrence{
+						vulnerabilityOccurrence,
+						attestationOccurrence,
+						buildOccurrence,
+					},
+				},
+				{
+					name:     "match nothing",
+					filter:   fmt.Sprintf(`"kind"=="VULNERABILITY" && "resource.uri" == "%s"`, attestationOccurrence.Resource.Uri),
+					expected: []*grafeas_go_proto.Occurrence{},
+				},
+				{
+					name:             "bad filter",
+					filter:           "lol",
+					shouldErrorOccur: true,
+				},
+			} {
+				// ensure parallel tests are run with correct test case
+				tc := tc
+
+				t.Run(tc.name, func(t *testing.T) {
+					t.Parallel()
+
+					res, err := s.Gc.ListOccurrences(s.Ctx, &grafeas_go_proto.ListOccurrencesRequest{
+						Parent: listProjectName,
+						Filter: tc.filter,
+					})
+
+					if tc.shouldErrorOccur {
+						Expect(err).To(HaveOccurred())
+					} else {
+						Expect(err).ToNot(HaveOccurred())
+						Expect(res.Occurrences).To(HaveLen(len(tc.expected)))
+						Expect(tc.expected).To(ConsistOf(res.Occurrences))
+					}
+				})
+			}
 		})
 
 		t.Run("should successfully use the filter", func(t *testing.T) {
-			expectedResourceUri := occurrences[0].Resource.Uri
+			expectedResourceUri := buildOccurrence.Resource.Uri
 			res, err := s.Gc.ListOccurrences(s.Ctx, &grafeas_go_proto.ListOccurrencesRequest{
 				Parent: listProjectName,
 				Filter: fmt.Sprintf(`"resource.uri"=="%s"`, expectedResourceUri),

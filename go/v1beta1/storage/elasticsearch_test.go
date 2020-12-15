@@ -71,9 +71,9 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("creating the elasticsearch storage provider", func() {
 		var (
-			err                  error
-			expectedStorageType  = "elasticsearch"
-			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
+			err                                       error
+			expectedStorageType, expectedProjectIndex string
+			storageConfig                             grafeasConfig.StorageConfiguration
 		)
 
 		// BeforeEach configures the happy path for this context
@@ -87,18 +87,40 @@ var _ = Describe("elasticsearch storage", func() {
 					StatusCode: http.StatusOK,
 				},
 			}
+			storageConfig = grafeasConfig.StorageConfiguration(esConfig)
+			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
+			expectedStorageType = "elasticsearch"
 		})
 
 		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
-			randomStorageConfig := grafeasConfig.StorageConfiguration(esConfig)
-			_, err = elasticsearchStorage.ElasticsearchStorageTypeProvider(expectedStorageType, &randomStorageConfig)
+			_, err = elasticsearchStorage.ElasticsearchStorageTypeProvider(expectedStorageType, &storageConfig)
 		})
 
 		It("should check if an index for projects has already been created", func() {
 			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedProjectIndex)))
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodHead))
 			Expect(err).ToNot(HaveOccurred())
+		})
+
+		When("storage configuration is not valid", func() {
+			BeforeEach(func() {
+				storageConfig = grafeasConfig.StorageConfiguration("")
+			})
+
+			It("should return error", func() {
+				Expect(err).To(HaveOccurred())
+			})
+		})
+
+		When("provided storage type is not elasticsearch", func() {
+			BeforeEach(func() {
+				expectedStorageType = "fdas"
+			})
+
+			It("should return error", func() {
+				Expect(err).To(HaveOccurred())
+			})
 		})
 
 		When("an index for projects does not exist", func() {

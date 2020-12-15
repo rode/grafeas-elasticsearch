@@ -15,12 +15,6 @@ import (
 	"testing"
 )
 
-type occurrenceFilterTestCase struct {
-	name, filter     string
-	expected         []*grafeas_go_proto.Occurrence
-	shouldErrorOccur bool
-}
-
 func TestOccurrence(t *testing.T) {
 	Expect := util.NewExpect(t)
 	s := util.NewSetup()
@@ -124,7 +118,11 @@ func TestOccurrence(t *testing.T) {
 		})
 
 		t.Run("filters", func(t *testing.T) {
-			for _, tc := range []occurrenceFilterTestCase{
+			for _, tc := range []struct {
+				name, filter     string
+				expected         []*grafeas_go_proto.Occurrence
+				shouldErrorOccur bool
+			}{
 				{
 					name:   "match resource uri",
 					filter: fmt.Sprintf(`"resource.uri"=="%s"`, buildOccurrence.Resource.Uri),

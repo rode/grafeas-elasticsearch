@@ -176,6 +176,7 @@ var _ = Describe("Filter", func() {
 		},
 			Entry("single term missing lhs value", `==b`),
 			Entry("single term missing rhs value", `a==`),
+			Entry("doesn't resemble anything close to a filter", "lol"),
 			Entry("equal comparison with lhs value containing unknown operator without quotes", `a/b==c`),
 			Entry("equal comparison with rhs value containing unknown operator without quotes", `a==b/c`),
 			Entry("or comparison with lhs value containing unknown operator without quotes", `a/b||c==d`),

@@ -33,17 +33,17 @@ func (f *filterer) ParseExpression(filter string) (*Query, error) {
 
 	expression := parsedExpr.GetExpr()
 
-	_, isCallExpr := expression.ExprKind.(*expr.Expr_CallExpr)
+	_, isCallExpr := expression.GetExprKind().(*expr.Expr_CallExpr)
 	if isCallExpr {
 		// Determine if left and right side are final and if so formulate query
 		leftarg := expression.GetCallExpr().Args[0]
 		rightarg := expression.GetCallExpr().Args[1]
 
 		// Check to see if each side is an identity or const expression
-		_, leftIsIdent := leftarg.ExprKind.(*expr.Expr_IdentExpr)
-		_, leftIsConst := leftarg.ExprKind.(*expr.Expr_ConstExpr)
-		_, rightIsIdent := rightarg.ExprKind.(*expr.Expr_IdentExpr)
-		_, rightIsConst := rightarg.ExprKind.(*expr.Expr_ConstExpr)
+		_, leftIsIdent := leftarg.GetExprKind().(*expr.Expr_IdentExpr)
+		_, leftIsConst := leftarg.GetExprKind().(*expr.Expr_ConstExpr)
+		_, rightIsIdent := rightarg.GetExprKind().(*expr.Expr_IdentExpr)
+		_, rightIsConst := rightarg.GetExprKind().(*expr.Expr_ConstExpr)
 
 		if (leftIsConst || leftIsIdent) && (rightIsConst || rightIsIdent) {
 			pe, err := parseExpression(expression)
@@ -55,6 +55,8 @@ func (f *filterer) ParseExpression(filter string) (*Query, error) {
 				Must: &Must{pe},
 			}}, nil
 		}
+	} else {
+		return nil, fmt.Errorf("expected call expression when parsing filter, got %T", expression.GetExprKind())
 	}
 
 	pe, err := parseExpression(expression)
@@ -79,10 +81,10 @@ func parseExpression(expression *expr.Expr) (interface{}, error) {
 	rightArg := expression.GetCallExpr().Args[1]
 
 	// Check to see if each side is an identity or const expression
-	_, leftIsIdent := leftArg.ExprKind.(*expr.Expr_IdentExpr)
-	_, leftIsConst := leftArg.ExprKind.(*expr.Expr_ConstExpr)
-	_, rightIsIdent := rightArg.ExprKind.(*expr.Expr_IdentExpr)
-	_, rightIsConst := rightArg.ExprKind.(*expr.Expr_ConstExpr)
+	_, leftIsIdent := leftArg.GetExprKind().(*expr.Expr_IdentExpr)
+	_, leftIsConst := leftArg.GetExprKind().(*expr.Expr_ConstExpr)
+	_, rightIsIdent := rightArg.GetExprKind().(*expr.Expr_IdentExpr)
+	_, rightIsConst := rightArg.GetExprKind().(*expr.Expr_ConstExpr)
 
 	switch function {
 	case AndOperation:

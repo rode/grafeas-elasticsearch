@@ -7,6 +7,8 @@ import (
 	"github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	"github.com/liatrio/grafeas-elasticsearch/test/util"
 	. "github.com/onsi/gomega"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"testing"
 )
 
@@ -25,30 +27,65 @@ func TestNote(t *testing.T) {
 		noteId := fake.UUID()
 
 		t.Run("should be successful", func(t *testing.T) {
-			n, err := s.Gc.CreateNote(s.Ctx, &grafeas_go_proto.CreateNoteRequest{
+			expectedNote, err := s.Gc.CreateNote(s.Ctx, &grafeas_go_proto.CreateNoteRequest{
 				Parent: projectName,
 				NoteId: noteId,
-				Note: &grafeas_go_proto.Note{
-					Name:             fake.LetterN(10),
-					ShortDescription: fake.LoremIpsumSentence(fake.Number(5, 10)),
-					LongDescription:  fake.LoremIpsumSentence(fake.Number(5, 10)),
-					Kind:             common_go_proto.NoteKind_BUILD,
-					Type: &grafeas_go_proto.Note_Build{
-						Build: &build_go_proto.Build{
-							BuilderVersion: fake.LetterN(10),
-							Signature: &build_go_proto.BuildSignature{
-								PublicKey: fake.LetterN(10),
-								KeyId:     fake.LetterN(10),
-								Signature: []byte(fake.LetterN(10)),
-							},
-						},
-					},
-				},
+				Note:   createFakeBuildNote(),
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			_, err = s.Gc.GetNote(s.Ctx, &grafeas_go_proto.GetNoteRequest{Name: n.GetName()})
+			actualNote, err := s.Gc.GetNote(s.Ctx, &grafeas_go_proto.GetNoteRequest{Name: expectedNote.GetName()})
 			Expect(err).ToNot(HaveOccurred())
+
+			Expect(actualNote).To(Equal(expectedNote))
 		})
 	})
+
+	t.Run("deleting a note", func(t *testing.T) {
+		noteId := fake.UUID()
+
+		n, err := s.Gc.CreateNote(s.Ctx, &grafeas_go_proto.CreateNoteRequest{
+			Parent: projectName,
+			NoteId: noteId,
+			Note:   createFakeBuildNote(),
+		})
+		Expect(err).ToNot(HaveOccurred())
+
+		// Currently Grafeas returns an error even on successful delete.
+		// This makes testing delete scenarios awkward.
+		// For now we ignore response on delete, and check for error on a subsequent lookup, assuming it won't be found.
+		//
+		// TODO: Once a new version of Grafeas is released that contains this fix:
+		//  https://github.com/grafeas/grafeas/pull/456
+		//  This should be updated to actually review delete results
+
+		_, _ = s.Gc.DeleteNote(s.Ctx, &grafeas_go_proto.DeleteNoteRequest{
+			Name: n.GetName(),
+		})
+
+		_, err = s.Gc.GetNote(s.Ctx, &grafeas_go_proto.GetNoteRequest{
+			Name: n.GetName(),
+		})
+		Expect(err).To(HaveOccurred())
+		Expect(status.Code(err)).To(Equal(codes.NotFound))
+	})
+}
+
+func createFakeBuildNote() *grafeas_go_proto.Note {
+	return &grafeas_go_proto.Note{
+		Name:             fake.LetterN(10),
+		ShortDescription: fake.LoremIpsumSentence(fake.Number(5, 10)),
+		LongDescription:  fake.LoremIpsumSentence(fake.Number(5, 10)),
+		Kind:             common_go_proto.NoteKind_BUILD,
+		Type: &grafeas_go_proto.Note_Build{
+			Build: &build_go_proto.Build{
+				BuilderVersion: fake.LetterN(10),
+				Signature: &build_go_proto.BuildSignature{
+					PublicKey: fake.LetterN(10),
+					KeyId:     fake.LetterN(10),
+					Signature: []byte(fake.LetterN(10)),
+				},
+			},
+		},
+	}
 }

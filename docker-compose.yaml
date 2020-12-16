@@ -2,15 +2,16 @@ version: "3"
 services:
   server:
     build:
-      dockerfile: "./local/Dockerfile"
+      dockerfile: "./Dockerfile"
       context: "."
     ports:
       - "8080:8080"
     volumes:
-      - ./local:/local
-    command: sh -c './wait-for.sh elasticsearch:9200 -t 60 -- /grafeas-server --config /local/config.yaml'
+      - ./local/config.yaml:/etc/grafeas/config.yaml
+    command: "--config /etc/grafeas/config.yaml"
     depends_on:
-      - elasticsearch
+      elasticsearch:
+        condition: service_healthy
   elasticsearch:
     build: "./local/elasticsearch"
     ports:
@@ -20,6 +21,11 @@ services:
       - discovery.type=single-node
       - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
     mem_limit: 1GB
+    healthcheck:
+      test: ["CMD", "curl", "http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 1m
+      retries: 3
   kibana:
     image: bitnami/kibana:7.9.3
     ports:

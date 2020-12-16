@@ -1466,9 +1466,7 @@ var _ = Describe("elasticsearch storage", func() {
 				} else { // note
 					note := payload.(*pb.Note)
 
-					expectedNote := expectedNotes[note.Name] //XXX
-					io.WriteString(GinkgoWriter, fmt.Sprintf("Note NAME: %s\n", note.Name))
-					io.WriteString(GinkgoWriter, fmt.Sprintf("ExpectedNoteName: %+v\n", expectedNote))
+					expectedNote := expectedNotes[note.Name]
 					expectedNote.Name = note.Name
 
 					Expect(note).To(Equal(expectedNote))
@@ -1532,41 +1530,42 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 
-		/*
-			When("the bulk request returns some errors", func() {
-				var randomErrorIndex int
+		When("the bulk request returns some errors", func() {
+			var randomErrorIndex int
+			var randomErrorKey string
+			var index int
 
-				BeforeEach(func() {
-					randomErrorIndex = gofakeit.Number(0, len(expectedNotes)-1)
-					expectedErrs = []error{}
-					for i := 0; i < len(expectedNotes); i++ {
-						if i == randomErrorIndex {
-							expectedErrs = append(expectedErrs, errors.New(""))
-						} else {
-							expectedErrs = append(expectedErrs, nil)
-						}
+			BeforeEach(func() {
+				randomErrorIndex = gofakeit.Number(0, len(expectedNotes)-1)
+				expectedErrs = []error{}
+				index = 0
+				for key := range expectedNotes {
+					if index == randomErrorIndex {
+						expectedErrs = append(expectedErrs, errors.New(""))
+						randomErrorKey = key
+					} else {
+						expectedErrs = append(expectedErrs, nil)
 					}
-				})
-
-				It("should only return the notes that were successfully created", func() {
-					// remove the bad note from expectedNotes
-					copy(expectedNotes[randomErrorIndex:], expectedNotes[randomErrorIndex+1:])
-					expectedNotes[len(expectedNotes)-1] = nil
-					expectedNotes = expectedNotes[:len(expectedNotes)-1]
-
-					// assert expectedNotes matches actualNotes
-					for i, occ := range expectedNotes {
-						expectedNote := deepCopyNote(occ)
-						expectedNote.Name = actualNotes[i].Name
-						Expect(actualNotes[i]).To(Equal(expectedNote))
-					}
-
-					// assert that we got a single error back
-					Expect(actualErrs).To(HaveLen(1))
-					Expect(actualErrs[0]).To(HaveOccurred())
-				})
+					index++
+				}
 			})
-		*/
+
+			It("should only return the notes that were successfully created", func() {
+				// remove the bad note from expectedNotes
+				delete(expectedNotes, randomErrorKey)
+
+				// assert expectedNotes matches actualNotes
+				for i, note := range actualNotes {
+					expectedNote := deepCopyNote(expectedNotes[note.Name])
+					expectedNote.Name = actualNotes[i].Name
+					Expect(actualNotes[i]).To(Equal(expectedNote))
+				}
+
+				// assert that we got a single error back
+				Expect(actualErrs).To(HaveLen(1))
+				Expect(actualErrs[0]).To(HaveOccurred())
+			})
+		})
 	})
 
 	Context("retrieving a Grafeas note", func() {

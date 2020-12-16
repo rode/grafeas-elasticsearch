@@ -9,7 +9,12 @@
 
 An externally running Elasticsearch cluster must already be available.
 
-`docker run -p 8080:8080 -v ./config:/config ghcr.io/liatrio/grafeas-elasticsearch --config /config/config.yaml`
+```bash
+docker run \
+  -p 8080:8080 \
+  -v ./config.yaml:/etc/grafeas/config.yaml \
+  ghcr.io/liatrio/grafeas-elasticsearch --config /etc/grafeas/config.yaml
+````
 
 A configuration file must be provided, with the path specified with a `--config` flag.
 

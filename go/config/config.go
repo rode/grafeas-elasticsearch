@@ -6,8 +6,8 @@ import (
 )
 
 type ElasticsearchConfig struct {
-	Refresh RefreshOption
-	URL     string
+	Refresh                 RefreshOption
+	URL, Username, Password string
 }
 
 func (c ElasticsearchConfig) IsValid() (e error) {
@@ -21,7 +21,7 @@ func (c ElasticsearchConfig) IsValid() (e error) {
 	return
 }
 
-// https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-refresh.html
+// RefreshOption is based on https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-refresh.html
 type RefreshOption string
 
 func (r RefreshOption) String() string {

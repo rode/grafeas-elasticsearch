@@ -4,25 +4,20 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/protobuf/proto"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/google/uuid"
 	"github.com/liatrio/grafeas-elasticsearch/go/config"
 	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering"
-	"google.golang.org/protobuf/encoding/protojson"
-	"io"
-	"net/http"
-
-	"github.com/elastic/go-elasticsearch/v7"
-	"github.com/golang/protobuf/ptypes"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+	"io"
 
-	grafeasConfig "github.com/grafeas/grafeas/go/config"
-	"github.com/grafeas/grafeas/go/v1beta1/storage"
 	pb "github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 
@@ -32,7 +27,6 @@ import (
 const apiVersion = "v1beta1"
 const indexPrefix = "grafeas-" + apiVersion
 
-// ElasticsearchStorage is...
 type ElasticsearchStorage struct {
 	client   *elasticsearch.Client
 	config   *config.ElasticsearchConfig
@@ -40,62 +34,13 @@ type ElasticsearchStorage struct {
 	logger   *zap.Logger
 }
 
-// NewElasticsearchStore is...
-func NewElasticsearchStore(logger *zap.Logger, client *elasticsearch.Client, filterer filtering.Filterer, config *config.ElasticsearchConfig) *ElasticsearchStorage {
+func NewElasticsearchStorage(logger *zap.Logger, client *elasticsearch.Client, filterer filtering.Filterer, config *config.ElasticsearchConfig) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
 		client,
 		config,
 		filterer,
 		logger,
 	}
-}
-
-// ElasticsearchStorageTypeProvider configures a Grafeas storage backend that utilizes Elasticsearch.
-// Configuring this backend will result in an index, representing projects, to be created.
-func (es *ElasticsearchStorage) ElasticsearchStorageTypeProvider(storageType string, storageConfig *grafeasConfig.StorageConfiguration) (*storage.Storage, error) {
-	log := es.logger.Named("ElasticsearchStorageTypeProvider")
-	log.Info("registering elasticsearch storage provider")
-
-	if storageType != "elasticsearch" {
-		return nil, fmt.Errorf("unknown storage type %s, must be 'elasticsearch'", storageType)
-	}
-
-	err := grafeasConfig.ConvertGenericConfigToSpecificType(storageConfig, &es.config)
-	if err != nil {
-		return nil, errors.New(fmt.Sprintf("unable to convert config for Elasticsearch, %s", err))
-	}
-
-	err = es.config.IsValid()
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := es.client.Indices.Exists([]string{projectsIndex()})
-	if err != nil || (res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound) {
-		return nil, createError(log, "error checking if project index already exists", err)
-	}
-
-	// the response is an error if the index was not found, so we need to create it
-	if res.IsError() {
-		log := log.With(zap.String("index", projectsIndex()))
-		log.Info("initial index for grafeas projects not found, creating...")
-		res, err = es.client.Indices.Create(
-			projectsIndex(),
-			withIndexMetadataAndStringMapping(),
-		)
-		if err != nil {
-			return nil, createError(log, "error sending index creation request to elasticsearch", err)
-		}
-		if res.IsError() {
-			return nil, createError(log, "error creating index in elasticsearch", errors.New(res.String()))
-		}
-		log.Info("project index created", zap.String("index", projectsIndex()))
-	}
-
-	return &storage.Storage{
-		Ps: es,
-		Gs: es,
-	}, nil
 }
 
 // CreateProject creates a project document within the project index, along with two indices that can be used

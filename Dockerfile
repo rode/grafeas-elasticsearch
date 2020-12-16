@@ -14,4 +14,4 @@ FROM alpine:latest
 WORKDIR /
 COPY --from=builder /workspace/go/v1beta1/main/grafeas-server /grafeas-server
 EXPOSE 8080
-CMD ["/grafeas-server"]
+ENTRYPOINT ["/grafeas-server"]

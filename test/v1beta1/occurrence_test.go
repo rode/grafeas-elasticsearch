@@ -12,6 +12,8 @@ import (
 	"github.com/grafeas/grafeas/proto/v1beta1/vulnerability_go_proto"
 	"github.com/liatrio/grafeas-elasticsearch/test/util"
 	. "github.com/onsi/gomega"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 	"testing"
 )
 
@@ -70,10 +72,11 @@ func TestOccurrence(t *testing.T) {
 		//  https://github.com/grafeas/grafeas/pull/456
 		//  This should be updated to actually review delete results
 
-		s.Gc.DeleteOccurrence(s.Ctx, &grafeas_go_proto.DeleteOccurrenceRequest{Name: o.Name})
+		_, _ = s.Gc.DeleteOccurrence(s.Ctx, &grafeas_go_proto.DeleteOccurrenceRequest{Name: o.Name})
 
 		_, err = s.Gc.GetOccurrence(s.Ctx, &grafeas_go_proto.GetOccurrenceRequest{Name: o.GetName()})
 		Expect(err).To(HaveOccurred())
+		Expect(status.Code(err)).To(Equal(codes.NotFound))
 	})
 
 	t.Run("listing occurrences", func(t *testing.T) {

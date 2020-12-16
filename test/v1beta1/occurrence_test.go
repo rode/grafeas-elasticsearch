@@ -197,7 +197,7 @@ func TestOccurrence(t *testing.T) {
 				},
 				{
 					name:   "match second vuln occurrence via && and !=",
-					filter: fmt.Sprintf(`"resource.uri" == "%s" && (kind != "DEPLOYMENT" || kind != "BUILD")`, deploymentOccurrence.Resource.Uri),
+					filter: fmt.Sprintf(`"resource.uri" == "%s" && ("kind" != "BUILD" && "kind" != "DEPLOYMENT")`, deploymentOccurrence.Resource.Uri),
 					expected: []*grafeas_go_proto.Occurrence{
 						secondVulnerabilityOccurrence,
 					},

@@ -37,21 +37,11 @@ func (f *filterer) ParseExpression(filter string) (*Query, error) {
 		return nil, fmt.Errorf("expected call expression when parsing filter, got %T", expression.GetExprKind())
 	}
 
-	parsedExpression, err := parseExpression(expression)
-	if err != nil {
-		return nil, err
-	}
-
-	query, ok := parsedExpression.(*Query)
-	if !ok {
-		return nil, fmt.Errorf("cannot cast parse expression result")
-	}
-
-	return query, nil
+	return parseExpression(expression)
 }
 
 // ParseExpression to parse and create a query
-func parseExpression(expression *expr.Expr) (interface{}, error) {
+func parseExpression(expression *expr.Expr) (*Query, error) {
 	function := Operation(expression.GetCallExpr().GetFunction())
 
 	// Determine if left and right side are final and if so formulate query
@@ -96,9 +86,9 @@ func parseExpression(expression *expr.Expr) (interface{}, error) {
 			},
 		}, nil
 	case EqualOperation:
-		leftTerm, rightTerm, ok := getSimpleExpressionTerms(leftArg, rightArg)
-		if !ok {
-			return nil, fmt.Errorf("encountered unexpected expression kinds when evaluating filter: %T, %T", leftArg.GetExprKind(), rightArg.GetExprKind())
+		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
+		if err != nil {
+			return nil, err
 		}
 
 		return &Query{
@@ -113,9 +103,9 @@ func parseExpression(expression *expr.Expr) (interface{}, error) {
 			},
 		}, nil
 	case NotEqualOperation:
-		leftTerm, rightTerm, ok := getSimpleExpressionTerms(leftArg, rightArg)
-		if !ok {
-			return nil, fmt.Errorf("encountered unexpected expression kinds when evaluating filter: %T, %T", leftArg.GetExprKind(), rightArg.GetExprKind())
+		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
+		if err != nil {
+			return nil, err
 		}
 
 		return &Query{
@@ -128,15 +118,13 @@ func parseExpression(expression *expr.Expr) (interface{}, error) {
 			},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unknown parse expression function")
+		return nil, fmt.Errorf("unknown parse expression function: %s", function)
 	}
 }
 
 // converts left and right call expressions into simple term strings.
 // this function should be used at the top of the `parseExpression` call stack.
-func getSimpleExpressionTerms(leftArg, rightArg *expr.Expr) (leftTerm, rightTerm string, ok bool) {
-	ok = true
-
+func getSimpleExpressionTerms(leftArg, rightArg *expr.Expr) (leftTerm, rightTerm string, err error) {
 	if _, ok := leftArg.GetExprKind().(*expr.Expr_IdentExpr); ok {
 		leftTerm = leftArg.GetIdentExpr().Name
 	}
@@ -154,7 +142,7 @@ func getSimpleExpressionTerms(leftArg, rightArg *expr.Expr) (leftTerm, rightTerm
 	}
 
 	if leftTerm == "" || rightTerm == "" {
-		ok = false
+		err = fmt.Errorf("encountered unexpected expression kinds when evaluating filter: %T, %T", leftArg.GetExprKind(), rightArg.GetExprKind())
 	}
 
 	return

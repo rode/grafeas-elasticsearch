@@ -369,7 +369,7 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId,
 // BatchCreateOccurrences batch creates the specified occurrences in Elasticsearch.
 // This method uses the ES "_bulk" API: https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-bulk.html
 // This method will return all of the occurrences that were successfully created, and all of the errors that were encountered (if any)
-func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, projectId string, uID string, occurrences []*pb.Occurrence) ([]*pb.Occurrence, []error) {
+func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, projectId string, uID string, occurrences []*pb.Occurrence) ([]*pb.Occurrence, []error) { // XXX
 	log := es.logger.Named("BatchCreateOccurrences")
 	log.Debug("creating occurrences")
 
@@ -630,7 +630,7 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 }
 
 // BatchCreateNotes batch creates the specified notes in memstore.
-func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, pID, uID string, notes map[string]*pb.Note) ([]*pb.Note, []error) {
+func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, pID, uID string, notes map[string]*pb.Note) ([]*pb.Note, []error) { // XXX
 	log := es.logger.Named("BatchCreateNotes")
 	log.Debug("creating notes")
 
@@ -955,7 +955,7 @@ func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
 	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
 }
 
-func decodeResponse(r io.ReadCloser, i interface{}) error {
+func decodeResponse(r io.ReadCloser, i interface{}) error { // XXX
 	return json.NewDecoder(r).Decode(i)
 }
 

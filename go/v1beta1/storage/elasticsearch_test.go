@@ -812,7 +812,7 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("creating a batch of Grafeas occurrences", func() {
+	Context("creating a batch of Grafeas occurrences", func() { //XXX
 		var (
 			expectedErrs             []error
 			actualErrs               []error
@@ -1314,6 +1314,134 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
+	Context("creating a batch of Grafeas notes", func() { //XXX
+		var (
+			expectedErrs       []error
+			actualErrs         []error
+			actualNotes        []*pb.Note
+			expectedNotes      map[string]*pb.Note
+			expectedNotesIndex string
+		)
+
+		// BeforeEach configures the happy path for this context
+		// Variables configured here may be overridden in nested BeforeEach blocks
+		BeforeEach(func() {
+			expectedNotesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "notes")
+			expectedNotes = generateTestNotes(gofakeit.Number(2, 5))
+			for i := 0; i < len(expectedNotes); i++ {
+				expectedErrs = append(expectedErrs, nil)
+			}
+
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body:       createEsMsearchNoteResponse(expectedNotes, expectedErrs),
+				},
+				{
+					StatusCode: http.StatusOK,
+					Body:       createEsBulkNoteIndexResponse(expectedNotes, expectedErrs),
+				},
+			}
+		})
+
+		// JustBeforeEach actually invokes the system under test
+		JustBeforeEach(func() {
+			notes := deepCopyNotes(expectedNotes)
+
+			transport.preparedHttpResponses[0].Body = createEsMsearchNoteResponse(notes, expectedErrs)
+			transport.preparedHttpResponses[1].Body = createEsBulkNoteIndexResponse(notes, expectedErrs)
+			actualNotes, actualErrs = elasticsearchStorage.BatchCreateNotes(context.Background(), expectedProjectId, "", notes)
+		})
+
+		// this test parses the ndjson request body and ensures that it was formatted correctly
+		It("should send a bulk request to ES to index each note", func() {
+			var expectedPayloads []interface{}
+
+			for i := 0; i < len(expectedNotes); i++ {
+				expectedPayloads = append(expectedPayloads, &esBulkQueryFragment{}, &pb.Note{})
+			}
+
+			parseEsBulkIndexRequest(transport.receivedHttpRequests[1].Body, expectedPayloads)
+
+			for i, payload := range expectedPayloads {
+				if i%2 == 0 { // index metadata
+					metadata := payload.(*esBulkQueryFragment)
+					Expect(metadata.Index.Index).To(Equal(expectedNotesIndex))
+				} else { // note
+					note := payload.(*pb.Note)
+					expectedNote := expectedNotes[note.Name] //XXX
+					expectedNote.Name = note.Name
+
+					Expect(note).To(Equal(expectedNote))
+				}
+			}
+		})
+
+		It("should immediately refresh the index", func() {
+			Expect(transport.receivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
+		})
+
+		When("the bulk request returns no errors", func() {
+			It("should return all created notes", func() {
+				for i, note := range actualNotes {
+					expectedNote := deepCopyNote(expectedNotes[note.Name])
+					expectedNote.Name = actualNotes[i].Name
+					Expect(actualNotes[i]).To(Equal(expectedNote))
+				}
+
+				Expect(actualErrs).To(HaveLen(0))
+			})
+		})
+
+		When("the bulk request completely fails", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+			})
+
+			It("should return a single error and no notes", func() {
+				Expect(actualNotes).To(BeNil())
+				Expect(actualErrs).To(HaveLen(1))
+				Expect(actualErrs[0]).To(HaveOccurred())
+			})
+		})
+
+		/*
+			When("the bulk request returns some errors", func() {
+				var randomErrorIndex int
+
+				BeforeEach(func() {
+					randomErrorIndex = gofakeit.Number(0, len(expectedNotes)-1)
+					expectedErrs = []error{}
+					for i := 0; i < len(expectedNotes); i++ {
+						if i == randomErrorIndex {
+							expectedErrs = append(expectedErrs, errors.New(""))
+						} else {
+							expectedErrs = append(expectedErrs, nil)
+						}
+					}
+				})
+
+				It("should only return the notes that were successfully created", func() {
+					// remove the bad note from expectedNotes
+					copy(expectedNotes[randomErrorIndex:], expectedNotes[randomErrorIndex+1:])
+					expectedNotes[len(expectedNotes)-1] = nil
+					expectedNotes = expectedNotes[:len(expectedNotes)-1]
+
+					// assert expectedNotes matches actualNotes
+					for i, occ := range expectedNotes {
+						expectedNote := deepCopyNote(occ)
+						expectedNote.Name = actualNotes[i].Name
+						Expect(actualNotes[i]).To(Equal(expectedNote))
+					}
+
+					// assert that we got a single error back
+					Expect(actualErrs).To(HaveLen(1))
+					Expect(actualErrs[0]).To(HaveOccurred())
+				})
+			})
+		*/
+	})
+
 	Context("retrieving a Grafeas note", func() {
 		var (
 			actualErr          error
@@ -1584,7 +1712,7 @@ func createEsSearchResponse(objectType string, hitNames ...string) io.ReadCloser
 	return ioutil.NopCloser(bytes.NewReader(responseBody))
 }
 
-func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []error) io.ReadCloser {
+func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []error) io.ReadCloser { // XXX
 	var (
 		responseItems     []*esBulkResponseItem
 		responseHasErrors = false
@@ -1623,12 +1751,51 @@ func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []er
 	return ioutil.NopCloser(bytes.NewReader(responseBody))
 }
 
-func createEsBulkNoteIndexResponse(notes []*pb.Note, errs []error) io.ReadCloser {
+func createEsBulkNoteIndexResponse(notes map[string]*pb.Note, errs []error) io.ReadCloser {
 	var (
 		responseItems     []*esBulkResponseItem
 		responseHasErrors = false
 	)
-	for i := range notes {
+	for i := 0; i < len(notes); i++ {
+		var (
+			responseErr  *esIndexDocError
+			responseCode = http.StatusCreated
+		)
+		if errs[i] != nil {
+			responseErr = &esIndexDocError{
+				Type:   gofakeit.LetterN(10),
+				Reason: gofakeit.LetterN(10),
+			}
+			responseCode = http.StatusInternalServerError
+			responseHasErrors = true
+		}
+
+		responseItems = append(responseItems, &esBulkResponseItem{
+			Index: &esIndexDocResponse{
+				Id:     gofakeit.LetterN(10),
+				Status: responseCode,
+				Error:  responseErr,
+			},
+		})
+	}
+
+	response := &esBulkResponse{
+		Items:  responseItems,
+		Errors: responseHasErrors,
+	}
+
+	responseBody, err := json.Marshal(response)
+	Expect(err).ToNot(HaveOccurred())
+
+	return ioutil.NopCloser(bytes.NewReader(responseBody))
+}
+
+func createEsMsearchNoteResponse(notes map[string]*pb.Note, errs []error) io.ReadCloser {
+	var (
+		responseItems     []*esBulkResponseItem
+		responseHasErrors = false
+	)
+	for i := 0; i < len(notes); i++ {
 		var (
 			responseErr  *esIndexDocError
 			responseCode = http.StatusCreated
@@ -1710,10 +1877,10 @@ func generateTestNote(name string) *pb.Note {
 	}
 }
 
-func generateTestNotes(l int) []*pb.Note {
-	var result []*pb.Note
+func generateTestNotes(l int) map[string]*pb.Note {
+	result := make(map[string]*pb.Note)
 	for i := 0; i < l; i++ {
-		result = append(result, generateTestNote(""))
+		result[gofakeit.LetterN(10)] = generateTestNote("")
 	}
 
 	return result
@@ -1811,10 +1978,10 @@ func deepCopyOccurrence(occ *pb.Occurrence) *pb.Occurrence {
 	return result
 }
 
-func deepCopyNotes(notes []*pb.Note) []*pb.Note {
-	var result []*pb.Note
-	for _, note := range notes {
-		result = append(result, deepCopyNote(note))
+func deepCopyNotes(notes map[string]*pb.Note) map[string]*pb.Note {
+	result := make(map[string]*pb.Note)
+	for key, note := range notes {
+		result[key] = deepCopyNote(note)
 	}
 
 	return result

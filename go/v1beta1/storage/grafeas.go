@@ -13,13 +13,13 @@ type newElasticsearchStorage func(*config.ElasticsearchConfig) (*ElasticsearchSt
 
 type registerStorageTypeProvider func(string, *grafeasConfig.StorageConfiguration) (*storage.Storage, error)
 
-// GrafeasStorageTypeProviderCreator takes a function that returns a new instance of ElasticsearchStorage,
+// ElasticsearchStorageTypeProviderCreator takes a function that returns a new instance of ElasticsearchStorage,
 // when called later with the parsed Grafeas config file into config.ElasticsearchConfig.
 // It return a function that is given to Grafeas to register the Elasticsearch storage type provider.
 // This allows for the ability to still inject different ElasticsearchStorage configurations, e.g. testing.
 // This is done this way because we do not get access to the parsed config until after Grafeas server is started
 // and registers the storage type provider.
-func GrafeasStorageTypeProviderCreator(newES newElasticsearchStorage, logger *zap.Logger) registerStorageTypeProvider {
+func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorage, logger *zap.Logger) registerStorageTypeProvider {
 	return func(storageType string, sc *grafeasConfig.StorageConfiguration) (*storage.Storage, error) {
 		var c *config.ElasticsearchConfig
 

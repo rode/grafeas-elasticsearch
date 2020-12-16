@@ -73,7 +73,7 @@ var _ = Describe("Grafeas integration", func() {
 
 		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
-			registerStorageTypeProvider := GrafeasStorageTypeProviderCreator(newElasticsearchStorage, logger)
+			registerStorageTypeProvider := ElasticsearchStorageTypeProviderCreator(newElasticsearchStorage, logger)
 			_, err = registerStorageTypeProvider(expectedStorageType, &storageConfig)
 		})
 
@@ -139,7 +139,7 @@ var _ = Describe("Grafeas integration", func() {
 				assertIndexCreateBodyHasMetadataAndStringMapping(transport.receivedHttpRequests[1].Body)
 			})
 
-			When("creating the index for projects fails", func() {
+			When("creating the index for projects returns errors from elasticsearch", func() {
 				BeforeEach(func() {
 					transport.preparedHttpResponses[1].StatusCode = http.StatusInternalServerError
 				})

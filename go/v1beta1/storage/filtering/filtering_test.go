@@ -1,6 +1,7 @@
 package filtering
 
 import (
+	"encoding/json"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -10,9 +11,10 @@ var _ = Describe("Filter", func() {
 	Describe("ParseExpression", func() {
 		DescribeTable("filter cases", func(filter string, expected interface{}) {
 			result, err := NewFilterer().ParseExpression(filter)
+			resultJson, _ := json.MarshalIndent(result, "", "  ")
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(result).To(Equal(expected))
+			Expect(result).To(Equal(expected), string(resultJson))
 		},
 			Entry("single term left ident right const", `a=="b"`, &Query{
 				Bool: &Bool{
@@ -61,14 +63,26 @@ var _ = Describe("Filter", func() {
 			Entry("and two terms", `(a=="b")&&(c=="d")`, &Query{
 				Bool: &Bool{
 					Must: &Must{
-						&Bool{
-							Term: &Term{
-								"a": "b",
+						&Query{
+							Bool: &Bool{
+								Must: &Must{
+									&Bool{
+										Term: &Term{
+											"a": "b",
+										},
+									},
+								},
 							},
 						},
-						&Bool{
-							Term: &Term{
-								"c": "d",
+						&Query{
+							Bool: &Bool{
+								Must: &Must{
+									&Bool{
+										Term: &Term{
+											"c": "d",
+										},
+									},
+								},
 							},
 						},
 					},
@@ -80,22 +94,40 @@ var _ = Describe("Filter", func() {
 						&Query{
 							Bool: &Bool{
 								Must: &Must{
-									&Bool{
-										Term: &Term{
-											"a": "b",
+									&Query{
+										Bool: &Bool{
+											Must: &Must{
+												&Bool{
+													Term: &Term{
+														"a": "b",
+													},
+												},
+											},
 										},
 									},
-									&Bool{
-										Term: &Term{
-											"c": "d",
+									&Query{
+										Bool: &Bool{
+											Must: &Must{
+												&Bool{
+													Term: &Term{
+														"c": "d",
+													},
+												},
+											},
 										},
 									},
 								},
 							},
 						},
-						&Bool{
-							Term: &Term{
-								"e": "f",
+						&Query{
+							Bool: &Bool{
+								Must: &Must{
+									&Bool{
+										Term: &Term{
+											"e": "f",
+										},
+									},
+								},
 							},
 						},
 					},
@@ -104,22 +136,40 @@ var _ = Describe("Filter", func() {
 			Entry("and term with or set", `(a=="b")&&((c=="d")||(e=="f"))`, &Query{
 				Bool: &Bool{
 					Must: &Must{
-						&Bool{
-							Term: &Term{
-								"a": "b",
+						&Query{
+							Bool: &Bool{
+								Must: &Must{
+									&Bool{
+										Term: &Term{
+											"a": "b",
+										},
+									},
+								},
 							},
 						},
 						&Query{
 							Bool: &Bool{
 								Should: &Should{
-									&Bool{
-										Term: &Term{
-											"c": "d",
+									&Query{
+										Bool: &Bool{
+											Must: &Must{
+												&Bool{
+													Term: &Term{
+														"c": "d",
+													},
+												},
+											},
 										},
 									},
-									&Bool{
-										Term: &Term{
-											"e": "f",
+									&Query{
+										Bool: &Bool{
+											Must: &Must{
+												&Bool{
+													Term: &Term{
+														"e": "f",
+													},
+												},
+											},
 										},
 									},
 								},
@@ -134,14 +184,26 @@ var _ = Describe("Filter", func() {
 						&Query{
 							Bool: &Bool{
 								Must: &Must{
-									&Bool{
-										Term: &Term{
-											"a": "b",
+									&Query{
+										Bool: &Bool{
+											Must: &Must{
+												&Bool{
+													Term: &Term{
+														"a": "b",
+													},
+												},
+											},
 										},
 									},
-									&Bool{
-										Term: &Term{
-											"g": "h",
+									&Query{
+										Bool: &Bool{
+											Must: &Must{
+												&Bool{
+													Term: &Term{
+														"g": "h",
+													},
+												},
+											},
 										},
 									},
 								},
@@ -150,14 +212,26 @@ var _ = Describe("Filter", func() {
 						&Query{
 							Bool: &Bool{
 								Should: &Should{
-									&Bool{
-										Term: &Term{
-											"c": "d",
+									&Query{
+										Bool: &Bool{
+											Must: &Must{
+												&Bool{
+													Term: &Term{
+														"c": "d",
+													},
+												},
+											},
 										},
 									},
-									&Bool{
-										Term: &Term{
-											"e": "f",
+									&Query{
+										Bool: &Bool{
+											Must: &Must{
+												&Bool{
+													Term: &Term{
+														"e": "f",
+													},
+												},
+											},
 										},
 									},
 								},

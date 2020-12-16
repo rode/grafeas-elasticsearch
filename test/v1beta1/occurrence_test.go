@@ -152,9 +152,26 @@ func TestOccurrence(t *testing.T) {
 					},
 				},
 				{
+					name:   "match all occurrence types via OR and !=",
+					filter: fmt.Sprintf(`"kind"!="VULNERABILITY" || "resource.uri"=="%s"`, vulnerabilityOccurrence.Resource.Uri),
+					expected: []*grafeas_go_proto.Occurrence{
+						vulnerabilityOccurrence,
+						attestationOccurrence,
+						buildOccurrence,
+					},
+				},
+				{
 					name:     "match nothing",
 					filter:   fmt.Sprintf(`"kind"=="VULNERABILITY" && "resource.uri" == "%s"`, attestationOccurrence.Resource.Uri),
 					expected: []*grafeas_go_proto.Occurrence{},
+				},
+				{
+					name:   "match non vulnerability occurrences via !=",
+					filter: `"kind"!="VULNERABILITY"`,
+					expected: []*grafeas_go_proto.Occurrence{
+						buildOccurrence,
+						attestationOccurrence,
+					},
 				},
 				{
 					name:             "bad filter",

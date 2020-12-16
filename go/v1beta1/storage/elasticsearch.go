@@ -180,38 +180,12 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 	var projects []*prpb.Project
 	log := es.logger.Named("ListProjects")
 
-	body := &esSearch{}
-	if filter != "" {
-		log = log.With(zap.String("filter", filter))
-		filterQuery, err := es.filterer.ParseExpression(filter)
-		if err != nil {
-			return nil, "", createError(log, "error while parsing filter expression", err)
-		}
-
-		body.Query = filterQuery
-	}
-
-	log.Debug("listing projects")
-
-	encodedBody := encodeRequest(body)
-	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(projectsIndex()),
-		es.client.Search.WithBody(encodedBody),
-	)
+	res, err := es.genericList(ctx, log, projectsIndex(), filter)
 	if err != nil {
-		return nil, "", createError(log, "error sending request to elasticsearch", err)
-	}
-	if res.IsError() {
-		return nil, "", createError(log, "unexpected response from elasticsearch when listing projects", nil, zap.String("response", res.String()))
+		return nil, "", err
 	}
 
-	var searchResults esSearchResponse
-	if err := decodeResponse(res.Body, &searchResults); err != nil {
-		return nil, "", createError(log, "error decoding elasticsearch response", err)
-	}
-
-	for _, hit := range searchResults.Hits.Hits {
+	for _, hit := range res.Hits {
 		hitLogger := log.With(zap.String("project raw", string(hit.Source)))
 
 		project := &prpb.Project{}
@@ -579,10 +553,13 @@ func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.C
 }
 
 func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *esSearch, index string, protoMessage interface{}) error {
+	encodedBody, requestJson := encodeRequest(search)
+	log = log.With(zap.String("request", requestJson))
+
 	res, err := es.client.Search(
 		es.client.Search.WithContext(ctx),
 		es.client.Search.WithIndex(index),
-		es.client.Search.WithBody(encodeRequest(search)),
+		es.client.Search.WithBody(encodedBody),
 	)
 	if err != nil {
 		return createError(log, "error sending request to elasticsearch", err)
@@ -636,9 +613,12 @@ func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logg
 }
 
 func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logger, search *esSearch, index string) error {
+	encodedBody, requestJson := encodeRequest(search)
+	log = log.With(zap.String("request", requestJson))
+
 	res, err := es.client.DeleteByQuery(
 		[]string{index},
-		encodeRequest(search),
+		encodedBody,
 		es.client.DeleteByQuery.WithContext(ctx),
 		es.client.DeleteByQuery.WithRefresh(withRefreshBool(es.config.Refresh)),
 	)
@@ -673,7 +653,10 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 		body.Query = filterQuery
 	}
 
-	encodedBody := encodeRequest(body)
+	encodedBody, requestJson := encodeRequest(body)
+	log = log.With(zap.String("request", requestJson))
+	log.Debug("performing search")
+
 	res, err := es.client.Search(
 		es.client.Search.WithContext(ctx),
 		es.client.Search.WithIndex(index),
@@ -737,14 +720,14 @@ func decodeResponse(r io.ReadCloser, i interface{}) error {
 	return json.NewDecoder(r).Decode(i)
 }
 
-func encodeRequest(body interface{}) io.Reader {
+func encodeRequest(body interface{}) (io.Reader, string) {
 	b, err := json.Marshal(body)
 	if err != nil {
 		// we should know that `body` is a serializable struct before invoking `encodeRequest`
 		panic(err)
 	}
 
-	return bytes.NewReader(b)
+	return bytes.NewReader(b), string(b)
 }
 
 func projectsIndex() string {

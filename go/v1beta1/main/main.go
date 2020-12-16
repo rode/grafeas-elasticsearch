@@ -19,14 +19,16 @@ func main() {
 		log.Fatalf("failed to create logger: %v", err)
 	}
 
-	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", storage.GrafeasStorageTypeProviderCreator(func(c *config.ElasticsearchConfig) (*storage.ElasticsearchStorage, error) {
+	registerStorageTypeProvider := storage.GrafeasStorageTypeProviderCreator(func(c *config.ElasticsearchConfig) (*storage.ElasticsearchStorage, error) {
 		esClient, err := createESClient(logger, c.URL, c.Username, c.Password)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to Elasticsearch")
 		}
 
 		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c), nil
-	}, logger))
+	}, logger)
+
+	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", registerStorageTypeProvider)
 	if err != nil {
 		logger.Fatal("Error when registering my new storage", zap.NamedError("error", err))
 	}

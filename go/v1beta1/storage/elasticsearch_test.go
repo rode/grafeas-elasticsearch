@@ -1623,6 +1623,45 @@ func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []er
 	return ioutil.NopCloser(bytes.NewReader(responseBody))
 }
 
+func createEsBulkNoteIndexResponse(notes []*pb.Note, errs []error) io.ReadCloser {
+	var (
+		responseItems     []*esBulkResponseItem
+		responseHasErrors = false
+	)
+	for i := range notes {
+		var (
+			responseErr  *esIndexDocError
+			responseCode = http.StatusCreated
+		)
+		if errs[i] != nil {
+			responseErr = &esIndexDocError{
+				Type:   gofakeit.LetterN(10),
+				Reason: gofakeit.LetterN(10),
+			}
+			responseCode = http.StatusInternalServerError
+			responseHasErrors = true
+		}
+
+		responseItems = append(responseItems, &esBulkResponseItem{
+			Index: &esIndexDocResponse{
+				Id:     gofakeit.LetterN(10),
+				Status: responseCode,
+				Error:  responseErr,
+			},
+		})
+	}
+
+	response := &esBulkResponse{
+		Items:  responseItems,
+		Errors: responseHasErrors,
+	}
+
+	responseBody, err := json.Marshal(response)
+	Expect(err).ToNot(HaveOccurred())
+
+	return ioutil.NopCloser(bytes.NewReader(responseBody))
+}
+
 func generateTestProject(name string) *prpb.Project {
 	return &prpb.Project{
 		Name: fmt.Sprintf("projects/%s", name),
@@ -1669,6 +1708,15 @@ func generateTestNote(name string) *pb.Note {
 		Kind:             common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
 		CreateTime:       ptypes.TimestampNow(),
 	}
+}
+
+func generateTestNotes(l int) []*pb.Note {
+	var result []*pb.Note
+	for i := 0; i < l; i++ {
+		result = append(result, generateTestNote(""))
+	}
+
+	return result
 }
 
 func structToJsonBody(i interface{}) io.ReadCloser {
@@ -1759,6 +1807,24 @@ func deepCopyOccurrence(occ *pb.Occurrence) *pb.Occurrence {
 
 	err = protojson.Unmarshal(str, proto.MessageV2(result))
 	Expect(err).ToNot(HaveOccurred())
+
+	return result
+}
+
+func deepCopyNotes(notes []*pb.Note) []*pb.Note {
+	var result []*pb.Note
+	for _, note := range notes {
+		result = append(result, deepCopyNote(note))
+	}
+
+	return result
+}
+
+func mapNotes(notes []*pb.Note) map[string]*pb.Note {
+	result := make(map[string]*pb.Note)
+	for _, note := range notes {
+		result[gofakeit.LetterN(10)] = note
+	}
 
 	return result
 }

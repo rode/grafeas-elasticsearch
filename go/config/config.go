@@ -6,8 +6,8 @@ import (
 )
 
 type ElasticsearchConfig struct {
-	Refresh RefreshOption
-	URL     string
+	Refresh                 RefreshOption
+	URL, Username, Password string
 }
 
 func (c ElasticsearchConfig) IsValid() (e error) {

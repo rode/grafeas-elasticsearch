@@ -8,7 +8,7 @@ services:
       - "8080:8080"
     volumes:
       - ./local:/local
-    command: sh -c './wait-for.sh elasticsearch:9200 -t 60 -- /grafeas-server --elasticsearch-host http://elasticsearch:9200 --config /local/config.yaml'
+    command: sh -c './wait-for.sh elasticsearch:9200 -t 60 -- /grafeas-server --config /local/config.yaml'
     depends_on:
       - elasticsearch
   elasticsearch:

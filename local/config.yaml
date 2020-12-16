@@ -8,4 +8,6 @@ grafeas:
   storage_type: elasticsearch
   elasticsearch:
     url: "http://elasticsearch:9200"
+    username: "grafeas"
+    password: "grafeas"
     refresh: "true"

@@ -240,6 +240,67 @@ var _ = Describe("Filter", func() {
 					},
 				},
 			}),
+			Entry("simple not equals", `"a" != "b"`, &Query{
+				Bool: &Bool{
+					MustNot: &MustNot{
+						Term: &Term{
+							"a": "b",
+						},
+					},
+				},
+			}),
+			Entry("and two terms, equals and not equals", `a == b && c != d`, &Query{
+				Bool: &Bool{
+					Must: &Must{
+						&Query{
+							Bool: &Bool{
+								Must: &Must{
+									&Bool{
+										Term: &Term{
+											"a": "b",
+										},
+									},
+								},
+							},
+						},
+						&Query{
+							Bool: &Bool{
+								MustNot: &MustNot{
+									Term: &Term{
+										"c": "d",
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+			Entry("or two terms, equals and not equals", `a == b || c != d`, &Query{
+				Bool: &Bool{
+					Should: &Should{
+						&Query{
+							Bool: &Bool{
+								Must: &Must{
+									&Bool{
+										Term: &Term{
+											"a": "b",
+										},
+									},
+								},
+							},
+						},
+						&Query{
+							Bool: &Bool{
+								MustNot: &MustNot{
+									Term: &Term{
+										"c": "d",
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
 		)
 
 		DescribeTable("error handling", func(filter string) {
@@ -253,6 +314,8 @@ var _ = Describe("Filter", func() {
 			Entry("doesn't resemble anything close to a filter", "lol"),
 			Entry("equal comparison with lhs value containing unknown operator without quotes", `a/b==c`),
 			Entry("equal comparison with rhs value containing unknown operator without quotes", `a==b/c`),
+			Entry("equal comparison with lhs value containing unknown operator without quotes not equals", `a/b!=c`),
+			Entry("equal comparison with rhs value containing unknown operator without quotes not equals", `a!=b/c`),
 			Entry("or comparison with lhs value containing unknown operator without quotes", `a/b||c==d`),
 			Entry("or comparison with rhs value containing unknown operator without quotes", `a==b||c/d`),
 			Entry("and comparison with lhs value containing unknown operator without quotes", `a/b&&c==d`),

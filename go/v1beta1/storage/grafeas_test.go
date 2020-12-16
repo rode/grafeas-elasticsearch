@@ -21,7 +21,7 @@ var _ = Describe("Grafeas integration", func() {
 		mockCtrl                *gomock.Controller
 		filterer                *mocks.MockFilterer
 		esConfig                *config.ElasticsearchConfig
-		newElasticsearchStorage newElasticsearchStorage
+		newElasticsearchStorage newElasticsearchStorageFunc
 	)
 
 	BeforeEach(func() {

@@ -3,9 +3,11 @@ package v1beta1_test
 import (
 	"fmt"
 	fake "github.com/brianvoe/gofakeit/v5"
+	"github.com/golang/protobuf/ptypes"
 	"github.com/grafeas/grafeas/proto/v1beta1/attestation_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/build_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
+	"github.com/grafeas/grafeas/proto/v1beta1/deployment_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/package_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/provenance_go_proto"
@@ -86,14 +88,20 @@ func TestOccurrence(t *testing.T) {
 		_, err := util.CreateProject(s, listProjectName)
 		Expect(err).ToNot(HaveOccurred())
 
-		// creating three different occurrences to test against
+		// creating different occurrences to test against
 		buildOccurrence := createFakeBuildOccurrence(listProjectName)
 		vulnerabilityOccurrence := createFakeVulnerabilityOccurrence(listProjectName)
 		attestationOccurrence := createFakeAttestationOccurrence(listProjectName)
+		deploymentOccurrence := createFakeDeploymentOccurrence(listProjectName)
+
+		secondBuildOccurrence := createFakeBuildOccurrence(listProjectName)
+		secondVulnerabilityOccurrence := createFakeVulnerabilityOccurrence(listProjectName)
 
 		// ensure occurrences have something in common to filter against
 		buildOccurrence.Resource.Uri = vulnerabilityOccurrence.Resource.Uri
 		vulnerabilityOccurrence.NoteName = attestationOccurrence.NoteName
+		deploymentOccurrence.Resource.Uri = secondVulnerabilityOccurrence.Resource.Uri
+		secondBuildOccurrence.Resource.Uri = secondVulnerabilityOccurrence.Resource.Uri
 
 		// create
 		batchResponse, err := s.Gc.BatchCreateOccurrences(s.Ctx, &grafeas_go_proto.BatchCreateOccurrencesRequest{
@@ -102,6 +110,9 @@ func TestOccurrence(t *testing.T) {
 				buildOccurrence,
 				vulnerabilityOccurrence,
 				attestationOccurrence,
+				deploymentOccurrence,
+				secondBuildOccurrence,
+				secondVulnerabilityOccurrence,
 			},
 		})
 		Expect(err).ToNot(HaveOccurred())
@@ -111,13 +122,17 @@ func TestOccurrence(t *testing.T) {
 		buildOccurrence = batchResponse.Occurrences[0]
 		vulnerabilityOccurrence = batchResponse.Occurrences[1]
 		attestationOccurrence = batchResponse.Occurrences[2]
+		deploymentOccurrence = batchResponse.Occurrences[3]
+
+		secondBuildOccurrence = batchResponse.Occurrences[4]
+		secondVulnerabilityOccurrence = batchResponse.Occurrences[5]
 
 		t.Run("should be successful", func(t *testing.T) {
 			res, err := s.Gc.ListOccurrences(s.Ctx, &grafeas_go_proto.ListOccurrencesRequest{
 				Parent: listProjectName,
 			})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(res.Occurrences).To(HaveLen(3))
+			Expect(res.Occurrences).To(HaveLen(6))
 		})
 
 		t.Run("filters", func(t *testing.T) {
@@ -144,11 +159,14 @@ func TestOccurrence(t *testing.T) {
 				},
 				{
 					name:   "match all occurrence types via OR",
-					filter: `"kind"=="VULNERABILITY" || "kind"=="ATTESTATION" || "kind"=="BUILD"`,
+					filter: `"kind"=="VULNERABILITY" || "kind"=="ATTESTATION" || "kind"=="BUILD" || "kind"=="DEPLOYMENT"`,
 					expected: []*grafeas_go_proto.Occurrence{
 						vulnerabilityOccurrence,
 						attestationOccurrence,
 						buildOccurrence,
+						deploymentOccurrence,
+						secondBuildOccurrence,
+						secondVulnerabilityOccurrence,
 					},
 				},
 				{
@@ -158,6 +176,8 @@ func TestOccurrence(t *testing.T) {
 						vulnerabilityOccurrence,
 						attestationOccurrence,
 						buildOccurrence,
+						deploymentOccurrence,
+						secondBuildOccurrence,
 					},
 				},
 				{
@@ -171,6 +191,15 @@ func TestOccurrence(t *testing.T) {
 					expected: []*grafeas_go_proto.Occurrence{
 						buildOccurrence,
 						attestationOccurrence,
+						deploymentOccurrence,
+						secondBuildOccurrence,
+					},
+				},
+				{
+					name:   "match second vuln occurrence via && and !=",
+					filter: fmt.Sprintf(`"resource.uri" == "%s" && (kind != "DEPLOYMENT" || kind != "BUILD")`, deploymentOccurrence.Resource.Uri),
+					expected: []*grafeas_go_proto.Occurrence{
+						secondVulnerabilityOccurrence,
 					},
 				},
 				{
@@ -281,6 +310,28 @@ func createFakeAttestationOccurrence(projectName string) *grafeas_go_proto.Occur
 							},
 						},
 					},
+				},
+			},
+		},
+	}
+}
+
+func createFakeDeploymentOccurrence(projectName string) *grafeas_go_proto.Occurrence {
+	return &grafeas_go_proto.Occurrence{
+		Resource: &grafeas_go_proto.Resource{
+			Uri: fake.URL(),
+		},
+		NoteName: util.RandomNoteName(projectName),
+		Kind:     common_go_proto.NoteKind_DEPLOYMENT,
+		Details: &grafeas_go_proto.Occurrence_Deployment{
+			Deployment: &deployment_go_proto.Details{
+				Deployment: &deployment_go_proto.Deployment{
+					UserEmail:   fake.Email(),
+					DeployTime:  ptypes.TimestampNow(),
+					Config:      fake.LoremIpsumSentence(fake.Number(2, 5)),
+					Address:     fake.DomainName(),
+					ResourceUri: []string{fake.URL()},
+					Platform:    deployment_go_proto.Deployment_CUSTOM,
 				},
 			},
 		},

@@ -16,11 +16,12 @@ import (
 
 var _ = Describe("Grafeas integration", func() {
 	var (
-		elasticsearchStorage *ElasticsearchStorage
-		transport            *mockEsTransport
-		mockCtrl             *gomock.Controller
-		filterer             *mocks.MockFilterer
-		esConfig             *config.ElasticsearchConfig
+		elasticsearchStorage    *ElasticsearchStorage
+		transport               *mockEsTransport
+		mockCtrl                *gomock.Controller
+		filterer                *mocks.MockFilterer
+		esConfig                *config.ElasticsearchConfig
+		newElasticsearchStorage newElasticsearchStorage
 	)
 
 	BeforeEach(func() {
@@ -64,13 +65,15 @@ var _ = Describe("Grafeas integration", func() {
 			storageConfig = grafeasConfig.StorageConfiguration(esConfig)
 			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
 			expectedStorageType = "elasticsearch"
+
+			newElasticsearchStorage = func(ec *config.ElasticsearchConfig) (*ElasticsearchStorage, error) {
+				return elasticsearchStorage, nil
+			}
 		})
 
 		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
-			registerStorageTypeProvider := GrafeasStorageTypeProviderCreator(func(ec *config.ElasticsearchConfig) (*ElasticsearchStorage, error) {
-				return elasticsearchStorage, nil
-			}, logger)
+			registerStorageTypeProvider := GrafeasStorageTypeProviderCreator(newElasticsearchStorage, logger)
 			_, err = registerStorageTypeProvider(expectedStorageType, &storageConfig)
 		})
 
@@ -107,6 +110,18 @@ var _ = Describe("Grafeas integration", func() {
 			})
 
 			It("should return error", func() {
+				Expect(err).To(HaveOccurred())
+			})
+		})
+
+		When("creating the elasticsearchStorage fails", func() {
+			BeforeEach(func() {
+				newElasticsearchStorage = func(elasticsearchConfig *config.ElasticsearchConfig) (*ElasticsearchStorage, error) {
+					return nil, fmt.Errorf("fail")
+				}
+			})
+
+			It("should return an error", func() {
 				Expect(err).To(HaveOccurred())
 			})
 		})

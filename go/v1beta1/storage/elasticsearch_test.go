@@ -880,13 +880,13 @@ var _ = Describe("elasticsearch storage", func() {
 			}
 		})
 
-		When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() { // XXX
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
 			BeforeEach(func() {
 				esConfig.Refresh = config.RefreshTrue
 			})
 
 			It("should immediately refresh the index", func() {
-				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
+				Expect(transport.receivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
 			})
 		})
 
@@ -896,7 +896,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should wait for refresh of index", func() {
-				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
+				Expect(transport.receivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("wait_for"))
 			})
 		})
 
@@ -906,7 +906,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not wait or force refresh of index", func() {
-				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
+				Expect(transport.receivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("false"))
 			})
 		})
 
@@ -1406,7 +1406,7 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("creating a batch of Grafeas notes", func() { //XXX
+	Context("creating a batch of Grafeas notes", func() {
 		var (
 			expectedErrs       []error
 			actualErrs         []error
@@ -1438,17 +1438,13 @@ var _ = Describe("elasticsearch storage", func() {
 
 		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
-			io.WriteString(GinkgoWriter, fmt.Sprintf("Printing Transport 1X: %+v\n", transport))
 			notes := deepCopyNotes(expectedNotes)
 
 			transport.preparedHttpResponses[0].Body = createEsMsearchNoteResponse(notes, expectedErrs)
 			transport.preparedHttpResponses[1].Body = createEsBulkNoteIndexResponse(notes, expectedErrs)
 
-			io.WriteString(GinkgoWriter, fmt.Sprintf("Printing Transport 2X: %+v\n", transport))
 			actualNotes, actualErrs = elasticsearchStorage.BatchCreateNotes(context.Background(), expectedProjectId, "", notes)
-			io.WriteString(GinkgoWriter, fmt.Sprintf("Printing Transport 3X: %+v\n", transport))
 			expectedNotes = updateExpectedNoteKeys(expectedNotes, expectedProjectId)
-			io.WriteString(GinkgoWriter, fmt.Sprintf("Printing Transport 4X: %+v\n", transport))
 		})
 		// this test parses the ndjson request body and ensures that it was formatted correctly
 		It("should send a multisearch request to ES to check for the existence of each note", func() {
@@ -1478,7 +1474,7 @@ var _ = Describe("elasticsearch storage", func() {
 				expectedPayloads = append(expectedPayloads, &esBulkQueryFragment{}, &pb.Note{})
 			}
 
-			parseEsBulkIndexRequest(transport.receivedHttpRequests[1].Body, expectedPayloads) //Name is messed up
+			parseEsBulkIndexRequest(transport.receivedHttpRequests[1].Body, expectedPayloads)
 
 			for i, payload := range expectedPayloads {
 				if i%2 == 0 { // index metadata
@@ -1495,37 +1491,35 @@ var _ = Describe("elasticsearch storage", func() {
 			}
 		})
 
-		/*
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
-				BeforeEach(func() {
-					esConfig.Refresh = config.RefreshTrue
-				})
-
-				It("should immediately refresh the index", func() {
-					Expect(transport.receivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
-				})
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
+			BeforeEach(func() {
+				esConfig.Refresh = config.RefreshTrue
 			})
 
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshWaitFor), func() {
-				BeforeEach(func() {
-					esConfig.Refresh = config.RefreshWaitFor
-				})
+			It("should immediately refresh the index", func() {
+				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
+			})
+		})
 
-				It("should wait for refresh of index", func() {
-					Expect(transport.receivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("wait_for"))
-				})
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshWaitFor), func() {
+			BeforeEach(func() {
+				esConfig.Refresh = config.RefreshWaitFor
 			})
 
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshFalse), func() {
-				BeforeEach(func() {
-					esConfig.Refresh = config.RefreshFalse
-				})
-
-				It("should not wait or force refresh of index", func() {
-					Expect(transport.receivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("false"))
-				})
+			It("should wait for refresh of index", func() {
+				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
 			})
-		*/
+		})
+
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshFalse), func() {
+			BeforeEach(func() {
+				esConfig.Refresh = config.RefreshFalse
+			})
+
+			It("should not wait or force refresh of index", func() {
+				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
+			})
+		})
 
 		When("the multisearch returns no existing notes and the bulk request returns no errors", func() {
 			It("should return all created notes", func() {
@@ -1607,7 +1601,6 @@ var _ = Describe("elasticsearch storage", func() {
 			var msearchResponseBody *esMsearch
 
 			BeforeEach(func() {
-				io.WriteString(GinkgoWriter, fmt.Sprintf("Printing Transport 1: %+v\n", transport))
 
 				randomExistingNoteIndex = gofakeit.Number(0, len(expectedNotes)-1)
 				expectedErrs = []error{}
@@ -1643,8 +1636,6 @@ var _ = Describe("elasticsearch storage", func() {
 
 				responseBody, err := json.Marshal(msearchResponseBody)
 				Expect(err).ToNot(HaveOccurred())
-
-				io.WriteString(GinkgoWriter, fmt.Sprintf("Printing Transport 2: %+v\n", transport))
 
 				transport.preparedHttpResponses[0].Body = ioutil.NopCloser(bytes.NewReader(responseBody))
 

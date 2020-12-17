@@ -880,37 +880,35 @@ var _ = Describe("elasticsearch storage", func() {
 			}
 		})
 
-		/*
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() { // XXX
-				BeforeEach(func() {
-					esConfig.Refresh = config.RefreshTrue
-				})
-
-				It("should immediately refresh the index", func() {
-					Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
-				})
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() { // XXX
+			BeforeEach(func() {
+				esConfig.Refresh = config.RefreshTrue
 			})
 
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshWaitFor), func() {
-				BeforeEach(func() {
-					esConfig.Refresh = config.RefreshWaitFor
-				})
+			It("should immediately refresh the index", func() {
+				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
+			})
+		})
 
-				It("should wait for refresh of index", func() {
-					Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
-				})
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshWaitFor), func() {
+			BeforeEach(func() {
+				esConfig.Refresh = config.RefreshWaitFor
 			})
 
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshFalse), func() {
-				BeforeEach(func() {
-					esConfig.Refresh = config.RefreshFalse
-				})
-
-				It("should not wait or force refresh of index", func() {
-					Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
-				})
+			It("should wait for refresh of index", func() {
+				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
 			})
-		*/
+		})
+
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshFalse), func() {
+			BeforeEach(func() {
+				esConfig.Refresh = config.RefreshFalse
+			})
+
+			It("should not wait or force refresh of index", func() {
+				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
+			})
+		})
 
 		When("the bulk request returns no errors", func() {
 			It("should return all created occurrences", func() {

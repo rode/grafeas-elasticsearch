@@ -93,14 +93,8 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 		}
 
 		return &Query{
-			Bool: &Bool{
-				Must: &Must{
-					&Bool{
-						Term: &Term{
-							leftTerm: rightTerm,
-						},
-					},
-				},
+			Term: &Term{
+				leftTerm: rightTerm,
 			},
 		}, nil
 	case operators.NotEquals:
@@ -112,8 +106,10 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 		return &Query{
 			Bool: &Bool{
 				MustNot: &MustNot{
-					Term: &Term{
-						leftTerm: rightTerm,
+					&Bool{
+						Term: &Term{
+							leftTerm: rightTerm,
+						},
 					},
 				},
 			},

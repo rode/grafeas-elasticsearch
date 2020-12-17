@@ -5,6 +5,8 @@ import (
 	"github.com/grafeas/grafeas/proto/v1beta1/build_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
+	"github.com/grafeas/grafeas/proto/v1beta1/package_go_proto"
+	"github.com/grafeas/grafeas/proto/v1beta1/vulnerability_go_proto"
 	"github.com/liatrio/grafeas-elasticsearch/test/util"
 	. "github.com/onsi/gomega"
 	"google.golang.org/grpc/codes"
@@ -39,6 +41,25 @@ func TestNote(t *testing.T) {
 
 			Expect(actualNote).To(Equal(expectedNote))
 		})
+	})
+
+	t.Run("batch creating notes", func(t *testing.T) {
+		noteId1 := fake.UUID()
+		noteId2 := fake.UUID()
+		bo, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
+			Parent: projectName,
+			Notes: map[string]*grafeas_go_proto.Note{
+				noteId1: createFakeBuildNote(),
+				noteId2: createFakeVulnerabilityNote(),
+			},
+		})
+
+		Expect(err).ToNot(HaveOccurred())
+
+		for _, o := range bo.Notes {
+			_, err = s.Gc.GetNote(s.Ctx, &grafeas_go_proto.GetNoteRequest{Name: o.GetName()})
+			Expect(err).ToNot(HaveOccurred())
+		}
 	})
 
 	t.Run("deleting a note", func(t *testing.T) {
@@ -84,6 +105,29 @@ func createFakeBuildNote() *grafeas_go_proto.Note {
 					PublicKey: fake.LetterN(10),
 					KeyId:     fake.LetterN(10),
 					Signature: []byte(fake.LetterN(10)),
+				},
+			},
+		},
+	}
+}
+
+func createFakeVulnerabilityNote() *grafeas_go_proto.Note {
+	return &grafeas_go_proto.Note{
+		Name:             fake.LetterN(10),
+		ShortDescription: fake.LoremIpsumSentence(fake.Number(5, 10)),
+		LongDescription:  fake.LoremIpsumSentence(fake.Number(5, 10)),
+		Kind:             common_go_proto.NoteKind_VULNERABILITY,
+		Type: &grafeas_go_proto.Note_Vulnerability{
+			Vulnerability: &vulnerability_go_proto.Vulnerability{
+				Details: []*vulnerability_go_proto.Vulnerability_Detail{
+					{
+						Package: fake.LetterN(10),
+						CpeUri:  fake.LetterN(10),
+						MinAffectedVersion: &package_go_proto.Version{
+							Name: fake.AppVersion(),
+							Kind: package_go_proto.Version_NORMAL,
+						},
+					},
 				},
 			},
 		},

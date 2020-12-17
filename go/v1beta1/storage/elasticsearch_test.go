@@ -2423,17 +2423,6 @@ func deepCopyNotes(notes map[string]*pb.Note) map[string]*pb.Note {
 	return result
 }
 
-/*
-func mapNotes(notes []*pb.Note) map[string]*pb.Note {
-	result := make(map[string]*pb.Note)
-	for _, note := range notes {
-		result[gofakeit.LetterN(10)] = note
-	}
-
-	return result
-}
-*/
-
 func deepCopyNote(note *pb.Note) *pb.Note {
 	result := &pb.Note{}
 

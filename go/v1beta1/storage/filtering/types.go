@@ -20,10 +20,6 @@ type Must []interface{}
 
 // MustNot holds a must_not operator which each equates to a != operation
 type MustNot []interface{}
-// type MustNot struct {
-// 	Bool *Bool `json:"bool,omitempty"`
-// 	Term *Term `json:"term,omitempty"`
-// }
 
 // Should holds a should operator which equates to an OR operation
 type Should []interface{}

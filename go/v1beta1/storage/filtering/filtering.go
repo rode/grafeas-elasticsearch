@@ -3,6 +3,7 @@ package filtering
 import (
 	"fmt"
 	"github.com/google/cel-go/common"
+	"github.com/google/cel-go/common/operators"
 	"github.com/google/cel-go/parser"
 	"github.com/hashicorp/go-multierror"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
@@ -42,14 +43,14 @@ func (f *filterer) ParseExpression(filter string) (*Query, error) {
 
 // ParseExpression to parse and create a query
 func parseExpression(expression *expr.Expr) (*Query, error) {
-	function := Operation(expression.GetCallExpr().GetFunction())
+	function := expression.GetCallExpr().GetFunction()
 
 	// Determine if left and right side are final and if so formulate query
 	leftArg := expression.GetCallExpr().Args[0]
 	rightArg := expression.GetCallExpr().Args[1]
 
 	switch function {
-	case AndOperation:
+	case operators.LogicalAnd:
 		l, err := parseExpression(leftArg)
 		if err != nil {
 			return nil, err
@@ -67,7 +68,7 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 				},
 			},
 		}, nil
-	case OrOperation:
+	case operators.LogicalOr:
 		l, err := parseExpression(leftArg)
 		if err != nil {
 			return nil, err
@@ -85,7 +86,7 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 				},
 			},
 		}, nil
-	case EqualOperation:
+	case operators.Equals:
 		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
 		if err != nil {
 			return nil, err
@@ -102,7 +103,7 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 				},
 			},
 		}, nil
-	case NotEqualOperation:
+	case operators.NotEquals:
 		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
 		if err != nil {
 			return nil, err

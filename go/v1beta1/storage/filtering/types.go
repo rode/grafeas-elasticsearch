@@ -29,14 +29,3 @@ type Should []interface{}
 
 // Term holds a comparison for equating two strings
 type Term map[string]string
-
-// Operation is the representation of all operations currently supported. Eventually needs to assess
-// if an enum exists within the cel package.
-type Operation string
-
-const (
-	AndOperation      Operation = "_&&_"
-	OrOperation       Operation = "_||_"
-	EqualOperation    Operation = "_==_"
-	NotEqualOperation Operation = "_!=_"
-)

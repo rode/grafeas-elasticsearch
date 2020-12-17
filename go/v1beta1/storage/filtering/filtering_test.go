@@ -314,7 +314,7 @@ var _ = Describe("Filter", func() {
 			Entry("doesn't resemble anything close to a filter", "lol"),
 			Entry("equal comparison with lhs value containing unknown operator without quotes", `a/b==c`),
 			Entry("equal comparison with rhs value containing unknown operator without quotes", `a==b/c`),
-			Entry("equal comparison with lhs value containing unknown operator without quotes not equals", `a/b!=c`),
+			Entry("not equal comparison with lhs value containing unknown operator without quotes", `a/b!=c`),
 			Entry("equal comparison with rhs value containing unknown operator without quotes not equals", `a!=b/c`),
 			Entry("or comparison with lhs value containing unknown operator without quotes", `a/b||c==d`),
 			Entry("or comparison with rhs value containing unknown operator without quotes", `a==b||c/d`),

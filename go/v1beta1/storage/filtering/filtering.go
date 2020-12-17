@@ -3,6 +3,7 @@ package filtering
 import (
 	"fmt"
 	"github.com/google/cel-go/common"
+	"github.com/google/cel-go/common/operators"
 	"github.com/google/cel-go/parser"
 	"github.com/hashicorp/go-multierror"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
@@ -33,61 +34,23 @@ func (f *filterer) ParseExpression(filter string) (*Query, error) {
 
 	expression := parsedExpr.GetExpr()
 
-	_, isCallExpr := expression.GetExprKind().(*expr.Expr_CallExpr)
-	if isCallExpr {
-		// Determine if left and right side are final and if so formulate query
-		leftarg := expression.GetCallExpr().Args[0]
-		rightarg := expression.GetCallExpr().Args[1]
-
-		// Check to see if each side is an identity or const expression
-		_, leftIsIdent := leftarg.GetExprKind().(*expr.Expr_IdentExpr)
-		_, leftIsConst := leftarg.GetExprKind().(*expr.Expr_ConstExpr)
-		_, rightIsIdent := rightarg.GetExprKind().(*expr.Expr_IdentExpr)
-		_, rightIsConst := rightarg.GetExprKind().(*expr.Expr_ConstExpr)
-
-		if (leftIsConst || leftIsIdent) && (rightIsConst || rightIsIdent) {
-			pe, err := parseExpression(expression)
-			if err != nil {
-				return nil, err
-			}
-
-			return &Query{Bool: &Bool{
-				Must: &Must{pe},
-			}}, nil
-		}
-	} else {
+	if _, ok := expression.GetExprKind().(*expr.Expr_CallExpr); !ok {
 		return nil, fmt.Errorf("expected call expression when parsing filter, got %T", expression.GetExprKind())
 	}
 
-	pe, err := parseExpression(expression)
-	if err != nil {
-		return nil, err
-	}
-
-	query, ok := pe.(*Query)
-	if !ok {
-		return nil, fmt.Errorf("cannot cast parse expression result")
-	}
-
-	return query, nil
+	return parseExpression(expression)
 }
 
 // ParseExpression to parse and create a query
-func parseExpression(expression *expr.Expr) (interface{}, error) {
-	function := Operation(expression.GetCallExpr().GetFunction()) // =
+func parseExpression(expression *expr.Expr) (*Query, error) {
+	function := expression.GetCallExpr().GetFunction()
 
 	// Determine if left and right side are final and if so formulate query
 	leftArg := expression.GetCallExpr().Args[0]
 	rightArg := expression.GetCallExpr().Args[1]
 
-	// Check to see if each side is an identity or const expression
-	_, leftIsIdent := leftArg.GetExprKind().(*expr.Expr_IdentExpr)
-	_, leftIsConst := leftArg.GetExprKind().(*expr.Expr_ConstExpr)
-	_, rightIsIdent := rightArg.GetExprKind().(*expr.Expr_IdentExpr)
-	_, rightIsConst := rightArg.GetExprKind().(*expr.Expr_ConstExpr)
-
 	switch function {
-	case AndOperation:
+	case operators.LogicalAnd:
 		l, err := parseExpression(leftArg)
 		if err != nil {
 			return nil, err
@@ -105,7 +68,7 @@ func parseExpression(expression *expr.Expr) (interface{}, error) {
 				},
 			},
 		}, nil
-	case OrOperation:
+	case operators.LogicalOr:
 		l, err := parseExpression(leftArg)
 		if err != nil {
 			return nil, err
@@ -123,28 +86,61 @@ func parseExpression(expression *expr.Expr) (interface{}, error) {
 				},
 			},
 		}, nil
-	case EqualOperation:
-		var leftString string
-		var rightString string
-		if leftIsIdent && rightIsConst {
-			leftString = leftArg.GetIdentExpr().Name
-			rightString = rightArg.GetConstExpr().GetStringValue()
-		} else if leftIsConst && rightIsConst {
-			leftString = leftArg.GetConstExpr().GetStringValue()
-			rightString = rightArg.GetConstExpr().GetStringValue()
-		} else if leftIsIdent && rightIsIdent {
-			leftString = leftArg.GetIdentExpr().Name
-			rightString = rightArg.GetIdentExpr().Name
-		} else if leftIsConst && rightIsIdent {
-			leftString = leftArg.GetConstExpr().GetStringValue()
-			rightString = rightArg.GetIdentExpr().Name
+	case operators.Equals:
+		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
+		if err != nil {
+			return nil, err
 		}
-		return &Bool{
+
+		return &Query{
 			Term: &Term{
-				leftString: rightString,
+				leftTerm: rightTerm,
+			},
+		}, nil
+	case operators.NotEquals:
+		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
+		if err != nil {
+			return nil, err
+		}
+
+		return &Query{
+			Bool: &Bool{
+				MustNot: &MustNot{
+					&Bool{
+						Term: &Term{
+							leftTerm: rightTerm,
+						},
+					},
+				},
 			},
 		}, nil
 	default:
-		return nil, fmt.Errorf("unknown parse expression function")
+		return nil, fmt.Errorf("unknown parse expression function: %s", function)
 	}
+}
+
+// converts left and right call expressions into simple term strings.
+// this function should be used at the top of the `parseExpression` call stack.
+func getSimpleExpressionTerms(leftArg, rightArg *expr.Expr) (leftTerm, rightTerm string, err error) {
+	if _, ok := leftArg.GetExprKind().(*expr.Expr_IdentExpr); ok {
+		leftTerm = leftArg.GetIdentExpr().Name
+	}
+
+	if _, ok := leftArg.GetExprKind().(*expr.Expr_ConstExpr); ok {
+		leftTerm = leftArg.GetConstExpr().GetStringValue()
+	}
+
+	if _, ok := rightArg.GetExprKind().(*expr.Expr_IdentExpr); ok {
+		rightTerm = rightArg.GetIdentExpr().Name
+	}
+
+	if _, ok := rightArg.GetExprKind().(*expr.Expr_ConstExpr); ok {
+		rightTerm = rightArg.GetConstExpr().GetStringValue()
+	}
+
+	if leftTerm == "" || rightTerm == "" {
+		err = fmt.Errorf("encountered unexpected expression kinds when evaluating filter: %T, %T", leftArg.GetExprKind(), rightArg.GetExprKind())
+	}
+
+	return
 }

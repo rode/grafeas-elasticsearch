@@ -7,28 +7,22 @@ type Query struct {
 }
 
 // Bool holds a general query that carries any number of
-// Must and Should operations
+// Must, MustNot, and Should operations
 type Bool struct {
-	Must   *Must   `json:"must,omitempty"`
-	Should *Should `json:"should,omitempty"`
-	Term   *Term   `json:"term,omitempty"`
+	Must    *Must    `json:"must,omitempty"`
+	MustNot *MustNot `json:"must_not,omitempty"`
+	Should  *Should  `json:"should,omitempty"`
+	Term    *Term    `json:"term,omitempty"`
 }
 
 // Must holds a must operator which each equates to an AND operation
 type Must []interface{}
+
+// MustNot holds a must_not operator which each equates to a != operation
+type MustNot []interface{}
 
 // Should holds a should operator which equates to an OR operation
 type Should []interface{}
 
 // Term holds a comparison for equating two strings
 type Term map[string]string
-
-// Operation is the representation of all operations currently supported. Eventually needs to assess
-// if an enum exists within the cel package.
-type Operation string
-
-const (
-	AndOperation   Operation = "_&&_"
-	OrOperation    Operation = "_||_"
-	EqualOperation Operation = "_==_"
-)

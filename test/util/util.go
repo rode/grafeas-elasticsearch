@@ -10,6 +10,7 @@ import (
 	"google.golang.org/grpc"
 	"log"
 	"testing"
+	"time"
 )
 
 type Setup struct {
@@ -63,4 +64,8 @@ func CreateProject(s *Setup, n string) (*project_go_proto.Project, error) {
 
 func RandomNoteName(project string) string {
 	return fmt.Sprintf("%s/notes/%s", project, fake.UUID())
+}
+
+func init() {
+	fake.Seed(time.Now().UnixNano())
 }

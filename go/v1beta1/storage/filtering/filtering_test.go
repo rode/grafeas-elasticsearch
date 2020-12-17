@@ -17,72 +17,36 @@ var _ = Describe("Filter", func() {
 			Expect(result).To(Equal(expected), string(resultJson))
 		},
 			Entry("single term left ident right const", `a=="b"`, &Query{
-				Bool: &Bool{
-					Must: &Must{
-						&Bool{
-							Term: &Term{
-								"a": "b",
-							},
-						},
-					},
+				Term: &Term{
+					"a": "b",
 				},
 			}),
 			Entry("single term left const right const", `"a"=="b"`, &Query{
-				Bool: &Bool{
-					Must: &Must{
-						&Bool{
-							Term: &Term{
-								"a": "b",
-							},
-						},
-					},
+				Term: &Term{
+					"a": "b",
 				},
 			}),
 			Entry("single term left ident right ident", `a==b`, &Query{
-				Bool: &Bool{
-					Must: &Must{
-						&Bool{
-							Term: &Term{
-								"a": "b",
-							},
-						},
-					},
+				Term: &Term{
+					"a": "b",
 				},
 			}),
 			Entry("single term left const right ident", `"a"==b`, &Query{
-				Bool: &Bool{
-					Must: &Must{
-						&Bool{
-							Term: &Term{
-								"a": "b",
-							},
-						},
-					},
+				Term: &Term{
+					"a": "b",
 				},
 			}),
 			Entry("and two terms", `(a=="b")&&(c=="d")`, &Query{
 				Bool: &Bool{
 					Must: &Must{
 						&Query{
-							Bool: &Bool{
-								Must: &Must{
-									&Bool{
-										Term: &Term{
-											"a": "b",
-										},
-									},
-								},
+							Term: &Term{
+								"a": "b",
 							},
 						},
 						&Query{
-							Bool: &Bool{
-								Must: &Must{
-									&Bool{
-										Term: &Term{
-											"c": "d",
-										},
-									},
-								},
+							Term: &Term{
+								"c": "d",
 							},
 						},
 					},
@@ -95,39 +59,21 @@ var _ = Describe("Filter", func() {
 							Bool: &Bool{
 								Must: &Must{
 									&Query{
-										Bool: &Bool{
-											Must: &Must{
-												&Bool{
-													Term: &Term{
-														"a": "b",
-													},
-												},
-											},
+										Term: &Term{
+											"a": "b",
 										},
 									},
 									&Query{
-										Bool: &Bool{
-											Must: &Must{
-												&Bool{
-													Term: &Term{
-														"c": "d",
-													},
-												},
-											},
+										Term: &Term{
+											"c": "d",
 										},
 									},
 								},
 							},
 						},
 						&Query{
-							Bool: &Bool{
-								Must: &Must{
-									&Bool{
-										Term: &Term{
-											"e": "f",
-										},
-									},
-								},
+							Term: &Term{
+								"e": "f",
 							},
 						},
 					},
@@ -137,39 +83,21 @@ var _ = Describe("Filter", func() {
 				Bool: &Bool{
 					Must: &Must{
 						&Query{
-							Bool: &Bool{
-								Must: &Must{
-									&Bool{
-										Term: &Term{
-											"a": "b",
-										},
-									},
-								},
+							Term: &Term{
+								"a": "b",
 							},
 						},
 						&Query{
 							Bool: &Bool{
 								Should: &Should{
 									&Query{
-										Bool: &Bool{
-											Must: &Must{
-												&Bool{
-													Term: &Term{
-														"c": "d",
-													},
-												},
-											},
+										Term: &Term{
+											"c": "d",
 										},
 									},
 									&Query{
-										Bool: &Bool{
-											Must: &Must{
-												&Bool{
-													Term: &Term{
-														"e": "f",
-													},
-												},
-											},
+										Term: &Term{
+											"e": "f",
 										},
 									},
 								},
@@ -185,25 +113,13 @@ var _ = Describe("Filter", func() {
 							Bool: &Bool{
 								Must: &Must{
 									&Query{
-										Bool: &Bool{
-											Must: &Must{
-												&Bool{
-													Term: &Term{
-														"a": "b",
-													},
-												},
-											},
+										Term: &Term{
+											"a": "b",
 										},
 									},
 									&Query{
-										Bool: &Bool{
-											Must: &Must{
-												&Bool{
-													Term: &Term{
-														"g": "h",
-													},
-												},
-											},
+										Term: &Term{
+											"g": "h",
 										},
 									},
 								},
@@ -213,25 +129,13 @@ var _ = Describe("Filter", func() {
 							Bool: &Bool{
 								Should: &Should{
 									&Query{
-										Bool: &Bool{
-											Must: &Must{
-												&Bool{
-													Term: &Term{
-														"c": "d",
-													},
-												},
-											},
+										Term: &Term{
+											"c": "d",
 										},
 									},
 									&Query{
-										Bool: &Bool{
-											Must: &Must{
-												&Bool{
-													Term: &Term{
-														"e": "f",
-													},
-												},
-											},
+										Term: &Term{
+											"e": "f",
 										},
 									},
 								},
@@ -243,8 +147,10 @@ var _ = Describe("Filter", func() {
 			Entry("simple not equals", `"a" != "b"`, &Query{
 				Bool: &Bool{
 					MustNot: &MustNot{
-						Term: &Term{
-							"a": "b",
+						&Bool{
+							Term: &Term{
+								"a": "b",
+							},
 						},
 					},
 				},
@@ -253,21 +159,17 @@ var _ = Describe("Filter", func() {
 				Bool: &Bool{
 					Must: &Must{
 						&Query{
-							Bool: &Bool{
-								Must: &Must{
-									&Bool{
-										Term: &Term{
-											"a": "b",
-										},
-									},
-								},
+							Term: &Term{
+								"a": "b",
 							},
 						},
 						&Query{
 							Bool: &Bool{
 								MustNot: &MustNot{
-									Term: &Term{
-										"c": "d",
+									&Bool{
+										Term: &Term{
+											"c": "d",
+										},
 									},
 								},
 							},
@@ -279,21 +181,17 @@ var _ = Describe("Filter", func() {
 				Bool: &Bool{
 					Should: &Should{
 						&Query{
-							Bool: &Bool{
-								Must: &Must{
-									&Bool{
-										Term: &Term{
-											"a": "b",
-										},
-									},
-								},
+							Term: &Term{
+								"a": "b",
 							},
 						},
 						&Query{
 							Bool: &Bool{
 								MustNot: &MustNot{
-									Term: &Term{
-										"c": "d",
+									&Bool{
+										Term: &Term{
+											"c": "d",
+										},
 									},
 								},
 							},

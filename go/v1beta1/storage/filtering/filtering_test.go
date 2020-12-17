@@ -1,6 +1,7 @@
 package filtering
 
 import (
+	"encoding/json"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -10,63 +11,40 @@ var _ = Describe("Filter", func() {
 	Describe("ParseExpression", func() {
 		DescribeTable("filter cases", func(filter string, expected interface{}) {
 			result, err := NewFilterer().ParseExpression(filter)
+			resultJson, _ := json.MarshalIndent(result, "", "  ")
 
 			Expect(err).ToNot(HaveOccurred())
-			Expect(result).To(Equal(expected))
+			Expect(result).To(Equal(expected), string(resultJson))
 		},
 			Entry("single term left ident right const", `a=="b"`, &Query{
-				Bool: &Bool{
-					Must: &Must{
-						&Bool{
-							Term: &Term{
-								"a": "b",
-							},
-						},
-					},
+				Term: &Term{
+					"a": "b",
 				},
 			}),
 			Entry("single term left const right const", `"a"=="b"`, &Query{
-				Bool: &Bool{
-					Must: &Must{
-						&Bool{
-							Term: &Term{
-								"a": "b",
-							},
-						},
-					},
+				Term: &Term{
+					"a": "b",
 				},
 			}),
 			Entry("single term left ident right ident", `a==b`, &Query{
-				Bool: &Bool{
-					Must: &Must{
-						&Bool{
-							Term: &Term{
-								"a": "b",
-							},
-						},
-					},
+				Term: &Term{
+					"a": "b",
 				},
 			}),
 			Entry("single term left const right ident", `"a"==b`, &Query{
-				Bool: &Bool{
-					Must: &Must{
-						&Bool{
-							Term: &Term{
-								"a": "b",
-							},
-						},
-					},
+				Term: &Term{
+					"a": "b",
 				},
 			}),
 			Entry("and two terms", `(a=="b")&&(c=="d")`, &Query{
 				Bool: &Bool{
 					Must: &Must{
-						&Bool{
+						&Query{
 							Term: &Term{
 								"a": "b",
 							},
 						},
-						&Bool{
+						&Query{
 							Term: &Term{
 								"c": "d",
 							},
@@ -80,12 +58,12 @@ var _ = Describe("Filter", func() {
 						&Query{
 							Bool: &Bool{
 								Must: &Must{
-									&Bool{
+									&Query{
 										Term: &Term{
 											"a": "b",
 										},
 									},
-									&Bool{
+									&Query{
 										Term: &Term{
 											"c": "d",
 										},
@@ -93,7 +71,7 @@ var _ = Describe("Filter", func() {
 								},
 							},
 						},
-						&Bool{
+						&Query{
 							Term: &Term{
 								"e": "f",
 							},
@@ -104,7 +82,7 @@ var _ = Describe("Filter", func() {
 			Entry("and term with or set", `(a=="b")&&((c=="d")||(e=="f"))`, &Query{
 				Bool: &Bool{
 					Must: &Must{
-						&Bool{
+						&Query{
 							Term: &Term{
 								"a": "b",
 							},
@@ -112,12 +90,12 @@ var _ = Describe("Filter", func() {
 						&Query{
 							Bool: &Bool{
 								Should: &Should{
-									&Bool{
+									&Query{
 										Term: &Term{
 											"c": "d",
 										},
 									},
-									&Bool{
+									&Query{
 										Term: &Term{
 											"e": "f",
 										},
@@ -134,12 +112,12 @@ var _ = Describe("Filter", func() {
 						&Query{
 							Bool: &Bool{
 								Must: &Must{
-									&Bool{
+									&Query{
 										Term: &Term{
 											"a": "b",
 										},
 									},
-									&Bool{
+									&Query{
 										Term: &Term{
 											"g": "h",
 										},
@@ -150,14 +128,69 @@ var _ = Describe("Filter", func() {
 						&Query{
 							Bool: &Bool{
 								Should: &Should{
+									&Query{
+										Term: &Term{
+											"c": "d",
+										},
+									},
+									&Query{
+										Term: &Term{
+											"e": "f",
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+			Entry("simple not equals", `"a" != "b"`, &Query{
+				Bool: &Bool{
+					MustNot: &MustNot{
+						&Bool{
+							Term: &Term{
+								"a": "b",
+							},
+						},
+					},
+				},
+			}),
+			Entry("and two terms, equals and not equals", `a == b && c != d`, &Query{
+				Bool: &Bool{
+					Must: &Must{
+						&Query{
+							Term: &Term{
+								"a": "b",
+							},
+						},
+						&Query{
+							Bool: &Bool{
+								MustNot: &MustNot{
 									&Bool{
 										Term: &Term{
 											"c": "d",
 										},
 									},
+								},
+							},
+						},
+					},
+				},
+			}),
+			Entry("or two terms, equals and not equals", `a == b || c != d`, &Query{
+				Bool: &Bool{
+					Should: &Should{
+						&Query{
+							Term: &Term{
+								"a": "b",
+							},
+						},
+						&Query{
+							Bool: &Bool{
+								MustNot: &MustNot{
 									&Bool{
 										Term: &Term{
-											"e": "f",
+											"c": "d",
 										},
 									},
 								},
@@ -179,6 +212,8 @@ var _ = Describe("Filter", func() {
 			Entry("doesn't resemble anything close to a filter", "lol"),
 			Entry("equal comparison with lhs value containing unknown operator without quotes", `a/b==c`),
 			Entry("equal comparison with rhs value containing unknown operator without quotes", `a==b/c`),
+			Entry("not equal comparison with lhs value containing unknown operator without quotes", `a/b!=c`),
+			Entry("not equal comparison with rhs value containing unknown operator without quotes", `a!=b/c`),
 			Entry("or comparison with lhs value containing unknown operator without quotes", `a/b||c==d`),
 			Entry("or comparison with rhs value containing unknown operator without quotes", `a==b||c/d`),
 			Entry("and comparison with lhs value containing unknown operator without quotes", `a/b&&c==d`),

@@ -822,7 +822,7 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("creating a batch of Grafeas occurrences", func() { //XXX
+	Context("creating a batch of Grafeas occurrences", func() {
 		var (
 			expectedErrs             []error
 			actualErrs               []error
@@ -1421,7 +1421,7 @@ var _ = Describe("elasticsearch storage", func() {
 		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
 			expectedNotesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "notes")
-			expectedNotes = generateTestNotesMap(gofakeit.Number(2, 5)) //XXX
+			expectedNotes = generateTestNotesMap(gofakeit.Number(2, 5))
 			for i := 0; i < len(expectedNotes); i++ {
 				expectedErrs = append(expectedErrs, nil)
 			}
@@ -1440,13 +1440,36 @@ var _ = Describe("elasticsearch storage", func() {
 
 		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
+			io.WriteString(GinkgoWriter, fmt.Sprintf("Printing Transport 1X: %+v\n", transport))
 			notes := deepCopyNotes(expectedNotes)
 
 			transport.preparedHttpResponses[0].Body = createEsMsearchNoteResponse(notes, expectedErrs)
 			transport.preparedHttpResponses[1].Body = createEsBulkNoteIndexResponse(notes, expectedErrs)
 
+			io.WriteString(GinkgoWriter, fmt.Sprintf("Printing Transport 2X: %+v\n", transport))
 			actualNotes, actualErrs = elasticsearchStorage.BatchCreateNotes(context.Background(), expectedProjectId, "", notes)
+			io.WriteString(GinkgoWriter, fmt.Sprintf("Printing Transport 3X: %+v\n", transport))
 			expectedNotes = updateExpectedNoteKeys(expectedNotes, expectedProjectId)
+			io.WriteString(GinkgoWriter, fmt.Sprintf("Printing Transport 4X: %+v\n", transport))
+		})
+		// this test parses the ndjson request body and ensures that it was formatted correctly
+		It("should send a multisearch request to ES to check for the existence of each note", func() {
+			var expectedPayloads []interface{}
+
+			for i := 0; i < len(expectedNotes); i++ {
+				expectedPayloads = append(expectedPayloads, &esMsearchQueryFragment{}, &esSearch{})
+			}
+
+			parseEsMsearchIndexRequest(transport.receivedHttpRequests[0].Body, expectedPayloads)
+
+			for i, payload := range expectedPayloads {
+				if i%2 == 0 { // index metadata
+					metadata := payload.(*esMsearchQueryFragment)
+					Expect(metadata.Index).To(Equal(expectedNotesIndex))
+				} else { // note
+					Expect(payload).To(BeAssignableToTypeOf(&esSearch{}))
+				}
+			}
 		})
 
 		// this test parses the ndjson request body and ensures that it was formatted correctly
@@ -1475,7 +1498,7 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		/*
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() { // XXX
+			When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
 				BeforeEach(func() {
 					esConfig.Refresh = config.RefreshTrue
 				})
@@ -1506,7 +1529,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		*/
 
-		When("the bulk request returns no errors", func() {
+		When("the multisearch returns no existing notes and the bulk request returns no errors", func() {
 			It("should return all created notes", func() {
 				for i, note := range actualNotes {
 					expectedNote := deepCopyNote(expectedNotes[note.Name])
@@ -1515,6 +1538,18 @@ var _ = Describe("elasticsearch storage", func() {
 				}
 
 				Expect(actualErrs).To(HaveLen(0))
+			})
+		})
+
+		When("the multisearch request completely fails", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+			})
+
+			It("should return a single error and no notes", func() {
+				Expect(actualNotes).To(BeNil())
+				Expect(actualErrs).To(HaveLen(1))
+				Expect(actualErrs[0]).To(HaveOccurred())
 			})
 		})
 
@@ -1553,6 +1588,73 @@ var _ = Describe("elasticsearch storage", func() {
 			It("should only return the notes that were successfully created", func() {
 				// remove the bad note from expectedNotes
 				delete(expectedNotes, randomErrorKey)
+
+				// assert expectedNotes matches actualNotes
+				for i, note := range actualNotes {
+					expectedNote := deepCopyNote(expectedNotes[note.Name])
+					expectedNote.Name = actualNotes[i].Name
+					Expect(actualNotes[i]).To(Equal(expectedNote))
+				}
+
+				// assert that we got a single error back
+				Expect(actualErrs).To(HaveLen(1))
+				Expect(actualErrs[0]).To(HaveOccurred())
+			})
+		})
+
+		When("the multisearch request returns already existing notes", func() {
+			var randomExistingNoteIndex int
+			var randomExistingNoteKey string
+			var index int
+			var msearchResponseBody *esMsearch
+
+			BeforeEach(func() {
+				io.WriteString(GinkgoWriter, fmt.Sprintf("Printing Transport 1: %+v\n", transport))
+
+				randomExistingNoteIndex = gofakeit.Number(0, len(expectedNotes)-1)
+				expectedErrs = []error{}
+				index = 0
+				for key := range expectedNotes {
+					if index == randomExistingNoteIndex {
+						expectedErrs = append(expectedErrs, errors.New(""))
+						randomExistingNoteKey = key
+					} else {
+						expectedErrs = append(expectedErrs, nil)
+					}
+					index++
+				}
+
+				msearchResponseBody = &esMsearch{
+					[]esMsearchResponse{
+						{
+							esMsearchResponseHits{
+								esSearchResponseTotal{
+									Value: 1,
+								},
+								[]esMsearchResponseNestedHits{
+									{
+										esMsearchResponseSource{
+											Name: randomExistingNoteKey,
+										},
+									},
+								},
+							},
+						},
+					},
+				}
+
+				responseBody, err := json.Marshal(msearchResponseBody)
+				Expect(err).ToNot(HaveOccurred())
+
+				io.WriteString(GinkgoWriter, fmt.Sprintf("Printing Transport 2: %+v\n", transport))
+
+				transport.preparedHttpResponses[0].Body = ioutil.NopCloser(bytes.NewReader(responseBody))
+
+			})
+
+			It("should only return the notes that were successfully created", func() {
+				// remove the bad note from expectedNotes
+				delete(expectedNotes, randomExistingNoteKey)
 
 				// assert expectedNotes matches actualNotes
 				for i, note := range actualNotes {
@@ -2023,7 +2125,7 @@ func createEsSearchResponse(objectType string, hitNames ...string) io.ReadCloser
 	return ioutil.NopCloser(bytes.NewReader(responseBody))
 }
 
-func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []error) io.ReadCloser { // XXX
+func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []error) io.ReadCloser {
 	var (
 		responseItems     []*esBulkResponseItem
 		responseHasErrors = false
@@ -2281,6 +2383,22 @@ func parseEsBulkIndexRequest(body io.ReadCloser, structs []interface{}) {
 		} else { // protobuf JSON
 			err = protojson.Unmarshal([]byte(jsonPayloads[i]), proto.MessageV2(s))
 		}
+
+		Expect(err).ToNot(HaveOccurred())
+	}
+}
+
+func parseEsMsearchIndexRequest(body io.ReadCloser, structs []interface{}) {
+	buf := new(bytes.Buffer)
+	_, err := buf.ReadFrom(body)
+	Expect(err).ToNot(HaveOccurred())
+
+	requestPayload := strings.TrimSuffix(buf.String(), "\n") // _bulk requests need to end in a newline
+	jsonPayloads := strings.Split(requestPayload, "\n")
+	Expect(jsonPayloads).To(HaveLen(len(structs)))
+
+	for i, s := range structs {
+		err = json.Unmarshal([]byte(jsonPayloads[i]), s)
 
 		Expect(err).ToNot(HaveOccurred())
 	}

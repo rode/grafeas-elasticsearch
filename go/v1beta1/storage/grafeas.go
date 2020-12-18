@@ -4,7 +4,7 @@ import (
 	"fmt"
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
 	"github.com/grafeas/grafeas/go/v1beta1/storage"
-	"github.com/liatrio/grafeas-elasticsearch/go/config"
+	"github.com/rode/grafeas-elasticsearch/go/config"
 	"go.uber.org/zap"
 	"net/http"
 )

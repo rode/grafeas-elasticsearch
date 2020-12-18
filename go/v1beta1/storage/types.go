@@ -3,7 +3,7 @@ package storage
 import (
 	"encoding/json"
 
-	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering"
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 )
 
 // Elasticsearch /_search response

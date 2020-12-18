@@ -7,10 +7,10 @@ import (
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/mock/gomock"
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
-	"github.com/liatrio/grafeas-elasticsearch/go/config"
-	"github.com/liatrio/grafeas-elasticsearch/go/mocks"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	"github.com/rode/grafeas-elasticsearch/go/config"
+	"github.com/rode/grafeas-elasticsearch/go/mocks"
 	"net/http"
 )
 

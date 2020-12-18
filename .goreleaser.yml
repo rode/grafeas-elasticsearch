@@ -32,10 +32,10 @@ changelog:
       - '^test:'
 dockers:
   - image_templates:
-      - "ghcr.io/liatrio/grafeas-elasticsearch:latest"
-      - "ghcr.io/liatrio/grafeas-elasticsearch:{{ .Tag }}"
-      - "ghcr.io/liatrio/grafeas-elasticsearch:v{{ .Major }}"
-      - "ghcr.io/liatrio/grafeas-elasticsearch:v{{ .Major }}.{{ .Minor }}"
+      - "ghcr.io/rode/grafeas-elasticsearch:latest"
+      - "ghcr.io/rode/grafeas-elasticsearch:{{ .Tag }}"
+      - "ghcr.io/rode/grafeas-elasticsearch:v{{ .Major }}"
+      - "ghcr.io/rode/grafeas-elasticsearch:v{{ .Major }}.{{ .Minor }}"
     extra_files:
       - "go.mod"
       - "go.sum"

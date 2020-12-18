@@ -5,7 +5,7 @@
     <go_parameters value="-i -count 1" />
     <framework value="gotest" />
     <kind value="PACKAGE" />
-    <package value="github.com/liatrio/grafeas-elasticsearch/test/v1beta1" />
+    <package value="github.com/rode/grafeas-elasticsearch/test/v1beta1" />
     <directory value="$PROJECT_DIR$/integration" />
     <filePath value="$PROJECT_DIR$" />
     <method v="2" />

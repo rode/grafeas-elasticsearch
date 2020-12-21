@@ -2,8 +2,8 @@ package v1beta1_test
 
 import (
 	"github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
-	"github.com/liatrio/grafeas-elasticsearch/test/util"
 	. "github.com/onsi/gomega"
+	"github.com/rode/grafeas-elasticsearch/test/util"
 	"testing"
 )
 

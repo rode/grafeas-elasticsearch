@@ -6,9 +6,9 @@ import (
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/grafeas/grafeas/go/v1beta1/server"
 	grafeasStorage "github.com/grafeas/grafeas/go/v1beta1/storage"
-	"github.com/liatrio/grafeas-elasticsearch/go/config"
-	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage"
-	"github.com/liatrio/grafeas-elasticsearch/go/v1beta1/storage/filtering"
+	"github.com/rode/grafeas-elasticsearch/go/config"
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage"
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"go.uber.org/zap"
 	"log"
 )

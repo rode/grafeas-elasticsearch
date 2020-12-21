@@ -1,7 +1,7 @@
 # grafeas-elasticsearch
 
-[![codecov](https://codecov.io/gh/liatrio/grafeas-elasticsearch/branch/main/graph/badge.svg)](https://codecov.io/gh/liatrio/grafeas-elasticsearch)
-[![test](https://github.com/liatrio/grafeas-elasticsearch/workflows/test/badge.svg?branch=main)](https://github.com/liatrio/grafeas-elasticsearch/actions?query=workflow%3Atest+branch%3Amain)
+[![codecov](https://codecov.io/gh/rode/grafeas-elasticsearch/branch/main/graph/badge.svg)](https://codecov.io/gh/rode/grafeas-elasticsearch)
+[![test](https://github.com/rode/grafeas-elasticsearch/workflows/test/badge.svg?branch=main)](https://github.com/rode/grafeas-elasticsearch/actions?query=workflow%3Atest+branch%3Amain)
 
 [Elasticsearch](https://www.elastic.co/elasticsearch/) storage backend for [Grafeas](https://grafeas.io/).
 
@@ -13,7 +13,7 @@ An externally running Elasticsearch cluster must already be available.
 docker run \
   -p 8080:8080 \
   -v ./config.yaml:/etc/grafeas/config.yaml \
-  ghcr.io/liatrio/grafeas-elasticsearch --config /etc/grafeas/config.yaml
+  ghcr.io/rode/grafeas-elasticsearch --config /etc/grafeas/config.yaml
 ````
 
 A configuration file must be provided, with the path specified with a `--config` flag.

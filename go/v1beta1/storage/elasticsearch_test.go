@@ -1406,255 +1406,151 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
+	// unit tests for BatchCreateNotes only cover the happy path for now
 	Context("creating a batch of Grafeas notes", func() {
 		var (
-			expectedErrs       []error
-			actualErrs         []error
-			actualNotes        []*pb.Note
-			expectedNotes      map[string]*pb.Note
-			expectedNotesIndex string
+			actualErrs               []error
+			actualNotes              []*pb.Note
+			expectedNotes            []*pb.Note
+			expectedNotesWithNoteIds map[string]*pb.Note
+			expectedNotesIndex       string
 		)
 
 		// BeforeEach configures the happy path for this context
 		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
-			expectedNotesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "notes")
-			expectedNotes = generateTestNotesMap(gofakeit.Number(2, 5))
-			for i := 0; i < len(expectedNotes); i++ {
-				expectedErrs = append(expectedErrs, nil)
-			}
+			expectedNotesIndex = fmt.Sprintf("%s-%s-notes", indexPrefix, expectedProjectId)
+			expectedNotes = generateTestNotes(gofakeit.Number(2, 5), expectedProjectId)
+			expectedNotesWithNoteIds = convertSliceOfNotesToMap(expectedNotes)
 
+			// happy path: none of the provided notes exist, all of the provided notes were created successfully
+			// response 1: every search result will have zero hits
+			// response 2: every index operation was successful
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
-					Body:       createEsMsearchNoteResponse(expectedNotes, expectedErrs),
+					Body:       createEsMultiSearchNoteResponse(expectedNotesWithNoteIds),
 				},
 				{
 					StatusCode: http.StatusOK,
-					Body:       createEsBulkNoteIndexResponse(expectedNotes, expectedErrs),
+					Body:       createEsBulkNoteIndexResponse(expectedNotesWithNoteIds),
 				},
 			}
 		})
 
 		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
-			notes := deepCopyNotes(expectedNotes)
-
-			transport.preparedHttpResponses[0].Body = createEsMsearchNoteResponse(notes, expectedErrs)
-			transport.preparedHttpResponses[1].Body = createEsBulkNoteIndexResponse(notes, expectedErrs)
-
-			actualNotes, actualErrs = elasticsearchStorage.BatchCreateNotes(context.Background(), expectedProjectId, "", notes)
-			expectedNotes = updateExpectedNoteKeys(expectedNotes, expectedProjectId)
+			actualNotes, actualErrs = elasticsearchStorage.BatchCreateNotes(context.Background(), expectedProjectId, "", deepCopyNotes(expectedNotesWithNoteIds))
 		})
+
 		// this test parses the ndjson request body and ensures that it was formatted correctly
 		It("should send a multisearch request to ES to check for the existence of each note", func() {
 			var expectedPayloads []interface{}
 
-			for i := 0; i < len(expectedNotes); i++ {
-				expectedPayloads = append(expectedPayloads, &esMsearchQueryFragment{}, &esSearch{})
+			for i := 0; i < len(expectedNotesWithNoteIds); i++ {
+				expectedPayloads = append(expectedPayloads, &esBulkQueryIndexFragment{}, &esSearch{})
 			}
 
 			parseEsMsearchIndexRequest(transport.receivedHttpRequests[0].Body, expectedPayloads)
 
 			for i, payload := range expectedPayloads {
 				if i%2 == 0 { // index metadata
-					metadata := payload.(*esMsearchQueryFragment)
+					metadata := payload.(*esBulkQueryIndexFragment)
 					Expect(metadata.Index).To(Equal(expectedNotesIndex))
 				} else { // note
 					Expect(payload).To(BeAssignableToTypeOf(&esSearch{}))
+					Expect(map[string]string(*payload.(*esSearch).Query.Term)["name"]).To(MatchRegexp("projects/%s/notes/\\w+", expectedProjectId))
 				}
 			}
 		})
 
-		// this test parses the ndjson request body and ensures that it was formatted correctly
-		It("should send a bulk request to ES to index each note", func() {
-			var expectedPayloads []interface{}
-
-			for i := 0; i < len(expectedNotes); i++ {
-				expectedPayloads = append(expectedPayloads, &esBulkQueryFragment{}, &pb.Note{})
-			}
-
-			parseEsBulkIndexRequest(transport.receivedHttpRequests[1].Body, expectedPayloads)
-
-			for i, payload := range expectedPayloads {
-				if i%2 == 0 { // index metadata
-					metadata := payload.(*esBulkQueryFragment)
-					Expect(metadata.Index.Index).To(Equal(expectedNotesIndex))
-				} else { // note
-					note := payload.(*pb.Note)
-
-					expectedNote := expectedNotes[note.Name]
-					expectedNote.Name = note.Name
-
-					Expect(note).To(Equal(expectedNote))
-				}
-			}
-		})
-
-		When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
-			BeforeEach(func() {
-				esConfig.Refresh = config.RefreshTrue
-			})
-
-			It("should immediately refresh the index", func() {
-				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
-			})
-		})
-
-		When(fmt.Sprintf("refresh configuration is %s", config.RefreshWaitFor), func() {
-			BeforeEach(func() {
-				esConfig.Refresh = config.RefreshWaitFor
-			})
-
-			It("should wait for refresh of index", func() {
-				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
-			})
-		})
-
-		When(fmt.Sprintf("refresh configuration is %s", config.RefreshFalse), func() {
-			BeforeEach(func() {
-				esConfig.Refresh = config.RefreshFalse
-			})
-
-			It("should not wait or force refresh of index", func() {
-				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
-			})
-		})
-
-		When("the multisearch returns no existing notes and the bulk request returns no errors", func() {
-			It("should return all created notes", func() {
-				for i, note := range actualNotes {
-					expectedNote := deepCopyNote(expectedNotes[note.Name])
-					expectedNote.Name = actualNotes[i].Name
-					Expect(actualNotes[i]).To(Equal(expectedNote))
-				}
-
-				Expect(actualErrs).To(HaveLen(0))
-			})
-		})
-
-		When("the multisearch request completely fails", func() {
+		When("the multisearch request returns an error", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses[0].StatusCode = http.StatusInternalServerError
 			})
 
 			It("should return a single error and no notes", func() {
-				Expect(actualNotes).To(BeNil())
 				Expect(actualErrs).To(HaveLen(1))
-				Expect(actualErrs[0]).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(actualErrs[0], codes.Internal)
+			})
+
+			It("should not attempt to index any notes", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
 			})
 		})
 
-		When("the bulk request completely fails", func() {
-			BeforeEach(func() {
-				transport.preparedHttpResponses[1].StatusCode = http.StatusInternalServerError
-			})
+		When("the multisearch request returns no notes already exist", func() {
+			It("should attempt to bulk index all of the notes", func() {
+				var expectedPayloads []interface{}
 
-			It("should return a single error and no notes", func() {
-				Expect(actualNotes).To(BeNil())
-				Expect(actualErrs).To(HaveLen(1))
-				Expect(actualErrs[0]).To(HaveOccurred())
-			})
-		})
+				for i := 0; i < len(expectedNotes); i++ {
+					expectedPayloads = append(expectedPayloads, &esBulkQueryFragment{}, &pb.Note{})
+				}
 
-		When("the bulk request returns some errors", func() {
-			var randomErrorIndex int
-			var randomErrorKey string
-			var index int
+				parseEsBulkIndexRequest(transport.receivedHttpRequests[1].Body, expectedPayloads)
 
-			BeforeEach(func() {
-				randomErrorIndex = gofakeit.Number(0, len(expectedNotes)-1)
-				expectedErrs = []error{}
-				index = 0
-				for key := range expectedNotes {
-					if index == randomErrorIndex {
-						expectedErrs = append(expectedErrs, errors.New(""))
-						randomErrorKey = key
-					} else {
-						expectedErrs = append(expectedErrs, nil)
+				for i, payload := range expectedPayloads {
+					if i%2 == 0 { // index metadata
+						metadata := payload.(*esBulkQueryFragment)
+						Expect(metadata.Index.Index).To(Equal(expectedNotesIndex))
+					} else { // note
+						note := payload.(*pb.Note)
+						noteId := strings.Split(note.Name, "/")[3] // projects/${projectId}/notes/${noteId}
+						expectedNote := expectedNotesWithNoteIds[noteId]
+						expectedNote.Name = note.Name
+
+						Expect(note).To(Equal(expectedNote))
 					}
-					index++
 				}
 			})
 
-			It("should only return the notes that were successfully created", func() {
-				// remove the bad note from expectedNotes
-				delete(expectedNotes, randomErrorKey)
-
-				// assert expectedNotes matches actualNotes
-				for i, note := range actualNotes {
-					expectedNote := deepCopyNote(expectedNotes[note.Name])
-					expectedNote.Name = actualNotes[i].Name
-					Expect(actualNotes[i]).To(Equal(expectedNote))
-				}
-
-				// assert that we got a single error back
-				Expect(actualErrs).To(HaveLen(1))
-				Expect(actualErrs[0]).To(HaveOccurred())
-			})
-		})
-
-		When("the multisearch request returns already existing notes", func() {
-			var randomExistingNoteIndex int
-			var randomExistingNoteKey string
-			var index int
-			var msearchResponseBody *esMsearch
-
-			BeforeEach(func() {
-
-				randomExistingNoteIndex = gofakeit.Number(0, len(expectedNotes)-1)
-				expectedErrs = []error{}
-				index = 0
-				for key := range expectedNotes {
-					if index == randomExistingNoteIndex {
-						expectedErrs = append(expectedErrs, errors.New(""))
-						randomExistingNoteKey = key
-					} else {
-						expectedErrs = append(expectedErrs, nil)
+			When("the bulk index request returns no errors", func() {
+				It("should return all created notes", func() {
+					for _, note := range expectedNotesWithNoteIds {
+						Expect(actualNotes).To(ContainElement(note))
 					}
-					index++
-				}
-
-				msearchResponseBody = &esMsearch{
-					[]esMsearchResponse{
-						{
-							esMsearchResponseHits{
-								esSearchResponseTotal{
-									Value: 1,
-								},
-								[]esMsearchResponseNestedHits{
-									{
-										esMsearchResponseSource{
-											Name: randomExistingNoteKey,
-										},
-									},
-								},
-							},
-						},
-					},
-				}
-
-				responseBody, err := json.Marshal(msearchResponseBody)
-				Expect(err).ToNot(HaveOccurred())
-
-				transport.preparedHttpResponses[0].Body = ioutil.NopCloser(bytes.NewReader(responseBody))
-
+				})
 			})
 
-			It("should only return the notes that were successfully created", func() {
-				// remove the bad note from expectedNotes
-				delete(expectedNotes, randomExistingNoteKey)
+			When("the bulk index request completely fails", func() {
+				BeforeEach(func() {
+					transport.preparedHttpResponses[1].StatusCode = http.StatusInternalServerError
+				})
 
-				// assert expectedNotes matches actualNotes
-				for i, note := range actualNotes {
-					expectedNote := deepCopyNote(expectedNotes[note.Name])
-					expectedNote.Name = actualNotes[i].Name
-					Expect(actualNotes[i]).To(Equal(expectedNote))
-				}
+				It("should return a single error and no notes", func() {
+					Expect(actualErrs).To(HaveLen(1))
+					assertErrorHasGrpcStatusCode(actualErrs[0], codes.Internal)
+				})
+			})
 
-				// assert that we got a single error back
-				Expect(actualErrs).To(HaveLen(1))
-				Expect(actualErrs[0]).To(HaveOccurred())
+			When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
+				BeforeEach(func() {
+					esConfig.Refresh = config.RefreshTrue
+				})
+
+				It("should immediately refresh the index", func() {
+					Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
+				})
+			})
+
+			When(fmt.Sprintf("refresh configuration is %s", config.RefreshWaitFor), func() {
+				BeforeEach(func() {
+					esConfig.Refresh = config.RefreshWaitFor
+				})
+
+				It("should wait for refresh of index", func() {
+					Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
+				})
+			})
+
+			When(fmt.Sprintf("refresh configuration is %s", config.RefreshFalse), func() {
+				BeforeEach(func() {
+					esConfig.Refresh = config.RefreshFalse
+				})
+
+				It("should not wait or force refresh of index", func() {
+					Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
+				})
 			})
 		})
 	})
@@ -2153,37 +2049,20 @@ func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []er
 	return ioutil.NopCloser(bytes.NewReader(responseBody))
 }
 
-func createEsBulkNoteIndexResponse(notes map[string]*pb.Note, errs []error) io.ReadCloser {
-	var (
-		responseItems     []*esBulkResponseItem
-		responseHasErrors = false
-	)
-	for i := 0; i < len(notes); i++ {
-		var (
-			responseErr  *esIndexDocError
-			responseCode = http.StatusCreated
-		)
-		if errs[i] != nil {
-			responseErr = &esIndexDocError{
-				Type:   gofakeit.LetterN(10),
-				Reason: gofakeit.LetterN(10),
-			}
-			responseCode = http.StatusInternalServerError
-			responseHasErrors = true
-		}
-
+func createEsBulkNoteIndexResponse(notesThatCreatedSuccessfully map[string]*pb.Note) io.ReadCloser {
+	var responseItems []*esBulkResponseItem
+	for range notesThatCreatedSuccessfully {
 		responseItems = append(responseItems, &esBulkResponseItem{
 			Index: &esIndexDocResponse{
 				Id:     gofakeit.LetterN(10),
-				Status: responseCode,
-				Error:  responseErr,
+				Status: http.StatusCreated,
 			},
 		})
 	}
 
 	response := &esBulkResponse{
 		Items:  responseItems,
-		Errors: responseHasErrors,
+		Errors: false,
 	}
 
 	responseBody, err := json.Marshal(response)
@@ -2192,40 +2071,20 @@ func createEsBulkNoteIndexResponse(notes map[string]*pb.Note, errs []error) io.R
 	return ioutil.NopCloser(bytes.NewReader(responseBody))
 }
 
-func createEsMsearchNoteResponse(notes map[string]*pb.Note, errs []error) io.ReadCloser {
-	var (
-		responseItems     []*esBulkResponseItem
-		responseHasErrors = false
-	)
-	for i := 0; i < len(notes); i++ {
-		var (
-			responseErr  *esIndexDocError
-			responseCode = http.StatusCreated
-		)
-		if errs[i] != nil {
-			responseErr = &esIndexDocError{
-				Type:   gofakeit.LetterN(10),
-				Reason: gofakeit.LetterN(10),
-			}
-			responseCode = http.StatusInternalServerError
-			responseHasErrors = true
-		}
+func createEsMultiSearchNoteResponse(notes map[string]*pb.Note) io.ReadCloser {
+	multiSearchResponse := &esMultiSearchResponse{}
 
-		responseItems = append(responseItems, &esBulkResponseItem{
-			Index: &esIndexDocResponse{
-				Id:     gofakeit.LetterN(10),
-				Status: responseCode,
-				Error:  responseErr,
+	for range notes {
+		multiSearchResponse.Responses = append(multiSearchResponse.Responses, &esMultiSearchResponseHitsSummary{
+			Hits: &esMultiSearchResponseHits{
+				Total: &esSearchResponseTotal{
+					Value: 0,
+				},
 			},
 		})
 	}
 
-	response := &esBulkResponse{
-		Items:  responseItems,
-		Errors: responseHasErrors,
-	}
-
-	responseBody, err := json.Marshal(response)
+	responseBody, err := json.Marshal(multiSearchResponse)
 	Expect(err).ToNot(HaveOccurred())
 
 	return ioutil.NopCloser(bytes.NewReader(responseBody))
@@ -2288,21 +2147,13 @@ func generateTestNotes(l int, project string) []*pb.Note {
 	return result
 }
 
-func generateTestNotesMap(l int) map[string]*pb.Note {
+func convertSliceOfNotesToMap(notes []*pb.Note) map[string]*pb.Note {
 	result := make(map[string]*pb.Note)
-	for i := 0; i < l; i++ {
-		noteName := gofakeit.LetterN(10)
-		result[noteName] = generateTestNote(noteName)
+	for _, note := range notes {
+		noteId := strings.Split(note.Name, "/")[3]
+		result[noteId] = note
 	}
 
-	return result
-}
-
-func updateExpectedNoteKeys(expectedNotes map[string]*pb.Note, project string) map[string]*pb.Note {
-	result := make(map[string]*pb.Note)
-	for key := range expectedNotes {
-		result[fmt.Sprintf("projects/%s/notes/%s", project, key)] = expectedNotes[key]
-	}
 	return result
 }
 

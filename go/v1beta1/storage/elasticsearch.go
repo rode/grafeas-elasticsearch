@@ -455,55 +455,42 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 }
 
 // BatchCreateNotes batch creates the specified notes in memstore.
-func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, pID, uID string, notes map[string]*pb.Note) ([]*pb.Note, []error) {
-	log := es.logger.Named("BatchCreateNotes")
+func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId, uID string, notesWithNoteIds map[string]*pb.Note) ([]*pb.Note, []error) {
+	log := es.logger.Named("BatchCreateNotes").With(zap.String("projectId", projectId))
 	log.Debug("creating notes")
 
-	var (
-		createdNotes   []*pb.Note
-		errs           []error
-		msearchReqBody bytes.Buffer
-		bulkBody       bytes.Buffer
-	)
-
-	newNotesMap := make(map[string]*pb.Note)
-
-	indexMetadataMsearch := &esMsearchQueryFragment{
-		Index: notesIndex(pID),
-	}
-
-	msearchMetadata, _ := json.Marshal(indexMetadataMsearch)
+	msearchMetadata, _ := json.Marshal(&esBulkQueryIndexFragment{
+		Index: notesIndex(projectId),
+	})
 	msearchMetadata = append(msearchMetadata, "\n"...)
 
-	for name := range notes {
+	var (
+		notes             []*pb.Note
+		searchRequestBody bytes.Buffer
+	)
+	for noteId, note := range notesWithNoteIds {
+		note.Name = fmt.Sprintf("projects/%s/notes/%s", projectId, noteId)
+		notes = append(notes, note)
 
-		noteName := fmt.Sprintf("projects/%s/notes/%s", pID, name)
-		newNotesMap[noteName] = notes[name]
 		searchBody := &esSearch{
 			Query: &filtering.Query{
 				Term: &filtering.Term{
-					"name": noteName,
+					"name": note.Name,
 				},
 			},
 		}
-
-		data, err := json.Marshal(searchBody)
-		if err != nil {
-			return nil, []error{
-				createError(log, "error marshaling note search msearchReqBody", err),
-			}
-		}
-
+		data, _ := json.Marshal(searchBody)
 		dataBytes := append(data, "\n"...)
-		msearchReqBody.Grow(len(msearchMetadata) + len(dataBytes))
-		msearchReqBody.Write(msearchMetadata)
-		msearchReqBody.Write(dataBytes)
+
+		searchRequestBody.Grow(len(msearchMetadata) + len(dataBytes))
+		searchRequestBody.Write(msearchMetadata)
+		searchRequestBody.Write(dataBytes)
 	}
 
-	log.Debug("attempting ES multisearch", zap.String("payload", string(msearchReqBody.Bytes())))
+	log.Debug("attempting ES multisearch", zap.String("payload", string(searchRequestBody.Bytes())))
 
 	res, err := es.client.Msearch(
-		bytes.NewReader(msearchReqBody.Bytes()),
+		bytes.NewReader(searchRequestBody.Bytes()),
 		es.client.Msearch.WithContext(ctx),
 	)
 
@@ -518,112 +505,96 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, pID, uID s
 		}
 	}
 
-	response := &esMsearch{}
-	err = decodeResponse(res.Body, response)
+	searchResponse := &esMultiSearchResponse{}
+	err = decodeResponse(res.Body, searchResponse)
 	if err != nil {
 		return nil, []error{
 			createError(log, "error decoding ES response", nil),
 		}
 	}
 
-	msearchResponses := []esMsearchResponse{}
-	msearchResponses = response.Responses
-
-	for i := range msearchResponses {
-		if msearchResponses[i].Hits.Total.Value != 0 {
-			name := msearchResponses[i].Hits.Hits[0].Source.Name
-			errs = append(errs, createError(log, fmt.Sprintf("Note with the name %s already exists", name), nil))
-			delete(newNotesMap, name)
+	var (
+		notesToCreate []*pb.Note
+		errs          []error
+	)
+	for i, res := range searchResponse.Responses {
+		if res.Hits.Total.Value != 0 {
+			errs = append(errs, status.Errorf(codes.AlreadyExists, "note with the name %s already exists", notes[i].Name))
+		} else {
+			notesToCreate = append(notesToCreate, notes[i])
 		}
 	}
 
-	keys := make([]string, 0, len(newNotesMap))
-	for key := range newNotesMap {
-		keys = append(keys, key)
+	if len(notesToCreate) == 0 {
+		log.Error("all notes already exist")
+		return nil, errs
 	}
 
-	indexMetadataBulk := &esBulkQueryFragment{
+	indexMetadata, _ := json.Marshal(&esBulkQueryFragment{
 		Index: &esBulkQueryIndexFragment{
-			Index: notesIndex(pID),
+			Index: notesIndex(projectId),
 		},
-	}
+	})
+	indexMetadata = append(indexMetadata, "\n"...)
 
-	bulkMetadata, _ := json.Marshal(indexMetadataBulk)
-	bulkMetadata = append(bulkMetadata, "\n"...)
-
-	// build the request bulkBody using newline delimited JSON (ndjson)
+	// build the request body using newline delimited JSON (ndjson)
 	// each note is represented by two JSON structures:
-	// the first is the bulkMetadata that represents the ES operation, in this case "index"
+	// the first is the metadata that represents the ES operation, in this case "index"
 	// the second is the source payload to index
-	// in total, this bulkBody will consist of (len(notes) * 2) JSON structures, separated by newlines, with a trailing newline at the end
-	for _, key := range keys {
-		note := newNotesMap[key]
-		note.Name = key
-		data, err := protojson.Marshal(proto.MessageV2(note))
-		if err != nil {
-			return nil, []error{
-				createError(log, "error marshaling note", err),
-			}
-		}
+	// in total, this body will consist of (len(notes) * 2) JSON structures, separated by newlines, with a trailing newline at the end
+	var indexBody bytes.Buffer
+	for _, note := range notesToCreate {
+		data, _ := protojson.Marshal(proto.MessageV2(note))
 
 		dataBytes := append(data, "\n"...)
-		bulkBody.Grow(len(bulkMetadata) + len(dataBytes))
-		bulkBody.Write(bulkMetadata)
-		bulkBody.Write(dataBytes)
+		indexBody.Grow(len(indexMetadata) + len(dataBytes))
+		indexBody.Write(indexMetadata)
+		indexBody.Write(dataBytes)
 	}
 
-	if bulkBody.Len() != 0 {
-		log.Debug("attempting ES bulk index", zap.String("payload", string(bulkBody.Bytes())))
+	log.Debug("attempting ES bulk index", zap.String("payload", string(indexBody.Bytes())))
 
-		res, err = es.client.Bulk(
-			bytes.NewReader(bulkBody.Bytes()),
-			es.client.Bulk.WithContext(ctx),
-			es.client.Bulk.WithRefresh(es.config.Refresh.String()),
-		)
-		if err != nil {
-			return nil, []error{
-				createError(log, "failed while sending request to ES", err),
-			}
-		}
-		if res.IsError() {
-			return nil, []error{
-				createError(log, "unexpected response from ES", nil),
-			}
-		}
-
-		bulkresponse := &esBulkResponse{}
-		err = decodeResponse(res.Body, bulkresponse)
-		if err != nil {
-			return nil, []error{
-				createError(log, "error decoding ES bulkresponse", nil),
-			}
-		}
-
-		// each indexing operation in this bulk request has its own status
-		// we need to iterate over each of the items in the bulkresponse to know whether or not that particular note was created successfully
-		for i, noteName := range keys {
-			indexItem := bulkresponse.Items[i].Index
-			if occErr := indexItem.Error; occErr != nil {
-				errs = append(errs, createError(log, "error creating note in ES", fmt.Errorf("[%d] %s: %s", indexItem.Status, occErr.Type, occErr.Reason), zap.Any("note", newNotesMap[noteName])))
-				continue
-			}
-
-			createdNotes = append(createdNotes, newNotesMap[noteName])
-			log.Debug(fmt.Sprintf("note %s created", newNotesMap[noteName].Name))
-		}
-
-		if len(errs) > 0 {
-			log.Info("errors while creating notes", zap.Any("errors", errs))
-
-			return createdNotes, errs
-		}
-
-		log.Debug("notes created successfully")
-
-		return createdNotes, nil
+	res, err = es.client.Bulk(
+		bytes.NewReader(indexBody.Bytes()),
+		es.client.Bulk.WithContext(ctx),
+		es.client.Bulk.WithRefresh(es.config.Refresh.String()),
+	)
+	if err != nil {
+		return nil, append(errs, createError(log, "failed while sending request to ES", err))
 	}
-	return nil, nil
+	if res.IsError() {
+		return nil, append(errs, createError(log, "unexpected response from ES", nil, zap.Any("response", res.String()), zap.Int("status", res.StatusCode)))
+	}
 
+	bulkResponse := &esBulkResponse{}
+	err = decodeResponse(res.Body, bulkResponse)
+	if err != nil {
+		return nil, append(errs, createError(log, "error decoding ES response", nil))
+	}
+
+	// each indexing operation in this bulk request has its own status
+	// we need to iterate over each of the items in the response to know whether or not that particular note was created successfully
+	var createdNotes []*pb.Note
+	for i, note := range notesToCreate {
+		indexItem := bulkResponse.Items[i].Index
+		if indexDocError := indexItem.Error; indexDocError != nil {
+			errs = append(errs, createError(log, "error creating note in ES", fmt.Errorf("[%d] %s: %s", indexItem.Status, indexDocError.Type, indexDocError.Reason), zap.Any("note", note)))
+			continue
+		}
+
+		createdNotes = append(createdNotes, note)
+		log.Debug(fmt.Sprintf("note %s created", note.Name))
+	}
+
+	if len(errs) > 0 {
+		log.Info("errors while creating notes", zap.Any("errors", errs))
+
+		return createdNotes, errs
+	}
+
+	log.Debug("notes created successfully")
+
+	return createdNotes, nil
 }
 
 // UpdateNote updates the existing note with the given pID and nID

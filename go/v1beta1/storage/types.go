@@ -75,45 +75,21 @@ type esBulkResponseItem struct {
 	Index *esIndexDocResponse `json:"index,omitempty"`
 }
 
-// Elasticsearch /_msearch query fragments
-
-type esMsearchQueryFragment struct {
-	Index string `json:"index"`
-}
-
 // Elasticsearch /_msearch response
 
-type esMsearch struct {
-	Responses []esMsearchResponse `json:"responses"`
+type esMultiSearchResponse struct {
+	Responses []*esMultiSearchResponseHitsSummary `json:"responses"`
 }
 
-type esMsearchResponse struct {
-	Hits esMsearchResponseHits `json:"hits"`
+type esMultiSearchResponseHitsSummary struct {
+	Hits *esMultiSearchResponseHits `json:"hits"`
 }
 
-type esMsearchResponseHits struct {
-	Total esSearchResponseTotal         `json:"total"`
-	Hits  []esMsearchResponseNestedHits `json:"hits"`
+type esMultiSearchResponseHits struct {
+	Total *esSearchResponseTotal      `json:"total"`
+	Hits  []*esMultiSearchResponseHit `json:"hits"`
 }
 
-type esMsearchResponseNestedHits struct {
-	Source esMsearchResponseSource `json:"_source"`
-}
-
-type esMsearchResponseSource struct {
-	Name             string `json:"name"`
-	ShortDescription string `json:"shortDescription"`
-	LongDescription  string `json:"longDescription"`
-	Kind             string `json:"kind"`
-	Vulnerability    struct {
-		Details []struct {
-			CpeURI             string `json:"cpeUri"`
-			Package            string `json:"package"`
-			MinAffectedVersion struct {
-				Name     string `json:"name"`
-				Revision string `json:"revision"`
-				Kind     string `json:"kind"`
-			} `json:"minAffectedVersion"`
-		} `json:"details"`
-	} `json:"vulnerability"`
+type esMultiSearchResponseHit struct {
+	Source json.RawMessage `json:"_source"`
 }

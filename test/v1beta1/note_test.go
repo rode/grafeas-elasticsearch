@@ -3,6 +3,7 @@ package v1beta1_test
 import (
 	"fmt"
 	fake "github.com/brianvoe/gofakeit/v5"
+	"github.com/grafeas/grafeas/proto/v1beta1/attestation_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/build_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
@@ -12,6 +13,7 @@ import (
 	"github.com/rode/grafeas-elasticsearch/test/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"strings"
 	"testing"
 )
 
@@ -49,7 +51,7 @@ func TestNote(t *testing.T) {
 		noteId2 := fake.UUID()
 
 		t.Run("should be successful", func(t *testing.T) {
-			bo, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
+			batch, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
 				Parent: projectName,
 				Notes: map[string]*grafeas_go_proto.Note{
 					noteId1: createFakeBuildNote(),
@@ -58,7 +60,7 @@ func TestNote(t *testing.T) {
 			})
 			Expect(err).ToNot(HaveOccurred())
 
-			for _, o := range bo.Notes {
+			for _, o := range batch.Notes {
 				_, err = s.Gc.GetNote(s.Ctx, &grafeas_go_proto.GetNoteRequest{Name: o.GetName()})
 				Expect(err).ToNot(HaveOccurred())
 			}
@@ -81,6 +83,122 @@ func TestNote(t *testing.T) {
 				})
 				Expect(err).ToNot(HaveOccurred())
 			})
+		})
+	})
+
+	t.Run("listing notes", func(t *testing.T) {
+		// setup project specifically for listing notes
+		listProjectName := util.RandomProjectName()
+
+		_, err := util.CreateProject(s, listProjectName)
+		Expect(err).ToNot(HaveOccurred())
+
+		// creating different notes to test against
+		buildNote := createFakeBuildNote()
+		vulnerabilityNote := createFakeVulnerabilityNote()
+		attestationNote := createFakeAttestationNote()
+
+		secondBuildNote := createFakeBuildNote()
+		secondVulnerabilityNote := createFakeVulnerabilityNote()
+
+		// ensure notes have something in common to filter against
+		buildNote.ShortDescription = vulnerabilityNote.ShortDescription
+		vulnerabilityNote.LongDescription = attestationNote.LongDescription
+
+		// create
+		batch, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
+			Parent: listProjectName,
+			Notes: map[string]*grafeas_go_proto.Note{
+				"build1": buildNote,
+				"build2": secondBuildNote,
+				"vuln1":  vulnerabilityNote,
+				"vuln2":  secondVulnerabilityNote,
+				"att1":   attestationNote,
+			},
+		})
+		Expect(err).ToNot(HaveOccurred())
+
+		// reassign pointer values for test notes, since the created notes will have a new `Name` field that
+		// will need to be included in our assertions
+		for _, note := range batch.Notes {
+			switch strings.Split(note.Name, "/")[3] {
+			case "build1":
+				buildNote = note
+			case "build2":
+				secondBuildNote = note
+			case "vuln1":
+				vulnerabilityNote = note
+			case "vuln2":
+				secondVulnerabilityNote = note
+			case "att1":
+				attestationNote = note
+			}
+		}
+
+		t.Run("should be successful", func(t *testing.T) {
+			res, err := s.Gc.ListNotes(s.Ctx, &grafeas_go_proto.ListNotesRequest{
+				Parent: listProjectName,
+			})
+			Expect(err).ToNot(HaveOccurred())
+			Expect(res.Notes).To(HaveLen(5))
+		})
+
+		t.Run("filters", func(t *testing.T) {
+			for _, tc := range []struct {
+				name, filter string
+				expected     []*grafeas_go_proto.Note
+				expectError  bool
+			}{
+				{
+					name:   "match build type",
+					filter: `"kind"=="BUILD"`,
+					expected: []*grafeas_go_proto.Note{
+						buildNote,
+						secondBuildNote,
+					},
+				},
+				{
+					name:   "match vuln type",
+					filter: `"kind"=="VULNERABILITY"`,
+					expected: []*grafeas_go_proto.Note{
+						vulnerabilityNote,
+						secondVulnerabilityNote,
+					},
+				},
+				{
+					name:   "match attestation type",
+					filter: `"kind"=="ATTESTATION"`,
+					expected: []*grafeas_go_proto.Note{
+						attestationNote,
+					},
+				},
+				{
+					name:   "match one vuln note",
+					filter: fmt.Sprintf(`"kind"=="VULNERABILITY" && "shortDescription" != "%s"`, vulnerabilityNote.ShortDescription),
+					expected: []*grafeas_go_proto.Note{
+						secondVulnerabilityNote,
+					},
+				},
+			} {
+				// ensure parallel tests are run with correct test case
+				tc := tc
+
+				t.Run(tc.name, func(t *testing.T) {
+					t.Parallel()
+
+					res, err := s.Gc.ListNotes(s.Ctx, &grafeas_go_proto.ListNotesRequest{
+						Parent: listProjectName,
+						Filter: tc.filter,
+					})
+					if tc.expectError {
+						Expect(err).To(HaveOccurred())
+					} else {
+						Expect(err).ToNot(HaveOccurred())
+						Expect(res.Notes).To(HaveLen(len(tc.expected)))
+						Expect(tc.expected).To(ConsistOf(res.Notes))
+					}
+				})
+			}
 		})
 	})
 
@@ -112,6 +230,10 @@ func TestNote(t *testing.T) {
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.NotFound))
 	})
+}
+
+func formatNoteName(projectName, noteId string) string {
+	return fmt.Sprintf("%s/notes/%s", projectName, noteId)
 }
 
 func createFakeBuildNote() *grafeas_go_proto.Note {
@@ -150,6 +272,22 @@ func createFakeVulnerabilityNote() *grafeas_go_proto.Note {
 							Kind: package_go_proto.Version_NORMAL,
 						},
 					},
+				},
+			},
+		},
+	}
+}
+
+func createFakeAttestationNote() *grafeas_go_proto.Note {
+	return &grafeas_go_proto.Note{
+		Name:             fake.LetterN(10),
+		ShortDescription: fake.LoremIpsumSentence(fake.Number(5, 10)),
+		LongDescription:  fake.LoremIpsumSentence(fake.Number(5, 10)),
+		Kind:             common_go_proto.NoteKind_ATTESTATION,
+		Type: &grafeas_go_proto.Note_AttestationAuthority{
+			AttestationAuthority: &attestation_go_proto.Authority{
+				Hint: &attestation_go_proto.Authority_Hint{
+					HumanReadableName: fake.LetterN(10),
 				},
 			},
 		},

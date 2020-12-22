@@ -1,6 +1,7 @@
 package v1beta1_test
 
 import (
+	"fmt"
 	fake "github.com/brianvoe/gofakeit/v5"
 	"github.com/grafeas/grafeas/proto/v1beta1/build_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
@@ -46,20 +47,41 @@ func TestNote(t *testing.T) {
 	t.Run("batch creating notes", func(t *testing.T) {
 		noteId1 := fake.UUID()
 		noteId2 := fake.UUID()
-		bo, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
-			Parent: projectName,
-			Notes: map[string]*grafeas_go_proto.Note{
-				noteId1: createFakeBuildNote(),
-				noteId2: createFakeVulnerabilityNote(),
-			},
-		})
 
-		Expect(err).ToNot(HaveOccurred())
-
-		for _, o := range bo.Notes {
-			_, err = s.Gc.GetNote(s.Ctx, &grafeas_go_proto.GetNoteRequest{Name: o.GetName()})
+		t.Run("should be successful", func(t *testing.T) {
+			bo, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
+				Parent: projectName,
+				Notes: map[string]*grafeas_go_proto.Note{
+					noteId1: createFakeBuildNote(),
+					noteId2: createFakeVulnerabilityNote(),
+				},
+			})
 			Expect(err).ToNot(HaveOccurred())
-		}
+
+			for _, o := range bo.Notes {
+				_, err = s.Gc.GetNote(s.Ctx, &grafeas_go_proto.GetNoteRequest{Name: o.GetName()})
+				Expect(err).ToNot(HaveOccurred())
+			}
+
+			t.Run("should not create notes with duplicate IDs", func(t *testing.T) {
+				noteId3 := fake.UUID()
+
+				// this will return an error, but one of the notes should have still been created
+				_, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
+					Parent: projectName,
+					Notes: map[string]*grafeas_go_proto.Note{
+						noteId1: createFakeBuildNote(),
+						noteId3: createFakeVulnerabilityNote(),
+					},
+				})
+				Expect(err).To(HaveOccurred())
+
+				_, err = s.Gc.GetNote(s.Ctx, &grafeas_go_proto.GetNoteRequest{
+					Name: fmt.Sprintf("%s/notes/%s", projectName, noteId3),
+				})
+				Expect(err).ToNot(HaveOccurred())
+			})
+		})
 	})
 
 	t.Run("deleting a note", func(t *testing.T) {

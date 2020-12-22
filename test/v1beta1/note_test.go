@@ -50,39 +50,40 @@ func TestNote(t *testing.T) {
 		noteId1 := fake.UUID()
 		noteId2 := fake.UUID()
 
+		batch, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
+			Parent: projectName,
+			Notes: map[string]*grafeas_go_proto.Note{
+				noteId1: createFakeBuildNote(),
+				noteId2: createFakeVulnerabilityNote(),
+			},
+		})
+
 		t.Run("should be successful", func(t *testing.T) {
-			batch, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
-				Parent: projectName,
-				Notes: map[string]*grafeas_go_proto.Note{
-					noteId1: createFakeBuildNote(),
-					noteId2: createFakeVulnerabilityNote(),
-				},
-			})
 			Expect(err).ToNot(HaveOccurred())
 
 			for _, o := range batch.Notes {
 				_, err = s.Gc.GetNote(s.Ctx, &grafeas_go_proto.GetNoteRequest{Name: o.GetName()})
 				Expect(err).ToNot(HaveOccurred())
 			}
+		})
 
-			t.Run("should not create notes with duplicate IDs", func(t *testing.T) {
-				noteId3 := fake.UUID()
+		t.Run("should not create notes with duplicate IDs", func(t *testing.T) {
+			noteId3 := fake.UUID()
 
-				// this will return an error, but one of the notes should have still been created
-				_, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
-					Parent: projectName,
-					Notes: map[string]*grafeas_go_proto.Note{
-						noteId1: createFakeBuildNote(),
-						noteId3: createFakeVulnerabilityNote(),
-					},
-				})
-				Expect(err).To(HaveOccurred())
-
-				_, err = s.Gc.GetNote(s.Ctx, &grafeas_go_proto.GetNoteRequest{
-					Name: fmt.Sprintf("%s/notes/%s", projectName, noteId3),
-				})
-				Expect(err).ToNot(HaveOccurred())
+			// this will return an error, but one of the notes should have still been created
+			_, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
+				Parent: projectName,
+				Notes: map[string]*grafeas_go_proto.Note{
+					noteId1: createFakeBuildNote(),
+					noteId3: createFakeVulnerabilityNote(),
+				},
 			})
+			Expect(err).To(HaveOccurred())
+
+			_, err = s.Gc.GetNote(s.Ctx, &grafeas_go_proto.GetNoteRequest{
+				Name: fmt.Sprintf("%s/notes/%s", projectName, noteId3),
+			})
+			Expect(err).ToNot(HaveOccurred())
 		})
 	})
 

@@ -1448,14 +1448,14 @@ var _ = Describe("elasticsearch storage", func() {
 			var expectedPayloads []interface{}
 
 			for i := 0; i < len(expectedNotesWithNoteIds); i++ {
-				expectedPayloads = append(expectedPayloads, &esBulkQueryIndexFragment{}, &esSearch{})
+				expectedPayloads = append(expectedPayloads, &esMultiSearchQueryFragment{}, &esSearch{})
 			}
 
 			parseEsMsearchIndexRequest(transport.receivedHttpRequests[0].Body, expectedPayloads)
 
 			for i, payload := range expectedPayloads {
 				if i%2 == 0 { // index metadata
-					metadata := payload.(*esBulkQueryIndexFragment)
+					metadata := payload.(*esMultiSearchQueryFragment)
 					Expect(metadata.Index).To(Equal(expectedNotesIndex))
 				} else { // note
 					Expect(payload).To(BeAssignableToTypeOf(&esSearch{}))

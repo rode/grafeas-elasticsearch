@@ -75,6 +75,12 @@ type esBulkResponseItem struct {
 	Index *esIndexDocResponse `json:"index,omitempty"`
 }
 
+// Elasticsearch /_msearch query fragments
+
+type esMultiSearchQueryFragment struct {
+	Index string `json:"index"`
+}
+
 // Elasticsearch /_msearch response
 
 type esMultiSearchResponse struct {

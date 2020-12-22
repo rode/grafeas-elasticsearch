@@ -459,10 +459,10 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	log := es.logger.Named("BatchCreateNotes").With(zap.String("projectId", projectId))
 	log.Debug("creating notes")
 
-	msearchMetadata, _ := json.Marshal(&esBulkQueryIndexFragment{
+	searchMetadata, _ := json.Marshal(&esMultiSearchQueryFragment{
 		Index: notesIndex(projectId),
 	})
-	msearchMetadata = append(msearchMetadata, "\n"...)
+	searchMetadata = append(searchMetadata, "\n"...)
 
 	var (
 		notes             []*pb.Note
@@ -482,8 +482,8 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		data, _ := json.Marshal(searchBody)
 		dataBytes := append(data, "\n"...)
 
-		searchRequestBody.Grow(len(msearchMetadata) + len(dataBytes))
-		searchRequestBody.Write(msearchMetadata)
+		searchRequestBody.Grow(len(searchMetadata) + len(dataBytes))
+		searchRequestBody.Write(searchMetadata)
 		searchRequestBody.Write(dataBytes)
 	}
 
@@ -501,7 +501,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	}
 	if res.IsError() {
 		return nil, []error{
-			createError(log, "unexpected response from ES", nil),
+			createError(log, "unexpected response from ES", nil, zap.Any("response", res.String()), zap.Int("status", res.StatusCode)),
 		}
 	}
 

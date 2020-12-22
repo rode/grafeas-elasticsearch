@@ -1406,6 +1406,155 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
+	// unit tests for BatchCreateNotes only cover the happy path for now
+	Context("creating a batch of Grafeas notes", func() {
+		var (
+			actualErrs               []error
+			actualNotes              []*pb.Note
+			expectedNotes            []*pb.Note
+			expectedNotesWithNoteIds map[string]*pb.Note
+			expectedNotesIndex       string
+		)
+
+		// BeforeEach configures the happy path for this context
+		// Variables configured here may be overridden in nested BeforeEach blocks
+		BeforeEach(func() {
+			expectedNotesIndex = fmt.Sprintf("%s-%s-notes", indexPrefix, expectedProjectId)
+			expectedNotes = generateTestNotes(gofakeit.Number(2, 5), expectedProjectId)
+			expectedNotesWithNoteIds = convertSliceOfNotesToMap(expectedNotes)
+
+			// happy path: none of the provided notes exist, all of the provided notes were created successfully
+			// response 1: every search result will have zero hits
+			// response 2: every index operation was successful
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body:       createEsMultiSearchNoteResponse(expectedNotesWithNoteIds),
+				},
+				{
+					StatusCode: http.StatusOK,
+					Body:       createEsBulkNoteIndexResponse(expectedNotesWithNoteIds),
+				},
+			}
+		})
+
+		// JustBeforeEach actually invokes the system under test
+		JustBeforeEach(func() {
+			actualNotes, actualErrs = elasticsearchStorage.BatchCreateNotes(context.Background(), expectedProjectId, "", deepCopyNotes(expectedNotesWithNoteIds))
+		})
+
+		// this test parses the ndjson request body and ensures that it was formatted correctly
+		It("should send a multisearch request to ES to check for the existence of each note", func() {
+			var expectedPayloads []interface{}
+
+			for i := 0; i < len(expectedNotesWithNoteIds); i++ {
+				expectedPayloads = append(expectedPayloads, &esMultiSearchQueryFragment{}, &esSearch{})
+			}
+
+			parseEsMsearchIndexRequest(transport.receivedHttpRequests[0].Body, expectedPayloads)
+
+			for i, payload := range expectedPayloads {
+				if i%2 == 0 { // index metadata
+					metadata := payload.(*esMultiSearchQueryFragment)
+					Expect(metadata.Index).To(Equal(expectedNotesIndex))
+				} else { // note
+					Expect(payload).To(BeAssignableToTypeOf(&esSearch{}))
+					Expect(map[string]string(*payload.(*esSearch).Query.Term)["name"]).To(MatchRegexp("projects/%s/notes/\\w+", expectedProjectId))
+				}
+			}
+		})
+
+		When("the multisearch request returns an error", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+			})
+
+			It("should return a single error and no notes", func() {
+				Expect(actualErrs).To(HaveLen(1))
+				assertErrorHasGrpcStatusCode(actualErrs[0], codes.Internal)
+			})
+
+			It("should not attempt to index any notes", func() {
+				Expect(transport.receivedHttpRequests).To(HaveLen(1))
+			})
+		})
+
+		When("the multisearch request returns no notes already exist", func() {
+			It("should attempt to bulk index all of the notes", func() {
+				var expectedPayloads []interface{}
+
+				for i := 0; i < len(expectedNotes); i++ {
+					expectedPayloads = append(expectedPayloads, &esBulkQueryFragment{}, &pb.Note{})
+				}
+
+				parseEsBulkIndexRequest(transport.receivedHttpRequests[1].Body, expectedPayloads)
+
+				for i, payload := range expectedPayloads {
+					if i%2 == 0 { // index metadata
+						metadata := payload.(*esBulkQueryFragment)
+						Expect(metadata.Index.Index).To(Equal(expectedNotesIndex))
+					} else { // note
+						note := payload.(*pb.Note)
+						noteId := strings.Split(note.Name, "/")[3] // projects/${projectId}/notes/${noteId}
+						expectedNote := expectedNotesWithNoteIds[noteId]
+						expectedNote.Name = note.Name
+
+						Expect(note).To(Equal(expectedNote))
+					}
+				}
+			})
+
+			When("the bulk index request returns no errors", func() {
+				It("should return all created notes", func() {
+					for _, note := range expectedNotesWithNoteIds {
+						Expect(actualNotes).To(ContainElement(note))
+					}
+				})
+			})
+
+			When("the bulk index request completely fails", func() {
+				BeforeEach(func() {
+					transport.preparedHttpResponses[1].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should return a single error and no notes", func() {
+					Expect(actualErrs).To(HaveLen(1))
+					assertErrorHasGrpcStatusCode(actualErrs[0], codes.Internal)
+				})
+			})
+
+			When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
+				BeforeEach(func() {
+					esConfig.Refresh = config.RefreshTrue
+				})
+
+				It("should immediately refresh the index", func() {
+					Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
+				})
+			})
+
+			When(fmt.Sprintf("refresh configuration is %s", config.RefreshWaitFor), func() {
+				BeforeEach(func() {
+					esConfig.Refresh = config.RefreshWaitFor
+				})
+
+				It("should wait for refresh of index", func() {
+					Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
+				})
+			})
+
+			When(fmt.Sprintf("refresh configuration is %s", config.RefreshFalse), func() {
+				BeforeEach(func() {
+					esConfig.Refresh = config.RefreshFalse
+				})
+
+				It("should not wait or force refresh of index", func() {
+					Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
+				})
+			})
+		})
+	})
+
 	Context("retrieving a Grafeas note", func() {
 		var (
 			actualErr          error
@@ -1900,6 +2049,47 @@ func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []er
 	return ioutil.NopCloser(bytes.NewReader(responseBody))
 }
 
+func createEsBulkNoteIndexResponse(notesThatCreatedSuccessfully map[string]*pb.Note) io.ReadCloser {
+	var responseItems []*esBulkResponseItem
+	for range notesThatCreatedSuccessfully {
+		responseItems = append(responseItems, &esBulkResponseItem{
+			Index: &esIndexDocResponse{
+				Id:     gofakeit.LetterN(10),
+				Status: http.StatusCreated,
+			},
+		})
+	}
+
+	response := &esBulkResponse{
+		Items:  responseItems,
+		Errors: false,
+	}
+
+	responseBody, err := json.Marshal(response)
+	Expect(err).ToNot(HaveOccurred())
+
+	return ioutil.NopCloser(bytes.NewReader(responseBody))
+}
+
+func createEsMultiSearchNoteResponse(notes map[string]*pb.Note) io.ReadCloser {
+	multiSearchResponse := &esMultiSearchResponse{}
+
+	for range notes {
+		multiSearchResponse.Responses = append(multiSearchResponse.Responses, &esMultiSearchResponseHitsSummary{
+			Hits: &esMultiSearchResponseHits{
+				Total: &esSearchResponseTotal{
+					Value: 0,
+				},
+			},
+		})
+	}
+
+	responseBody, err := json.Marshal(multiSearchResponse)
+	Expect(err).ToNot(HaveOccurred())
+
+	return ioutil.NopCloser(bytes.NewReader(responseBody))
+}
+
 func generateTestProject(name string) *prpb.Project {
 	return &prpb.Project{
 		Name: fmt.Sprintf("projects/%s", name),
@@ -1952,6 +2142,16 @@ func generateTestNotes(l int, project string) []*pb.Note {
 	var result []*pb.Note
 	for i := 0; i < l; i++ {
 		result = append(result, generateTestNote(fmt.Sprintf("projects/%s/notes/%s", project, gofakeit.LetterN(10))))
+	}
+
+	return result
+}
+
+func convertSliceOfNotesToMap(notes []*pb.Note) map[string]*pb.Note {
+	result := make(map[string]*pb.Note)
+	for _, note := range notes {
+		noteId := strings.Split(note.Name, "/")[3]
+		result[noteId] = note
 	}
 
 	return result
@@ -2028,6 +2228,22 @@ func parseEsBulkIndexRequest(body io.ReadCloser, structs []interface{}) {
 	}
 }
 
+func parseEsMsearchIndexRequest(body io.ReadCloser, structs []interface{}) {
+	buf := new(bytes.Buffer)
+	_, err := buf.ReadFrom(body)
+	Expect(err).ToNot(HaveOccurred())
+
+	requestPayload := strings.TrimSuffix(buf.String(), "\n") // _bulk requests need to end in a newline
+	jsonPayloads := strings.Split(requestPayload, "\n")
+	Expect(jsonPayloads).To(HaveLen(len(structs)))
+
+	for i, s := range structs {
+		err = json.Unmarshal([]byte(jsonPayloads[i]), s)
+
+		Expect(err).ToNot(HaveOccurred())
+	}
+}
+
 func deepCopyOccurrences(occs []*pb.Occurrence) []*pb.Occurrence {
 	var result []*pb.Occurrence
 	for _, occ := range occs {
@@ -2045,6 +2261,15 @@ func deepCopyOccurrence(occ *pb.Occurrence) *pb.Occurrence {
 
 	err = protojson.Unmarshal(str, proto.MessageV2(result))
 	Expect(err).ToNot(HaveOccurred())
+
+	return result
+}
+
+func deepCopyNotes(notes map[string]*pb.Note) map[string]*pb.Note {
+	result := make(map[string]*pb.Note)
+	for key, note := range notes {
+		result[key] = deepCopyNote(note)
+	}
 
 	return result
 }

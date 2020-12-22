@@ -74,3 +74,28 @@ type esBulkResponse struct {
 type esBulkResponseItem struct {
 	Index *esIndexDocResponse `json:"index,omitempty"`
 }
+
+// Elasticsearch /_msearch query fragments
+
+type esMultiSearchQueryFragment struct {
+	Index string `json:"index"`
+}
+
+// Elasticsearch /_msearch response
+
+type esMultiSearchResponse struct {
+	Responses []*esMultiSearchResponseHitsSummary `json:"responses"`
+}
+
+type esMultiSearchResponseHitsSummary struct {
+	Hits *esMultiSearchResponseHits `json:"hits"`
+}
+
+type esMultiSearchResponseHits struct {
+	Total *esSearchResponseTotal      `json:"total"`
+	Hits  []*esMultiSearchResponseHit `json:"hits"`
+}
+
+type esMultiSearchResponseHit struct {
+	Source json.RawMessage `json:"_source"`
+}

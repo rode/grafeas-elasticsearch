@@ -137,9 +137,9 @@ func TestOccurrence(t *testing.T) {
 
 		t.Run("filters", func(t *testing.T) {
 			for _, tc := range []struct {
-				name, filter     string
-				expected         []*grafeas_go_proto.Occurrence
-				shouldErrorOccur bool
+				name, filter string
+				expected     []*grafeas_go_proto.Occurrence
+				expectError  bool
 			}{
 				{
 					name:   "match resource uri",
@@ -203,9 +203,9 @@ func TestOccurrence(t *testing.T) {
 					},
 				},
 				{
-					name:             "bad filter",
-					filter:           "lol",
-					shouldErrorOccur: true,
+					name:        "bad filter",
+					filter:      "lol",
+					expectError: true,
 				},
 			} {
 				// ensure parallel tests are run with correct test case
@@ -219,7 +219,7 @@ func TestOccurrence(t *testing.T) {
 						Filter: tc.filter,
 					})
 
-					if tc.shouldErrorOccur {
+					if tc.expectError {
 						Expect(err).To(HaveOccurred())
 					} else {
 						Expect(err).ToNot(HaveOccurred())

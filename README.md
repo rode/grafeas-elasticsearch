@@ -7,7 +7,14 @@
 
 ## Getting Started
 
-An externally running Elasticsearch cluster must already be available.
+An externally running Elasticsearch cluster must already be available. This repository contains a `docker-compose.yaml` file
+that can be used to run a single node Elasticsearch cluster locally:
+
+```bash
+docker-compose up -d elasticsearch
+```
+
+You can run the Grafeas server by using one of our prebuilt Docker images:
 
 ```bash
 docker run \
@@ -46,6 +53,52 @@ grafeas:
     refresh: "true"
 ```
 
+### Features
+
+This backend is still a work in progress, so not all functionality has been finished yet. Below is a checklist of all the
+currently implemented features, along with the features that have not been implemented yet:
+
+- [x] Project Methods
+  - [x] `CreateProject`
+  - [x] `GetProject`
+  - [x] `ListProjects`
+  - [x] `DeleteProject`
+- [ ] Occurrence Methods
+  - [x] `CreateOccurrence`
+  - [x] `BatchCreateOccurrences`
+  - [x] `GetOccurrence`
+  - [x] `ListOccurrences`
+  - [ ] `UpdateOccurrence`
+  - [x] `DeleteOccurrence`
+- [ ] Note Methods
+  - [x] `CreateNote`
+  - [x] `BatchCreateNotes`
+  - [x] `GetNote`
+  - [x] `ListNotes`
+  - [ ] `UpdateNote`
+  - [x] `DeleteNote`
+- [ ] Misc Methods
+  - [ ] `GetOccurrenceNote`
+  - [ ] `ListNoteOccurrences`
+  - [ ] `GetVulnerabilityOccurrencesSummary`
+- [ ] Filtering Support (for `List` methods)
+  - [x] `==` operator
+  - [x] `!=` operator
+  - [x] `&&` operator
+  - [x] `||` operator
+  - [ ] `<` operator
+  - [ ] `>` operator
+  - [ ] `<=` operator
+  - [ ] `>=` operator
+  - [ ] array indexing (ex: `vulnerability.details[0].cpeUri`)
+  - [ ] wildcard array indexing (ex: `vulnerability.details[*].cpeUri`)
+- [ ] Pagination
+- [ ] Elasticsearch config
+  - [x] URL
+  - [x] Index refresh behavior
+  - [ ] Basic Auth
+  - [ ] SSL
+  
 ## Local Development
 
 - [Go](https://golang.org/)

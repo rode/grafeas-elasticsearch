@@ -25,3 +25,11 @@ coverage*
 
 # VSCode
 .vscode/
+
+# Helm
+/helm/grafeas/charts/*
+
+# Local config
+/local/
+!/local/elasticsearch/
+!/local/config.yaml

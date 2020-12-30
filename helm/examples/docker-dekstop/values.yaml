@@ -1,0 +1,20 @@
+grafeas:
+  elasticsearch:
+    username: grafeas
+    password: NOT_A_GOOD_PASSWORD!!!
+elasticsearch:
+  antiAffinity: "soft"
+  esJavaOpts: "-Xmx128m -Xms128m"
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "512M"
+    limits:
+      cpu: "1000m"
+      memory: "512M"
+  volumeClaimTemplate:
+    accessModes: [ "ReadWriteOnce" ]
+    storageClassName: "hostpath"
+    resources:
+      requests:
+        storage: 100M

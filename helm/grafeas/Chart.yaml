@@ -1,0 +1,11 @@
+apiVersion: v2
+name: grafeas-elasticsearch
+description: Grafeas with Elasticsearch backend
+type: application
+version: 0.1.0
+appVersion: 0.1.0
+dependencies:
+  - name: elasticsearch
+    repository: https://helm.elastic.co
+    version: 7.10.1
+    condition: elasticsearch.enabled

@@ -3,5 +3,6 @@
 This example deploys elasticsearch with minimal resources for local development.
 
 ```
-helm install grafeas-elasticsearch ../../grafeas --values values.yaml
+helm repo add rode https://rode.github.io/charts
+helm install grafeas-elasticsearch rode/grafeas-elasticsearch --values values.yaml
 ```

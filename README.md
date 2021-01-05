@@ -5,6 +5,19 @@
 
 [Elasticsearch](https://www.elastic.co/elasticsearch/) storage backend for [Grafeas](https://grafeas.io/).
 
+## Installing
+
+### Helm
+
+[Helm Chart](https://github.com/rode/charts/tree/main/charts/grafeas-elasticsearch)
+
+```bash
+helm repo add rode https://rode.github.io/charts
+helm install grafeas-elasticsearch rode/grafeas-elasticsearch --set grafeas.elasticsearch.username=GRAFEAS,grafeas.elasticsearch.password=MY_PASSWORD
+```
+
+Install in [docker for desktop](https://github.com/rode/grafeas-elasticsearch/tree/main/docs/helm-docker-desktop)
+
 ## Getting Started
 
 An externally running Elasticsearch cluster must already be available. This repository contains a `docker-compose.yaml` file

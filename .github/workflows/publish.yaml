@@ -30,23 +30,21 @@ jobs:
   #         args: release --rm-dist
   #       env:
   #         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-  helm-char:
+  helm-chart:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v2
         with:
-            fetch-depth: 0
-      - name: AWS Auth
-        uses: aws-actions/configure-aws-credentials@v1
+          fetch-depth: 0
+      - id: gitextra
+        uses: liatrio/github-actions/git-extra@master
+      - id: gitty-up
+        uses: liatrio/github-actions/gitty-up@base-branch
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-          role-to-assume: ${{ secrets.AWS_ROLE_TO_ASSUME }}
-          role-duration-seconds: 1200
-      - name: Helm Chart
-        uses: liatrio/github-actions/helm-push@helm
-        with:
-          chart: helm/grafeas
-          bucket: liatrio-helm
+          url: https://github.com/rode/charts.git
+          base_branch: main
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITTY_UP_TOKEN }}
+          file: charts/grafeas-elasticsearch/values.yaml
+          values: image.tag=${{steps.gitextra.outputs.version}}

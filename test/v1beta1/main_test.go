@@ -2,11 +2,13 @@ package v1beta1_test
 
 import (
 	"flag"
-	fake "github.com/brianvoe/gofakeit/v5"
+	"github.com/brianvoe/gofakeit/v6"
 	"log"
 	"os"
 	"testing"
 )
+
+var fake = gofakeit.New(0)
 
 func TestMain(m *testing.M) {
 	flag.Parse()
@@ -15,8 +17,6 @@ func TestMain(m *testing.M) {
 		log.Println("Test run with -short flag, skipping integration.")
 		os.Exit(0)
 	}
-
-	fake.Seed(0)
 
 	os.Exit(m.Run())
 }

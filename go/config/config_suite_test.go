@@ -1,16 +1,16 @@
 package config
 
 import (
-	"github.com/brianvoe/gofakeit/v5"
+	"github.com/brianvoe/gofakeit/v6"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 )
 
-func TestConfig(t *testing.T) {
-	gofakeit.Seed(0)
+var fake = gofakeit.New(0)
 
+func TestConfig(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Config Suite")
 }

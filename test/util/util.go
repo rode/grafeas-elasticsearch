@@ -3,15 +3,16 @@ package util
 import (
 	"context"
 	"fmt"
-	fake "github.com/brianvoe/gofakeit/v5"
+	"github.com/brianvoe/gofakeit/v6"
 	"github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 	. "github.com/onsi/gomega"
 	"google.golang.org/grpc"
 	"log"
 	"testing"
-	"time"
 )
+
+var fake = gofakeit.New(0)
 
 type Setup struct {
 	Ctx context.Context
@@ -64,8 +65,4 @@ func CreateProject(s *Setup, n string) (*project_go_proto.Project, error) {
 
 func RandomNoteName(project string) string {
 	return fmt.Sprintf("%s/notes/%s", project, fake.UUID())
-}
-
-func init() {
-	fake.Seed(time.Now().UnixNano())
 }

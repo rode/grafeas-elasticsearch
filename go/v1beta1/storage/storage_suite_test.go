@@ -1,7 +1,7 @@
 package storage
 
 import (
-	"github.com/brianvoe/gofakeit/v5"
+	"github.com/brianvoe/gofakeit/v6"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"go.uber.org/zap"
@@ -9,18 +9,13 @@ import (
 	"testing"
 )
 
-var logger *zap.Logger
+var logger = zap.NewNop()
+var fake = gofakeit.New(0)
 
 func TestStoragePackage(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Storage Suite")
 }
-
-var _ = BeforeSuite(func() {
-	logger = zap.NewNop()
-
-	gofakeit.Seed(0)
-})
 
 type mockEsTransport struct {
 	receivedHttpRequests  []*http.Request

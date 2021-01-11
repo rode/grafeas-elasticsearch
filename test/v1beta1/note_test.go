@@ -2,7 +2,6 @@ package v1beta1_test
 
 import (
 	"fmt"
-	fake "github.com/brianvoe/gofakeit/v5"
 	"github.com/grafeas/grafeas/proto/v1beta1/attestation_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/build_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
@@ -18,6 +17,7 @@ import (
 )
 
 func TestNote(t *testing.T) {
+
 	Expect := util.NewExpect(t)
 	s := util.NewSetup()
 

@@ -10,8 +10,6 @@ var _ = Describe("ElasticsearchConfig", func() {
 	DescribeTable("validation", func(c ElasticsearchConfig, shouldErr bool) {
 		err := c.IsValid()
 
-		println(c.URL)
-
 		if shouldErr {
 			Expect(err).To(HaveOccurred())
 		} else {

@@ -23,7 +23,6 @@ import (
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 
 	"github.com/Jeffail/gabs/v2"
-	"github.com/brianvoe/gofakeit/v5"
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
@@ -45,7 +44,7 @@ var _ = Describe("elasticsearch storage", func() {
 	)
 
 	BeforeEach(func() {
-		expectedProjectId = gofakeit.LetterN(10)
+		expectedProjectId = fake.LetterN(10)
 
 		ctx = context.Background()
 
@@ -53,7 +52,7 @@ var _ = Describe("elasticsearch storage", func() {
 		filterer = mocks.NewMockFilterer(mockCtrl)
 		transport = &mockEsTransport{}
 		esConfig = &config.ElasticsearchConfig{
-			URL:     gofakeit.URL(),
+			URL:     fake.URL(),
 			Refresh: config.RefreshTrue,
 		}
 	})
@@ -88,7 +87,7 @@ var _ = Describe("elasticsearch storage", func() {
 				{
 					StatusCode: http.StatusOK,
 					Body: structToJsonBody(&esIndexDocResponse{
-						Id: gofakeit.LetterN(10),
+						Id: fake.LetterN(10),
 					}),
 				},
 				{
@@ -121,7 +120,7 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses[0] = &http.Response{
 					StatusCode: http.StatusOK,
-					Body:       createEsSearchResponse("project", gofakeit.LetterN(10)),
+					Body:       createEsSearchResponse("project", fake.LetterN(10)),
 				}
 			})
 
@@ -249,7 +248,7 @@ var _ = Describe("elasticsearch storage", func() {
 			expectedQuery = &filtering.Query{}
 			expectedFilter = ""
 			expectedProjectIndex = fmt.Sprintf("%s-%s", indexPrefix, "projects")
-			expectedProjects = generateTestProjects(gofakeit.Number(2, 5))
+			expectedProjects = generateTestProjects(fake.Number(2, 5))
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
@@ -281,10 +280,10 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				expectedQuery = &filtering.Query{
 					Term: &filtering.Term{
-						gofakeit.LetterN(10): gofakeit.LetterN(10),
+						fake.LetterN(10): fake.LetterN(10),
 					},
 				}
-				expectedFilter = gofakeit.LetterN(10)
+				expectedFilter = fake.LetterN(10)
 
 				filterer.
 					EXPECT().
@@ -308,12 +307,12 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("an invalid filter is specified", func() {
 			BeforeEach(func() {
-				expectedFilter = gofakeit.LetterN(10)
+				expectedFilter = fake.LetterN(10)
 
 				filterer.
 					EXPECT().
 					ParseExpression(expectedFilter).
-					Return(nil, errors.New(gofakeit.LetterN(10)))
+					Return(nil, errors.New(fake.LetterN(10)))
 			})
 
 			It("should not send a request to elasticsearch", func() {
@@ -455,7 +454,7 @@ var _ = Describe("elasticsearch storage", func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
 						StatusCode: http.StatusOK,
-						Body:       ioutil.NopCloser(strings.NewReader(gofakeit.LetterN(10))),
+						Body:       ioutil.NopCloser(strings.NewReader(fake.LetterN(10))),
 					},
 				}
 			})
@@ -624,7 +623,7 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			expectedOccurrenceId = gofakeit.LetterN(10)
+			expectedOccurrenceId = fake.LetterN(10)
 			expectedOccurrenceIndex = fmt.Sprintf("%s-%s-occurrences", indexPrefix, expectedProjectId)
 			expectedOccurrenceName = fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)
 			transport.preparedHttpResponses = []*http.Response{
@@ -688,7 +687,7 @@ var _ = Describe("elasticsearch storage", func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
 						StatusCode: http.StatusOK,
-						Body:       ioutil.NopCloser(strings.NewReader(gofakeit.LetterN(10))),
+						Body:       ioutil.NopCloser(strings.NewReader(fake.LetterN(10))),
 					},
 				}
 			})
@@ -725,7 +724,7 @@ var _ = Describe("elasticsearch storage", func() {
 		// BeforeEach configures the happy path for this context
 		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
-			expectedOccurrenceESId = gofakeit.LetterN(10)
+			expectedOccurrenceESId = fake.LetterN(10)
 			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-occurrences", indexPrefix, expectedProjectId)
 			expectedOccurrence = generateTestOccurrence("")
 
@@ -799,8 +798,8 @@ var _ = Describe("elasticsearch storage", func() {
 					StatusCode: http.StatusInternalServerError,
 					Body: structToJsonBody(&esIndexDocResponse{
 						Error: &esIndexDocError{
-							Type:   gofakeit.LetterN(10),
-							Reason: gofakeit.LetterN(10),
+							Type:   fake.LetterN(10),
+							Reason: fake.LetterN(10),
 						},
 					}),
 				}
@@ -835,7 +834,7 @@ var _ = Describe("elasticsearch storage", func() {
 		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
 			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")
-			expectedOccurrences = generateTestOccurrences(gofakeit.Number(2, 5))
+			expectedOccurrences = generateTestOccurrences(fake.Number(2, 5))
 			for i := 0; i < len(expectedOccurrences); i++ {
 				expectedErrs = append(expectedErrs, nil)
 			}
@@ -938,7 +937,7 @@ var _ = Describe("elasticsearch storage", func() {
 			var randomErrorIndex int
 
 			BeforeEach(func() {
-				randomErrorIndex = gofakeit.Number(0, len(expectedOccurrences)-1)
+				randomErrorIndex = fake.Number(0, len(expectedOccurrences)-1)
 				expectedErrs = []error{}
 				for i := 0; i < len(expectedOccurrences); i++ {
 					if i == randomErrorIndex {
@@ -978,7 +977,7 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			expectedOccurrenceId = gofakeit.LetterN(10)
+			expectedOccurrenceId = fake.LetterN(10)
 			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-occurrences", indexPrefix, expectedProjectId)
 			expectedOccurrenceName = fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)
 
@@ -1093,7 +1092,7 @@ var _ = Describe("elasticsearch storage", func() {
 			expectedQuery = &filtering.Query{}
 			expectedFilter = ""
 			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-occurrences", indexPrefix, expectedProjectId)
-			expectedOccurrences = generateTestOccurrences(gofakeit.Number(2, 5))
+			expectedOccurrences = generateTestOccurrences(fake.Number(2, 5))
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
@@ -1125,10 +1124,10 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				expectedQuery = &filtering.Query{
 					Term: &filtering.Term{
-						gofakeit.LetterN(10): gofakeit.LetterN(10),
+						fake.LetterN(10): fake.LetterN(10),
 					},
 				}
-				expectedFilter = gofakeit.LetterN(10)
+				expectedFilter = fake.LetterN(10)
 
 				filterer.
 					EXPECT().
@@ -1152,12 +1151,12 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("an invalid filter is specified", func() {
 			BeforeEach(func() {
-				expectedFilter = gofakeit.LetterN(10)
+				expectedFilter = fake.LetterN(10)
 
 				filterer.
 					EXPECT().
 					ParseExpression(expectedFilter).
-					Return(nil, errors.New(gofakeit.LetterN(10)))
+					Return(nil, errors.New(fake.LetterN(10)))
 			})
 
 			It("should not send a request to elasticsearch", func() {
@@ -1245,11 +1244,11 @@ var _ = Describe("elasticsearch storage", func() {
 		BeforeEach(func() {
 			// this setup is a bit different when compared to the tests for creating occurrences
 			// grafeas requires that the user specify a note's ID (and thus its name) beforehand
-			expectedNoteId = gofakeit.LetterN(10)
+			expectedNoteId = fake.LetterN(10)
 			expectedNoteName = fmt.Sprintf("projects/%s/notes/%s", expectedProjectId, expectedNoteId)
 			expectedNotesIndex = fmt.Sprintf("%s-%s-notes", indexPrefix, expectedProjectId)
 			expectedNote = generateTestNote(expectedNoteName)
-			expectedNoteESId = gofakeit.LetterN(10)
+			expectedNoteESId = fake.LetterN(10)
 
 			transport.preparedHttpResponses = []*http.Response{
 				{
@@ -1308,8 +1307,8 @@ var _ = Describe("elasticsearch storage", func() {
 						StatusCode: http.StatusInternalServerError,
 						Body: structToJsonBody(&esIndexDocResponse{
 							Error: &esIndexDocError{
-								Type:   gofakeit.LetterN(10),
-								Reason: gofakeit.LetterN(10),
+								Type:   fake.LetterN(10),
+								Reason: fake.LetterN(10),
 							},
 						}),
 					}
@@ -1420,7 +1419,7 @@ var _ = Describe("elasticsearch storage", func() {
 		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
 			expectedNotesIndex = fmt.Sprintf("%s-%s-notes", indexPrefix, expectedProjectId)
-			expectedNotes = generateTestNotes(gofakeit.Number(2, 5), expectedProjectId)
+			expectedNotes = generateTestNotes(fake.Number(2, 5), expectedProjectId)
 			expectedNotesWithNoteIds = convertSliceOfNotesToMap(expectedNotes)
 
 			// happy path: none of the provided notes exist, all of the provided notes were created successfully
@@ -1565,7 +1564,7 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			expectedNoteId = gofakeit.LetterN(10)
+			expectedNoteId = fake.LetterN(10)
 			expectedNotesIndex = fmt.Sprintf("%s-%s-notes", indexPrefix, expectedProjectId)
 			expectedNoteName = fmt.Sprintf("projects/%s/notes/%s", expectedProjectId, expectedNoteId)
 			transport.preparedHttpResponses = []*http.Response{
@@ -1629,7 +1628,7 @@ var _ = Describe("elasticsearch storage", func() {
 				transport.preparedHttpResponses = []*http.Response{
 					{
 						StatusCode: http.StatusOK,
-						Body:       ioutil.NopCloser(strings.NewReader(gofakeit.LetterN(10))),
+						Body:       ioutil.NopCloser(strings.NewReader(fake.LetterN(10))),
 					},
 				}
 			})
@@ -1668,7 +1667,7 @@ var _ = Describe("elasticsearch storage", func() {
 			expectedQuery = &filtering.Query{}
 			expectedFilter = ""
 			expectedNotesIndex = fmt.Sprintf("%s-%s-notes", indexPrefix, expectedProjectId)
-			expectedNotes = generateTestNotes(gofakeit.Number(2, 5), expectedProjectId)
+			expectedNotes = generateTestNotes(fake.Number(2, 5), expectedProjectId)
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
@@ -1700,10 +1699,10 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				expectedQuery = &filtering.Query{
 					Term: &filtering.Term{
-						gofakeit.LetterN(10): gofakeit.LetterN(10),
+						fake.LetterN(10): fake.LetterN(10),
 					},
 				}
-				expectedFilter = gofakeit.LetterN(10)
+				expectedFilter = fake.LetterN(10)
 
 				filterer.
 					EXPECT().
@@ -1727,12 +1726,12 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("an invalid filter is specified", func() {
 			BeforeEach(func() {
-				expectedFilter = gofakeit.LetterN(10)
+				expectedFilter = fake.LetterN(10)
 
 				filterer.
 					EXPECT().
 					ParseExpression(expectedFilter).
-					Return(nil, errors.New(gofakeit.LetterN(10)))
+					Return(nil, errors.New(fake.LetterN(10)))
 			})
 
 			It("should not send a request to elasticsearch", func() {
@@ -1813,7 +1812,7 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			expectedNoteId = gofakeit.LetterN(10)
+			expectedNoteId = fake.LetterN(10)
 			expectedNotesIndex = fmt.Sprintf("%s-%s-notes", indexPrefix, expectedProjectId)
 			expectedNoteName = fmt.Sprintf("projects/%s/notes/%s", expectedProjectId, expectedNoteId)
 
@@ -1955,7 +1954,7 @@ func createGenericEsSearchResponse(messages ...proto.Message) io.ReadCloser {
 	}
 
 	response := &esSearchResponse{
-		Took: gofakeit.Number(1, 10),
+		Took: fake.Number(1, 10),
 		Hits: &esSearchResponseHits{
 			Total: &esSearchResponseTotal{
 				Value: len(hits),
@@ -1996,7 +1995,7 @@ func createEsSearchResponse(objectType string, hitNames ...string) io.ReadCloser
 	}
 
 	response := &esSearchResponse{
-		Took: gofakeit.Number(1, 10),
+		Took: fake.Number(1, 10),
 		Hits: &esSearchResponseHits{
 			Total: &esSearchResponseTotal{
 				Value: len(hitNames),
@@ -2022,8 +2021,8 @@ func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []er
 		)
 		if errs[i] != nil {
 			responseErr = &esIndexDocError{
-				Type:   gofakeit.LetterN(10),
-				Reason: gofakeit.LetterN(10),
+				Type:   fake.LetterN(10),
+				Reason: fake.LetterN(10),
 			}
 			responseCode = http.StatusInternalServerError
 			responseHasErrors = true
@@ -2031,7 +2030,7 @@ func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []er
 
 		responseItems = append(responseItems, &esBulkResponseItem{
 			Index: &esIndexDocResponse{
-				Id:     gofakeit.LetterN(10),
+				Id:     fake.LetterN(10),
 				Status: responseCode,
 				Error:  responseErr,
 			},
@@ -2054,7 +2053,7 @@ func createEsBulkNoteIndexResponse(notesThatCreatedSuccessfully map[string]*pb.N
 	for range notesThatCreatedSuccessfully {
 		responseItems = append(responseItems, &esBulkResponseItem{
 			Index: &esIndexDocResponse{
-				Id:     gofakeit.LetterN(10),
+				Id:     fake.LetterN(10),
 				Status: http.StatusCreated,
 			},
 		})
@@ -2099,7 +2098,7 @@ func generateTestProject(name string) *prpb.Project {
 func generateTestProjects(l int) []*prpb.Project {
 	var result []*prpb.Project
 	for i := 0; i < l; i++ {
-		result = append(result, generateTestProject(gofakeit.LetterN(10)))
+		result = append(result, generateTestProject(fake.LetterN(10)))
 	}
 
 	return result
@@ -2109,11 +2108,11 @@ func generateTestOccurrence(name string) *pb.Occurrence {
 	return &pb.Occurrence{
 		Name: name,
 		Resource: &grafeas_go_proto.Resource{
-			Uri: gofakeit.LetterN(10),
+			Uri: fake.LetterN(10),
 		},
-		NoteName:    gofakeit.LetterN(10),
+		NoteName:    fake.LetterN(10),
 		Kind:        common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
-		Remediation: gofakeit.LetterN(10),
+		Remediation: fake.LetterN(10),
 		Details:     nil,
 		CreateTime:  ptypes.TimestampNow(),
 	}
@@ -2131,8 +2130,8 @@ func generateTestOccurrences(l int) []*pb.Occurrence {
 func generateTestNote(name string) *pb.Note {
 	return &pb.Note{
 		Name:             name,
-		ShortDescription: gofakeit.Phrase(),
-		LongDescription:  gofakeit.Phrase(),
+		ShortDescription: fake.Phrase(),
+		LongDescription:  fake.Phrase(),
 		Kind:             common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
 		CreateTime:       ptypes.TimestampNow(),
 	}
@@ -2141,7 +2140,7 @@ func generateTestNote(name string) *pb.Note {
 func generateTestNotes(l int, project string) []*pb.Note {
 	var result []*pb.Note
 	for i := 0; i < l; i++ {
-		result = append(result, generateTestNote(fmt.Sprintf("projects/%s/notes/%s", project, gofakeit.LetterN(10))))
+		result = append(result, generateTestNote(fmt.Sprintf("projects/%s/notes/%s", project, fake.LetterN(10))))
 	}
 
 	return result

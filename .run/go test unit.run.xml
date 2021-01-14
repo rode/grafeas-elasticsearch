@@ -2,7 +2,7 @@
   <configuration default="false" name="go test unit" type="GoTestRunConfiguration" factoryName="Go Test">
     <module name="grafeas-elasticsearch" />
     <working_directory value="$PROJECT_DIR$" />
-    <go_parameters value="-i -short" />
+    <go_parameters value="-i -short -count 1" />
     <framework value="gotest" />
     <kind value="DIRECTORY" />
     <package value="github.com/rode/grafeas-elasticsearch" />

@@ -2,7 +2,6 @@ package storage
 
 import (
 	"fmt"
-	"github.com/brianvoe/gofakeit/v5"
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/mock/gomock"
@@ -29,7 +28,7 @@ var _ = Describe("Grafeas integration", func() {
 		filterer = mocks.NewMockFilterer(mockCtrl)
 		transport = &mockEsTransport{}
 		esConfig = &config.ElasticsearchConfig{
-			URL:     gofakeit.URL(),
+			URL:     fake.URL(),
 			Refresh: config.RefreshTrue,
 		}
 	})

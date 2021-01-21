@@ -11,10 +11,12 @@ import (
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"go.uber.org/zap"
 	"log"
+	"os"
 )
 
 func main() {
-	logger, err := createLogger(true)
+	_, debugEnabled := os.LookupEnv("DEBUG")
+	logger, err := createLogger(debugEnabled)
 	if err != nil {
 		log.Fatalf("failed to create logger: %v", err)
 	}

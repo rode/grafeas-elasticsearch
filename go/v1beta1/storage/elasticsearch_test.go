@@ -18,6 +18,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
@@ -1110,6 +1111,7 @@ var _ = Describe("elasticsearch storage", func() {
 		It("should query elasticsearch for occurrences", func() {
 			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedOccurrencesIndex)))
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+			Expect(transport.receivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(grafeasMaxPageSize)))
 
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
@@ -1685,6 +1687,7 @@ var _ = Describe("elasticsearch storage", func() {
 		It("should query elasticsearch for notes", func() {
 			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedNotesIndex)))
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+			Expect(transport.receivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(grafeasMaxPageSize)))
 
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())

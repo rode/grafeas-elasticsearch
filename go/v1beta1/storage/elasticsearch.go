@@ -26,6 +26,7 @@ import (
 
 const apiVersion = "v1beta1"
 const indexPrefix = "grafeas-" + apiVersion
+const grafeasMaxPageSize = 1000
 
 type ElasticsearchStorage struct {
 	client   *elasticsearch.Client
@@ -744,6 +745,7 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 		es.client.Search.WithContext(ctx),
 		es.client.Search.WithIndex(index),
 		es.client.Search.WithBody(encodedBody),
+		es.client.Search.WithSize(grafeasMaxPageSize),
 	)
 	if err != nil {
 		return nil, createError(log, "error sending request to elasticsearch", err)

@@ -419,6 +419,36 @@ func TestOccurrence(t *testing.T) {
 				Expect(o.Resource.Uri).To(Equal(expectedResourceUri))
 			}
 		})
+
+		t.Run("should use pagination", func(t *testing.T) {
+			var (
+				foundOccurrences []*grafeas_go_proto.Occurrence
+				pageToken        string // start as empty by default, will be updated with each request
+			)
+
+			// we'll use pagination to list occurrences three times
+			for i := 0; i < 3; i++ {
+				pageSize := fake.Number(1, 2)
+				res, err := s.Gc.ListOccurrences(s.Ctx, &grafeas_go_proto.ListOccurrencesRequest{
+					Parent:    listProjectName,
+					PageSize:  int32(pageSize),
+					PageToken: pageToken,
+				})
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(res.Occurrences).To(HaveLen(pageSize))
+				Expect(res.NextPageToken).ToNot(BeEmpty())
+
+				// ensure we have not received these occurrences already
+				for _, o := range res.Occurrences {
+					Expect(o).ToNot(BeElementOf(foundOccurrences))
+				}
+
+				// setup for next run
+				pageToken = res.NextPageToken
+				foundOccurrences = append(foundOccurrences, res.Occurrences...)
+			}
+		})
 	})
 }
 

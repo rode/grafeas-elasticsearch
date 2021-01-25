@@ -32,8 +32,16 @@ type esSearchResponseHit struct {
 // Elasticsearch /_search query
 
 type esSearch struct {
-	Query *filtering.Query `json:"query,omitempty"`
+	Query *filtering.Query       `json:"query,omitempty"`
+	Sort  map[string]esSortOrder `json:"sort,omitempty"`
 }
+
+type esSortOrder string
+
+const (
+	esSortOrderAscending esSortOrder = "asc"
+	esSortOrderDecending esSortOrder = "desc"
+)
 
 // Elasticsearch /_doc response
 

@@ -275,6 +275,7 @@ var _ = Describe("elasticsearch storage", func() {
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(searchBody.Query).To(BeNil())
+			Expect(searchBody.Sort).To(BeEmpty())
 		})
 
 		When("a valid filter is specified", func() {
@@ -1120,6 +1121,7 @@ var _ = Describe("elasticsearch storage", func() {
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(searchBody.Query).To(BeNil())
+			Expect(searchBody.Sort[sortField]).To(Equal(esSortOrderDecending))
 		})
 
 		When("a valid filter is specified", func() {
@@ -1696,6 +1698,7 @@ var _ = Describe("elasticsearch storage", func() {
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(searchBody.Query).To(BeNil())
+			Expect(searchBody.Sort[sortField]).To(Equal(esSortOrderDecending))
 		})
 
 		When("a valid filter is specified", func() {

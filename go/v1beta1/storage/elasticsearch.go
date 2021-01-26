@@ -27,6 +27,7 @@ import (
 const apiVersion = "v1beta1"
 const indexPrefix = "grafeas-" + apiVersion
 const grafeasMaxPageSize = 1000
+const sortField = "createTime"
 
 type ElasticsearchStorage struct {
 	client   *elasticsearch.Client
@@ -126,7 +127,7 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 	var projects []*prpb.Project
 	log := es.logger.Named("ListProjects")
 
-	res, err := es.genericList(ctx, log, projectsIndex(), filter)
+	res, err := es.genericList(ctx, log, projectsIndex(), filter, false)
 	if err != nil {
 		return nil, "", err
 	}
@@ -215,7 +216,7 @@ func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, projectId, 
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("ListOccurrences").With(zap.String("project", projectName))
 
-	res, err := es.genericList(ctx, log, occurrencesIndex(projectId), filter)
+	res, err := es.genericList(ctx, log, occurrencesIndex(projectId), filter, true)
 	if err != nil {
 		return nil, "", err
 	}
@@ -280,6 +281,10 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	var body bytes.Buffer
 	for _, occurrence := range occurrences {
 		occurrence.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, uuid.New().String())
+		if occurrence.CreateTime == nil {
+			occurrence.CreateTime = ptypes.TimestampNow()
+		}
+
 		data, err := protojson.Marshal(proto.MessageV2(occurrence))
 		if err != nil {
 			return nil, []error{
@@ -397,7 +402,7 @@ func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectId, filter
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("ListNotes").With(zap.String("project", projectName))
 
-	res, err := es.genericList(ctx, log, notesIndex(projectId), filter)
+	res, err := es.genericList(ctx, log, notesIndex(projectId), filter, true)
 	if err != nil {
 		return nil, "", err
 	}
@@ -471,6 +476,10 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	)
 	for noteId, note := range notesWithNoteIds {
 		note.Name = fmt.Sprintf("projects/%s/notes/%s", projectId, noteId)
+		if note.CreateTime == nil {
+			note.CreateTime = ptypes.TimestampNow()
+		}
+
 		notes = append(notes, note)
 
 		searchBody := &esSearch{
@@ -725,7 +734,7 @@ func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logg
 	return nil
 }
 
-func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger, index, filter string) (*esSearchResponseHits, error) {
+func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger, index, filter string, sort bool) (*esSearchResponseHits, error) {
 	body := &esSearch{}
 	if filter != "" {
 		log = log.With(zap.String("filter", filter))
@@ -735,6 +744,12 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 		}
 
 		body.Query = filterQuery
+	}
+
+	if sort {
+		body.Sort = map[string]esSortOrder{
+			sortField: esSortOrderDecending,
+		}
 	}
 
 	encodedBody, requestJson := encodeRequest(body)

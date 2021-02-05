@@ -675,7 +675,7 @@ func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger,
 }
 
 func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logger, index string, protoMessage interface{}) error {
-	str, err := protojson.Marshal(proto.MessageV2(protoMessage))
+	str, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(proto.MessageV2(protoMessage))
 	if err != nil {
 		return createError(log, fmt.Sprintf("error marshalling %T to json", protoMessage), err)
 	}

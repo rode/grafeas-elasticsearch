@@ -240,7 +240,7 @@ func TestOccurrence(t *testing.T) {
 					},
 				},
 				{
-					name:     "match kind startsWith no match",
+					name:     "match nothing via startsWith",
 					filter:   `"kind".startsWith("FOOBAR")`,
 					expected: []*grafeas_go_proto.Occurrence{},
 				},

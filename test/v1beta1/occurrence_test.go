@@ -202,6 +202,26 @@ func TestOccurrence(t *testing.T) {
 					},
 				},
 				{
+					name:   "match resourceUri startsWith exact match",
+					filter: fmt.Sprintf(`"resource.uri".startsWith("%s")`, attestationOccurrence.Resource.Uri),
+					expected: []*grafeas_go_proto.Occurrence{
+						attestationOccurrence,
+					},
+				},
+				{
+					name:   "match kind startsWith partial match",
+					filter: `"kind".startsWith("VULN")`,
+					expected: []*grafeas_go_proto.Occurrence{
+						vulnerabilityOccurrence,
+						secondVulnerabilityOccurrence,
+					},
+				},
+				{
+					name:   "match kind startsWith no match",
+					filter: `"kind".startsWith("FOOBAR")`,
+					expected: []*grafeas_go_proto.Occurrence{},
+				},
+				{
 					name:        "bad filter",
 					filter:      "lol",
 					expectError: true,

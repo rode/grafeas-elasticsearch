@@ -48,10 +48,13 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 
 	// Determine if left and right side are final and if so formulate query
 	var leftArg, rightArg *expr.Expr
+
 	if len(expression.GetCallExpr().Args) == 2 {
+		// For the expression a == b, a and b are treated as arguments to the _==_ operator
 		leftArg = expression.GetCallExpr().Args[0]
 		rightArg = expression.GetCallExpr().Args[1]
 	} else {
+		// In the expression a.startsWith(b), a is the target/receiver and b is the argument.
 		leftArg = expression.GetCallExpr().Target
 		rightArg = expression.GetCallExpr().Args[0]
 	}

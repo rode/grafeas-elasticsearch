@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/common/operators"
+	"github.com/google/cel-go/common/overloads"
 	"github.com/google/cel-go/parser"
 	"github.com/hashicorp/go-multierror"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
@@ -46,8 +47,14 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 	function := expression.GetCallExpr().GetFunction()
 
 	// Determine if left and right side are final and if so formulate query
-	leftArg := expression.GetCallExpr().Args[0]
-	rightArg := expression.GetCallExpr().Args[1]
+	var leftArg, rightArg *expr.Expr
+	if len(expression.GetCallExpr().Args) == 2 {
+		leftArg = expression.GetCallExpr().Args[0]
+		rightArg = expression.GetCallExpr().Args[1]
+	} else {
+		leftArg = expression.GetCallExpr().Target
+		rightArg = expression.GetCallExpr().Args[0]
+	}
 
 	switch function {
 	case operators.LogicalAnd:
@@ -112,6 +119,17 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 						},
 					},
 				},
+			},
+		}, nil
+	case overloads.StartsWith:
+		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
+		if err != nil {
+			return nil, err
+		}
+
+		return &Query{
+			Prefix: &Term{
+				leftTerm: rightTerm,
 			},
 		}, nil
 	default:

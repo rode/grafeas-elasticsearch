@@ -2,8 +2,9 @@ package filtering
 
 // Query holds a parent query that carries the entire search query
 type Query struct {
-	Bool *Bool `json:"bool,omitempty"`
-	Term *Term `json:"term,omitempty"`
+	Bool   *Bool `json:"bool,omitempty"`
+	Term   *Term `json:"term,omitempty"`
+	Prefix *Term `json:"prefix,omitempty"`
 }
 
 // Bool holds a general query that carries any number of

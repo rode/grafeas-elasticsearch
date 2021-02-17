@@ -93,6 +93,11 @@ func TestOccurrence(t *testing.T) {
 		attestationOccurrence := createFakeAttestationOccurrence(listProjectName)
 		deploymentOccurrence := createFakeDeploymentOccurrence(listProjectName)
 
+		alpineVulnerabilityOccurrence := createFakeVulnerabilityOccurrence(listProjectName)
+		alpineVulnerabilityOccurrence.Resource.Uri = "https://docker.io/library/alpine@sha256:08d6ca16c60fe7490c03d10dc339d9fd8ea67c6466dea8d558526b1330a85930"
+		secondAlpineVulnerabilityOccurrence := createFakeVulnerabilityOccurrence(listProjectName)
+		secondAlpineVulnerabilityOccurrence.Resource.Uri = "https://docker.io/library/alpine@sha256:f0e9534a598e501320957059cb2a23774b4d4072e37c7b2cf7e95b241f019e35"
+
 		secondBuildOccurrence := createFakeBuildOccurrence(listProjectName)
 		secondVulnerabilityOccurrence := createFakeVulnerabilityOccurrence(listProjectName)
 
@@ -102,17 +107,20 @@ func TestOccurrence(t *testing.T) {
 		deploymentOccurrence.Resource.Uri = secondVulnerabilityOccurrence.Resource.Uri
 		secondBuildOccurrence.Resource.Uri = secondVulnerabilityOccurrence.Resource.Uri
 
+		allOccurrences := []*grafeas_go_proto.Occurrence{
+			buildOccurrence,
+			vulnerabilityOccurrence,
+			attestationOccurrence,
+			deploymentOccurrence,
+			secondBuildOccurrence,
+			secondVulnerabilityOccurrence,
+			alpineVulnerabilityOccurrence,
+			secondAlpineVulnerabilityOccurrence,
+		}
 		// create
 		batchResponse, err := s.Gc.BatchCreateOccurrences(s.Ctx, &grafeas_go_proto.BatchCreateOccurrencesRequest{
-			Parent: listProjectName,
-			Occurrences: []*grafeas_go_proto.Occurrence{
-				buildOccurrence,
-				vulnerabilityOccurrence,
-				attestationOccurrence,
-				deploymentOccurrence,
-				secondBuildOccurrence,
-				secondVulnerabilityOccurrence,
-			},
+			Parent:      listProjectName,
+			Occurrences: allOccurrences,
 		})
 		Expect(err).ToNot(HaveOccurred())
 
@@ -126,12 +134,15 @@ func TestOccurrence(t *testing.T) {
 		secondBuildOccurrence = batchResponse.Occurrences[4]
 		secondVulnerabilityOccurrence = batchResponse.Occurrences[5]
 
+		alpineVulnerabilityOccurrence = batchResponse.Occurrences[6]
+		secondAlpineVulnerabilityOccurrence = batchResponse.Occurrences[7]
+
 		t.Run("should be successful", func(t *testing.T) {
 			res, err := s.Gc.ListOccurrences(s.Ctx, &grafeas_go_proto.ListOccurrencesRequest{
 				Parent: listProjectName,
 			})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(res.Occurrences).To(HaveLen(6))
+			Expect(res.Occurrences).To(HaveLen(len(allOccurrences)))
 		})
 
 		t.Run("filters", func(t *testing.T) {
@@ -166,6 +177,8 @@ func TestOccurrence(t *testing.T) {
 						deploymentOccurrence,
 						secondBuildOccurrence,
 						secondVulnerabilityOccurrence,
+						alpineVulnerabilityOccurrence,
+						secondAlpineVulnerabilityOccurrence,
 					},
 				},
 				{
@@ -200,6 +213,36 @@ func TestOccurrence(t *testing.T) {
 					expected: []*grafeas_go_proto.Occurrence{
 						secondVulnerabilityOccurrence,
 					},
+				},
+				{
+					name:   "match resourceUri startsWith exactly",
+					filter: fmt.Sprintf(`"resource.uri".startsWith("%s")`, attestationOccurrence.Resource.Uri),
+					expected: []*grafeas_go_proto.Occurrence{
+						attestationOccurrence,
+					},
+				},
+				{
+					name:   "match kind startsWith partially",
+					filter: `"kind".startsWith("VULN")`,
+					expected: []*grafeas_go_proto.Occurrence{
+						vulnerabilityOccurrence,
+						secondVulnerabilityOccurrence,
+						alpineVulnerabilityOccurrence,
+						secondAlpineVulnerabilityOccurrence,
+					},
+				},
+				{
+					name:   "match resource.uri startsWith partially",
+					filter: `"resource.uri".startsWith("https://docker.io/library/alpine")`,
+					expected: []*grafeas_go_proto.Occurrence{
+						alpineVulnerabilityOccurrence,
+						secondAlpineVulnerabilityOccurrence,
+					},
+				},
+				{
+					name:     "match nothing via startsWith",
+					filter:   `"kind".startsWith("FOOBAR")`,
+					expected: []*grafeas_go_proto.Occurrence{},
 				},
 				{
 					name:        "bad filter",

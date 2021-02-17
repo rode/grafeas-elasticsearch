@@ -199,6 +199,27 @@ var _ = Describe("Filter", func() {
 					},
 				},
 			}),
+			Entry("startsWith ident lhs const rhs", `a.startsWith("b")`, &Query{
+				Prefix: &Term{
+					"a": "b",
+				},
+			}),
+			Entry("or, equals and startsWith", `a == b || c.startsWith(d)`, &Query{
+				Bool: &Bool{
+					Should: &Should{
+						&Query{
+							Term: &Term{
+								"a": "b",
+							},
+						},
+						&Query{
+							Prefix: &Term{
+								"c": "d",
+							},
+						},
+					},
+				},
+			}),
 		)
 
 		DescribeTable("error handling", func(filter string) {

@@ -53,7 +53,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 	log := es.logger.Named("CreateProject").With(zap.String("project", projectName))
 
 	// check if project already exists
-	search := &EsSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": projectName,
@@ -104,7 +104,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectId string
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("GetProject").With(zap.String("project", projectName))
 
-	search := &EsSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": projectName,
@@ -157,7 +157,7 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 	log := es.logger.Named("DeleteProject").With(zap.String("project", projectName))
 	log.Debug("deleting project")
 
-	search := &EsSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": projectName,
@@ -193,7 +193,7 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectId, oc
 	occurrenceName := fmt.Sprintf("projects/%s/occurrences/%s", projectId, occurrenceId)
 	log := es.logger.Named("GetOccurrence").With(zap.String("occurrence", occurrenceName))
 
-	search := &EsSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": occurrenceName,
@@ -264,8 +264,8 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	log := es.logger.Named("BatchCreateOccurrences")
 	log.Debug("creating occurrences")
 
-	indexMetadata := &EsBulkQueryFragment{
-		Index: &EsBulkQueryIndexFragment{
+	indexMetadata := &esBulkQueryFragment{
+		Index: &esBulkQueryIndexFragment{
 			Index: occurrencesIndex(projectId),
 		},
 	}
@@ -316,7 +316,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 		}
 	}
 
-	response := &EsBulkResponse{}
+	response := &esBulkResponse{}
 	err = decodeResponse(res.Body, response)
 	if err != nil {
 		return nil, []error{
@@ -363,7 +363,7 @@ func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, projectId,
 
 	log.Debug("deleting occurrence")
 
-	search := &EsSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": occurrenceName,
@@ -379,7 +379,7 @@ func (es *ElasticsearchStorage) GetNote(ctx context.Context, projectId, noteId s
 	noteName := fmt.Sprintf("projects/%s/notes/%s", projectId, noteId)
 	log := es.logger.Named("GetNote").With(zap.String("note", noteName))
 
-	search := &EsSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": noteName,
@@ -432,7 +432,7 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 	log := es.logger.Named("CreateNote").With(zap.String("note", noteName))
 
 	// since note IDs are provided up front by the client, we need to search ES to see if this note already exists before creating it
-	search := &EsSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": noteName,
@@ -465,7 +465,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	log := es.logger.Named("BatchCreateNotes").With(zap.String("projectId", projectId))
 	log.Debug("creating notes")
 
-	searchMetadata, _ := json.Marshal(&EsMultiSearchQueryFragment{
+	searchMetadata, _ := json.Marshal(&esMultiSearchQueryFragment{
 		Index: notesIndex(projectId),
 	})
 	searchMetadata = append(searchMetadata, "\n"...)
@@ -482,7 +482,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 
 		notes = append(notes, note)
 
-		searchBody := &EsSearch{
+		searchBody := &esSearch{
 			Query: &filtering.Query{
 				Term: &filtering.Term{
 					"name": note.Name,
@@ -515,7 +515,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		}
 	}
 
-	searchResponse := &EsMultiSearchResponse{}
+	searchResponse := &esMultiSearchResponse{}
 	err = decodeResponse(res.Body, searchResponse)
 	if err != nil {
 		return nil, []error{
@@ -540,8 +540,8 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		return nil, errs
 	}
 
-	indexMetadata, _ := json.Marshal(&EsBulkQueryFragment{
-		Index: &EsBulkQueryIndexFragment{
+	indexMetadata, _ := json.Marshal(&esBulkQueryFragment{
+		Index: &esBulkQueryIndexFragment{
 			Index: notesIndex(projectId),
 		},
 	})
@@ -576,7 +576,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		return nil, append(errs, createError(log, "unexpected response from ES", nil, zap.Any("response", res.String()), zap.Int("status", res.StatusCode)))
 	}
 
-	bulkResponse := &EsBulkResponse{}
+	bulkResponse := &esBulkResponse{}
 	err = decodeResponse(res.Body, bulkResponse)
 	if err != nil {
 		return nil, append(errs, createError(log, "error decoding ES response", nil))
@@ -619,7 +619,7 @@ func (es *ElasticsearchStorage) DeleteNote(ctx context.Context, projectId, noteI
 
 	log.Debug("deleting note")
 
-	search := &EsSearch{
+	search := &esSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": noteName,
@@ -645,7 +645,7 @@ func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.C
 	return &pb.VulnerabilityOccurrencesSummary{}, nil
 }
 
-func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *EsSearch, index string, protoMessage interface{}) error {
+func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *esSearch, index string, protoMessage interface{}) error {
 	encodedBody, requestJson := encodeRequest(search)
 	log = log.With(zap.String("request", requestJson))
 
@@ -661,7 +661,7 @@ func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger,
 		return createError(log, "error searching elasticsearch for document", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
 	}
 
-	var searchResults EsSearchResponse
+	var searchResults esSearchResponse
 	if err := decodeResponse(res.Body, &searchResults); err != nil {
 		return createError(log, "error unmarshalling elasticsearch response", err)
 	}
@@ -694,7 +694,7 @@ func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logg
 		return createError(log, "error indexing document in elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
 	}
 
-	esResponse := &EsIndexDocResponse{}
+	esResponse := &esIndexDocResponse{}
 	err = decodeResponse(res.Body, esResponse)
 	if err != nil {
 		return createError(log, "error decoding elasticsearch response", err)
@@ -705,7 +705,7 @@ func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logg
 	return nil
 }
 
-func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logger, search *EsSearch, index string) error {
+func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logger, search *esSearch, index string) error {
 	encodedBody, requestJson := encodeRequest(search)
 	log = log.With(zap.String("request", requestJson))
 
@@ -722,7 +722,7 @@ func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logg
 		return createError(log, "received unexpected response from elasticsearch", nil)
 	}
 
-	var deletedResults EsDeleteResponse
+	var deletedResults esDeleteResponse
 	if err = decodeResponse(res.Body, &deletedResults); err != nil {
 		return createError(log, "error unmarshalling elasticsearch response", err)
 	}
@@ -734,8 +734,8 @@ func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logg
 	return nil
 }
 
-func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger, index, filter string, sort bool) (*EsSearchResponseHits, error) {
-	body := &EsSearch{}
+func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger, index, filter string, sort bool) (*esSearchResponseHits, error) {
+	body := &esSearch{}
 	if filter != "" {
 		log = log.With(zap.String("filter", filter))
 		filterQuery, err := es.filterer.ParseExpression(filter)
@@ -747,8 +747,8 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 	}
 
 	if sort {
-		body.Sort = map[string]EsSortOrder{
-			sortField: EsSortOrderDescending,
+		body.Sort = map[string]esSortOrder{
+			sortField: esSortOrderDecending,
 		}
 	}
 
@@ -769,7 +769,7 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 		return nil, createError(log, "unexpected response from elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
 	}
 
-	var searchResults EsSearchResponse
+	var searchResults esSearchResponse
 	if err := decodeResponse(res.Body, &searchResults); err != nil {
 		return nil, createError(log, "error decoding elasticsearch response", err)
 	}

@@ -87,7 +87,7 @@ var _ = Describe("elasticsearch storage", func() {
 				},
 				{
 					StatusCode: http.StatusOK,
-					Body: structToJsonBody(&esIndexDocResponse{
+					Body: structToJsonBody(&EsIndexDocResponse{
 						Id: fake.LetterN(10),
 					}),
 				},
@@ -271,7 +271,7 @@ var _ = Describe("elasticsearch storage", func() {
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
-			searchBody := &esSearch{}
+			searchBody := &EsSearch{}
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(searchBody.Query).To(BeNil())
@@ -300,7 +300,7 @@ var _ = Describe("elasticsearch storage", func() {
 				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 				Expect(err).ToNot(HaveOccurred())
 
-				searchBody := &esSearch{}
+				searchBody := &EsSearch{}
 				err = json.Unmarshal(requestBody, searchBody)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(searchBody.Query).To(Equal(expectedQuery))
@@ -418,7 +418,7 @@ var _ = Describe("elasticsearch storage", func() {
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
-			searchBody := &esSearch{}
+			searchBody := &EsSearch{}
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -497,7 +497,7 @@ var _ = Describe("elasticsearch storage", func() {
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
-					Body: structToJsonBody(&esDeleteResponse{
+					Body: structToJsonBody(&EsDeleteResponse{
 						Deleted: 1,
 					}),
 				},
@@ -518,7 +518,7 @@ var _ = Describe("elasticsearch storage", func() {
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
-			searchBody := &esSearch{}
+			searchBody := &EsSearch{}
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -557,7 +557,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch successfully deletes the project document", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponses[0].Body = structToJsonBody(&esDeleteResponse{
+				transport.preparedHttpResponses[0].Body = structToJsonBody(&EsDeleteResponse{
 					Deleted: 1,
 				})
 			})
@@ -586,7 +586,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("project does not exist", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponses[0].Body = structToJsonBody(&esDeleteResponse{
+				transport.preparedHttpResponses[0].Body = structToJsonBody(&EsDeleteResponse{
 					Deleted: 0,
 				})
 			})
@@ -651,7 +651,7 @@ var _ = Describe("elasticsearch storage", func() {
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
-			searchBody := &esSearch{}
+			searchBody := &EsSearch{}
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -733,7 +733,7 @@ var _ = Describe("elasticsearch storage", func() {
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusCreated,
-					Body: structToJsonBody(&esIndexDocResponse{
+					Body: structToJsonBody(&EsIndexDocResponse{
 						Id: expectedOccurrenceESId,
 					}),
 				},
@@ -744,7 +744,7 @@ var _ = Describe("elasticsearch storage", func() {
 		JustBeforeEach(func() {
 			occurrence := deepCopyOccurrence(expectedOccurrence)
 
-			transport.preparedHttpResponses[0].Body = structToJsonBody(&esIndexDocResponse{
+			transport.preparedHttpResponses[0].Body = structToJsonBody(&EsIndexDocResponse{
 				Id: expectedOccurrenceESId,
 			})
 			actualOccurrence, actualErr = elasticsearchStorage.CreateOccurrence(context.Background(), expectedProjectId, "", occurrence)
@@ -798,8 +798,8 @@ var _ = Describe("elasticsearch storage", func() {
 			BeforeEach(func() {
 				transport.preparedHttpResponses[0] = &http.Response{
 					StatusCode: http.StatusInternalServerError,
-					Body: structToJsonBody(&esIndexDocResponse{
-						Error: &esIndexDocError{
+					Body: structToJsonBody(&EsIndexDocResponse{
+						Error: &EsIndexDocError{
 							Type:   fake.LetterN(10),
 							Reason: fake.LetterN(10),
 						},
@@ -862,14 +862,14 @@ var _ = Describe("elasticsearch storage", func() {
 			var expectedPayloads []interface{}
 
 			for i := 0; i < len(expectedOccurrences); i++ {
-				expectedPayloads = append(expectedPayloads, &esBulkQueryFragment{}, &pb.Occurrence{})
+				expectedPayloads = append(expectedPayloads, &EsBulkQueryFragment{}, &pb.Occurrence{})
 			}
 
 			parseEsBulkIndexRequest(transport.receivedHttpRequests[0].Body, expectedPayloads)
 
 			for i, payload := range expectedPayloads {
 				if i%2 == 0 { // index metadata
-					metadata := payload.(*esBulkQueryFragment)
+					metadata := payload.(*EsBulkQueryFragment)
 					Expect(metadata.Index.Index).To(Equal(expectedOccurrencesIndex))
 				} else { // occurrence
 					occurrence := payload.(*pb.Occurrence)
@@ -986,7 +986,7 @@ var _ = Describe("elasticsearch storage", func() {
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
-					Body: structToJsonBody(&esDeleteResponse{
+					Body: structToJsonBody(&EsDeleteResponse{
 						Deleted: 1,
 					}),
 				},
@@ -1008,7 +1008,7 @@ var _ = Describe("elasticsearch storage", func() {
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
-			searchBody := &esSearch{}
+			searchBody := &EsSearch{}
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -1047,7 +1047,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch successfully deletes the occurrence document", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponses[0].Body = structToJsonBody(&esDeleteResponse{
+				transport.preparedHttpResponses[0].Body = structToJsonBody(&EsDeleteResponse{
 					Deleted: 1,
 				})
 			})
@@ -1059,7 +1059,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("the occurrence does not exist", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponses[0].Body = structToJsonBody(&esDeleteResponse{
+				transport.preparedHttpResponses[0].Body = structToJsonBody(&EsDeleteResponse{
 					Deleted: 0,
 				})
 			})
@@ -1117,11 +1117,11 @@ var _ = Describe("elasticsearch storage", func() {
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
-			searchBody := &esSearch{}
+			searchBody := &EsSearch{}
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(searchBody.Query).To(BeNil())
-			Expect(searchBody.Sort[sortField]).To(Equal(esSortOrderDecending))
+			Expect(searchBody.Sort[sortField]).To(Equal(EsSortOrderDescending))
 		})
 
 		When("a valid filter is specified", func() {
@@ -1146,7 +1146,7 @@ var _ = Describe("elasticsearch storage", func() {
 				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 				Expect(err).ToNot(HaveOccurred())
 
-				searchBody := &esSearch{}
+				searchBody := &EsSearch{}
 				err = json.Unmarshal(requestBody, searchBody)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(searchBody.Query).To(Equal(expectedQuery))
@@ -1261,7 +1261,7 @@ var _ = Describe("elasticsearch storage", func() {
 				},
 				{
 					StatusCode: http.StatusCreated,
-					Body: structToJsonBody(&esIndexDocResponse{
+					Body: structToJsonBody(&EsIndexDocResponse{
 						Id: expectedNoteESId,
 					}),
 				},
@@ -1282,7 +1282,7 @@ var _ = Describe("elasticsearch storage", func() {
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
-			searchBody := &esSearch{}
+			searchBody := &EsSearch{}
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -1309,8 +1309,8 @@ var _ = Describe("elasticsearch storage", func() {
 				BeforeEach(func() {
 					transport.preparedHttpResponses[0] = &http.Response{
 						StatusCode: http.StatusInternalServerError,
-						Body: structToJsonBody(&esIndexDocResponse{
-							Error: &esIndexDocError{
+						Body: structToJsonBody(&EsIndexDocResponse{
+							Error: &EsIndexDocError{
 								Type:   fake.LetterN(10),
 								Reason: fake.LetterN(10),
 							},
@@ -1451,18 +1451,18 @@ var _ = Describe("elasticsearch storage", func() {
 			var expectedPayloads []interface{}
 
 			for i := 0; i < len(expectedNotesWithNoteIds); i++ {
-				expectedPayloads = append(expectedPayloads, &esMultiSearchQueryFragment{}, &esSearch{})
+				expectedPayloads = append(expectedPayloads, &EsMultiSearchQueryFragment{}, &EsSearch{})
 			}
 
 			parseEsMsearchIndexRequest(transport.receivedHttpRequests[0].Body, expectedPayloads)
 
 			for i, payload := range expectedPayloads {
 				if i%2 == 0 { // index metadata
-					metadata := payload.(*esMultiSearchQueryFragment)
+					metadata := payload.(*EsMultiSearchQueryFragment)
 					Expect(metadata.Index).To(Equal(expectedNotesIndex))
 				} else { // note
-					Expect(payload).To(BeAssignableToTypeOf(&esSearch{}))
-					Expect(map[string]string(*payload.(*esSearch).Query.Term)["name"]).To(MatchRegexp("projects/%s/notes/\\w+", expectedProjectId))
+					Expect(payload).To(BeAssignableToTypeOf(&EsSearch{}))
+					Expect(map[string]string(*payload.(*EsSearch).Query.Term)["name"]).To(MatchRegexp("projects/%s/notes/\\w+", expectedProjectId))
 				}
 			}
 		})
@@ -1487,14 +1487,14 @@ var _ = Describe("elasticsearch storage", func() {
 				var expectedPayloads []interface{}
 
 				for i := 0; i < len(expectedNotes); i++ {
-					expectedPayloads = append(expectedPayloads, &esBulkQueryFragment{}, &pb.Note{})
+					expectedPayloads = append(expectedPayloads, &EsBulkQueryFragment{}, &pb.Note{})
 				}
 
 				parseEsBulkIndexRequest(transport.receivedHttpRequests[1].Body, expectedPayloads)
 
 				for i, payload := range expectedPayloads {
 					if i%2 == 0 { // index metadata
-						metadata := payload.(*esBulkQueryFragment)
+						metadata := payload.(*EsBulkQueryFragment)
 						Expect(metadata.Index.Index).To(Equal(expectedNotesIndex))
 					} else { // note
 						note := payload.(*pb.Note)
@@ -1594,7 +1594,7 @@ var _ = Describe("elasticsearch storage", func() {
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
-			searchBody := &esSearch{}
+			searchBody := &EsSearch{}
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -1694,11 +1694,11 @@ var _ = Describe("elasticsearch storage", func() {
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
-			searchBody := &esSearch{}
+			searchBody := &EsSearch{}
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(searchBody.Query).To(BeNil())
-			Expect(searchBody.Sort[sortField]).To(Equal(esSortOrderDecending))
+			Expect(searchBody.Sort[sortField]).To(Equal(EsSortOrderDescending))
 		})
 
 		When("a valid filter is specified", func() {
@@ -1723,7 +1723,7 @@ var _ = Describe("elasticsearch storage", func() {
 				requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 				Expect(err).ToNot(HaveOccurred())
 
-				searchBody := &esSearch{}
+				searchBody := &EsSearch{}
 				err = json.Unmarshal(requestBody, searchBody)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(searchBody.Query).To(Equal(expectedQuery))
@@ -1825,7 +1825,7 @@ var _ = Describe("elasticsearch storage", func() {
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
-					Body: structToJsonBody(&esDeleteResponse{
+					Body: structToJsonBody(&EsDeleteResponse{
 						Deleted: 1,
 					}),
 				},
@@ -1847,7 +1847,7 @@ var _ = Describe("elasticsearch storage", func() {
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
-			searchBody := &esSearch{}
+			searchBody := &EsSearch{}
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 
@@ -1886,7 +1886,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch successfully deletes the note document", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponses[0].Body = structToJsonBody(&esDeleteResponse{
+				transport.preparedHttpResponses[0].Body = structToJsonBody(&EsDeleteResponse{
 					Deleted: 1,
 				})
 			})
@@ -1898,7 +1898,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("the note does not exist", func() {
 			BeforeEach(func() {
-				transport.preparedHttpResponses[0].Body = structToJsonBody(&esDeleteResponse{
+				transport.preparedHttpResponses[0].Body = structToJsonBody(&EsDeleteResponse{
 					Deleted: 0,
 				})
 			})
@@ -1948,21 +1948,21 @@ func createNoteEsSearchResponse(notes ...*pb.Note) io.ReadCloser {
 }
 
 func createGenericEsSearchResponse(messages ...proto.Message) io.ReadCloser {
-	var hits []*esSearchResponseHit
+	var hits []*EsSearchResponseHit
 
 	for _, m := range messages {
 		raw, err := protojson.Marshal(proto.MessageV2(m))
 		Expect(err).ToNot(HaveOccurred())
 
-		hits = append(hits, &esSearchResponseHit{
+		hits = append(hits, &EsSearchResponseHit{
 			Source: raw,
 		})
 	}
 
-	response := &esSearchResponse{
+	response := &EsSearchResponse{
 		Took: fake.Number(1, 10),
-		Hits: &esSearchResponseHits{
-			Total: &esSearchResponseTotal{
+		Hits: &EsSearchResponseHits{
+			Total: &EsSearchResponseTotal{
 				Value: len(hits),
 			},
 			Hits: hits,
@@ -1975,35 +1975,35 @@ func createGenericEsSearchResponse(messages ...proto.Message) io.ReadCloser {
 }
 
 func createEsSearchResponse(objectType string, hitNames ...string) io.ReadCloser {
-	var occurrenceHits []*esSearchResponseHit
+	var occurrenceHits []*EsSearchResponseHit
 
 	for _, hit := range hitNames {
 		switch objectType {
 		case "project":
 			rawGrafeasObject, err := json.Marshal(generateTestProject(hit))
 			Expect(err).ToNot(HaveOccurred())
-			occurrenceHits = append(occurrenceHits, &esSearchResponseHit{
+			occurrenceHits = append(occurrenceHits, &EsSearchResponseHit{
 				Source: rawGrafeasObject,
 			})
 		case "occurrence":
 			rawGrafeasObject, err := json.Marshal(generateTestOccurrence(hit))
 			Expect(err).ToNot(HaveOccurred())
-			occurrenceHits = append(occurrenceHits, &esSearchResponseHit{
+			occurrenceHits = append(occurrenceHits, &EsSearchResponseHit{
 				Source: rawGrafeasObject,
 			})
 		case "note":
 			rawGrafeasObject, err := json.Marshal(generateTestNote(hit))
 			Expect(err).ToNot(HaveOccurred())
-			occurrenceHits = append(occurrenceHits, &esSearchResponseHit{
+			occurrenceHits = append(occurrenceHits, &EsSearchResponseHit{
 				Source: rawGrafeasObject,
 			})
 		}
 	}
 
-	response := &esSearchResponse{
+	response := &EsSearchResponse{
 		Took: fake.Number(1, 10),
-		Hits: &esSearchResponseHits{
-			Total: &esSearchResponseTotal{
+		Hits: &EsSearchResponseHits{
+			Total: &EsSearchResponseTotal{
 				Value: len(hitNames),
 			},
 			Hits: occurrenceHits,
@@ -2017,16 +2017,16 @@ func createEsSearchResponse(objectType string, hitNames ...string) io.ReadCloser
 
 func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []error) io.ReadCloser {
 	var (
-		responseItems     []*esBulkResponseItem
+		responseItems     []*EsBulkResponseItem
 		responseHasErrors = false
 	)
 	for i := range occurrences {
 		var (
-			responseErr  *esIndexDocError
+			responseErr  *EsIndexDocError
 			responseCode = http.StatusCreated
 		)
 		if errs[i] != nil {
-			responseErr = &esIndexDocError{
+			responseErr = &EsIndexDocError{
 				Type:   fake.LetterN(10),
 				Reason: fake.LetterN(10),
 			}
@@ -2034,8 +2034,8 @@ func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []er
 			responseHasErrors = true
 		}
 
-		responseItems = append(responseItems, &esBulkResponseItem{
-			Index: &esIndexDocResponse{
+		responseItems = append(responseItems, &EsBulkResponseItem{
+			Index: &EsIndexDocResponse{
 				Id:     fake.LetterN(10),
 				Status: responseCode,
 				Error:  responseErr,
@@ -2043,7 +2043,7 @@ func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []er
 		})
 	}
 
-	response := &esBulkResponse{
+	response := &EsBulkResponse{
 		Items:  responseItems,
 		Errors: responseHasErrors,
 	}
@@ -2055,17 +2055,17 @@ func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []er
 }
 
 func createEsBulkNoteIndexResponse(notesThatCreatedSuccessfully map[string]*pb.Note) io.ReadCloser {
-	var responseItems []*esBulkResponseItem
+	var responseItems []*EsBulkResponseItem
 	for range notesThatCreatedSuccessfully {
-		responseItems = append(responseItems, &esBulkResponseItem{
-			Index: &esIndexDocResponse{
+		responseItems = append(responseItems, &EsBulkResponseItem{
+			Index: &EsIndexDocResponse{
 				Id:     fake.LetterN(10),
 				Status: http.StatusCreated,
 			},
 		})
 	}
 
-	response := &esBulkResponse{
+	response := &EsBulkResponse{
 		Items:  responseItems,
 		Errors: false,
 	}
@@ -2077,12 +2077,12 @@ func createEsBulkNoteIndexResponse(notesThatCreatedSuccessfully map[string]*pb.N
 }
 
 func createEsMultiSearchNoteResponse(notes map[string]*pb.Note) io.ReadCloser {
-	multiSearchResponse := &esMultiSearchResponse{}
+	multiSearchResponse := &EsMultiSearchResponse{}
 
 	for range notes {
-		multiSearchResponse.Responses = append(multiSearchResponse.Responses, &esMultiSearchResponseHitsSummary{
-			Hits: &esMultiSearchResponseHits{
-				Total: &esSearchResponseTotal{
+		multiSearchResponse.Responses = append(multiSearchResponse.Responses, &EsMultiSearchResponseHitsSummary{
+			Hits: &EsMultiSearchResponseHits{
+				Total: &EsSearchResponseTotal{
 					Value: 0,
 				},
 			},

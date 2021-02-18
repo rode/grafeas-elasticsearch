@@ -8,21 +8,21 @@ import (
 
 // Elasticsearch /_search response
 
-type esSearchResponse struct {
+type EsSearchResponse struct {
 	Took int                   `json:"took"`
-	Hits *esSearchResponseHits `json:"hits"`
+	Hits *EsSearchResponseHits `json:"hits"`
 }
 
-type esSearchResponseHits struct {
-	Total *esSearchResponseTotal `json:"total"`
-	Hits  []*esSearchResponseHit `json:"hits"`
+type EsSearchResponseHits struct {
+	Total *EsSearchResponseTotal `json:"total"`
+	Hits  []*EsSearchResponseHit `json:"hits"`
 }
 
-type esSearchResponseTotal struct {
+type EsSearchResponseTotal struct {
 	Value int `json:"value"`
 }
 
-type esSearchResponseHit struct {
+type EsSearchResponseHit struct {
 	ID         string          `json:"_id"`
 	Source     json.RawMessage `json:"_source"`
 	Highlights json.RawMessage `json:"highlight"`
@@ -31,79 +31,84 @@ type esSearchResponseHit struct {
 
 // Elasticsearch /_search query
 
-type esSearch struct {
-	Query *filtering.Query       `json:"query,omitempty"`
-	Sort  map[string]esSortOrder `json:"sort,omitempty"`
+type EsCollapse struct {
+	Field string `json:"field,omitempty"`
 }
 
-type esSortOrder string
+type EsSearch struct {
+	Query    *filtering.Query       `json:"query,omitempty"`
+	Sort     map[string]EsSortOrder `json:"sort,omitempty"`
+	Collapse *EsCollapse            `json:"collapse,omitempty"`
+}
+
+type EsSortOrder string
 
 const (
-	esSortOrderAscending esSortOrder = "asc"
-	esSortOrderDecending esSortOrder = "desc"
+	EsSortOrderAscending  EsSortOrder = "asc"
+	EsSortOrderDescending EsSortOrder = "desc"
 )
 
 // Elasticsearch /_doc response
 
-type esIndexDocResponse struct {
+type EsIndexDocResponse struct {
 	Id     string           `json:"_id"`
 	Status int              `json:"status"`
-	Error  *esIndexDocError `json:"error,omitempty"`
+	Error  *EsIndexDocError `json:"error,omitempty"`
 }
 
-type esIndexDocError struct {
+type EsIndexDocError struct {
 	Type   string `json:"type"`
 	Reason string `json:"reason"`
 }
 
 // Elasticsearch /_delete_by_query response
 
-type esDeleteResponse struct {
+type EsDeleteResponse struct {
 	Deleted int `json:"deleted"`
 }
 
 // Elasticsearch /_bulk query fragments
 
-type esBulkQueryFragment struct {
-	Index *esBulkQueryIndexFragment `json:"index"`
+type EsBulkQueryFragment struct {
+	Index *EsBulkQueryIndexFragment `json:"index"`
 }
 
-type esBulkQueryIndexFragment struct {
+type EsBulkQueryIndexFragment struct {
 	Index string `json:"_index"`
 }
 
 // Elasticsearch /_bulk response
 
-type esBulkResponse struct {
-	Items  []*esBulkResponseItem `json:"items"`
+type EsBulkResponse struct {
+	Items  []*EsBulkResponseItem `json:"items"`
 	Errors bool
 }
 
-type esBulkResponseItem struct {
-	Index *esIndexDocResponse `json:"index,omitempty"`
+type EsBulkResponseItem struct {
+	Index *EsIndexDocResponse `json:"index,omitempty"`
 }
 
 // Elasticsearch /_msearch query fragments
 
-type esMultiSearchQueryFragment struct {
+type EsMultiSearchQueryFragment struct {
 	Index string `json:"index"`
 }
 
 // Elasticsearch /_msearch response
 
-type esMultiSearchResponse struct {
-	Responses []*esMultiSearchResponseHitsSummary `json:"responses"`
+type EsMultiSearchResponse struct {
+	Responses []*EsMultiSearchResponseHitsSummary `json:"responses"`
 }
 
-type esMultiSearchResponseHitsSummary struct {
-	Hits *esMultiSearchResponseHits `json:"hits"`
+type EsMultiSearchResponseHitsSummary struct {
+	Hits *EsMultiSearchResponseHits `json:"hits"`
 }
 
-type esMultiSearchResponseHits struct {
-	Total *esSearchResponseTotal      `json:"total"`
-	Hits  []*esMultiSearchResponseHit `json:"hits"`
+type EsMultiSearchResponseHits struct {
+	Total *EsSearchResponseTotal      `json:"total"`
+	Hits  []*EsMultiSearchResponseHit `json:"hits"`
 }
 
-type esMultiSearchResponseHit struct {
+type EsMultiSearchResponseHit struct {
 	Source json.RawMessage `json:"_source"`
 }

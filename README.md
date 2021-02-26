@@ -1,7 +1,7 @@
 # grafeas-elasticsearch
 
 [![codecov](https://codecov.io/gh/rode/grafeas-elasticsearch/branch/main/graph/badge.svg)](https://codecov.io/gh/rode/grafeas-elasticsearch)
-[![test](https://github.com/rode/grafeas-elasticsearch/workflows/test/badge.svg?branch=main)](https://github.com/rode/grafeas-elasticsearch/actions?query=workflow%3Atest+branch%3Amain)
+[![test](https://github.com/rode/grafeas-elasticsearch/workflows/test/badge.svg?branch=main)](https://github.com/rode/grafeas-elasticsearch/actions?query=workflow%3Atest+branch%3Amain) [![Join the chat at https://gitter.im/rode/grafeas-elasticsearch](https://badges.gitter.im/rode/grafeas-elasticsearch.svg)](https://gitter.im/rode/grafeas-elasticsearch?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge)
 
 [Elasticsearch](https://www.elastic.co/elasticsearch/) storage backend for [Grafeas](https://grafeas.io/).
 

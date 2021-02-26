@@ -259,6 +259,27 @@ func TestOccurrence(t *testing.T) {
 					expected: []*grafeas_go_proto.Occurrence{},
 				},
 				{
+					name:   "match resource via basic contains",
+					filter: `"resource.uri".contains("alpine")`,
+					expected: []*grafeas_go_proto.Occurrence{
+						alpineVulnerabilityOccurrence,
+						secondAlpineVulnerabilityOccurrence,
+					},
+				},
+				{
+					name:   "match resource via contains with special characters",
+					filter: `"resource.uri".contains("https://docker.io/library/alpine")`,
+					expected: []*grafeas_go_proto.Occurrence{
+						alpineVulnerabilityOccurrence,
+						secondAlpineVulnerabilityOccurrence,
+					},
+				},
+				{
+					name:     "match all resources via contains special characters only",
+					filter:   `"resource.uri".contains("://")`,
+					expected: batchResponse.Occurrences,
+				},
+				{
 					name:        "bad filter",
 					filter:      "lol",
 					expectError: true,

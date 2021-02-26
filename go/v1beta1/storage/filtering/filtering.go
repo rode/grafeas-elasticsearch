@@ -22,6 +22,7 @@ import (
 	"github.com/google/cel-go/parser"
 	"github.com/hashicorp/go-multierror"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
+	"regexp"
 )
 
 type Filterer interface {
@@ -33,6 +34,8 @@ type filterer struct{}
 func NewFilterer() Filterer {
 	return &filterer{}
 }
+
+var elasticsearchSpecialCharacterRegex = regexp.MustCompile(`([\-=&|!(){}\[\]^"~*?:\\/])`)
 
 // ParseExpression will serve as the entrypoint to the filter
 // that is eventually passed to parseExpression which will handle the recursive logic
@@ -147,6 +150,21 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 		return &Query{
 			Prefix: &Term{
 				leftTerm: rightTerm,
+			},
+		}, nil
+	case overloads.Contains:
+		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
+		if err != nil {
+			return nil, err
+		}
+
+		// special characters need to be escaped via "\"
+		query := fmt.Sprintf("*%s*", elasticsearchSpecialCharacterRegex.ReplaceAllString(rightTerm, `\$1`))
+
+		return &Query{
+			QueryString: &QueryString{
+				DefaultField: leftTerm,
+				Query:        query,
 			},
 		}, nil
 	default:

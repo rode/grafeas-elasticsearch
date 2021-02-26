@@ -158,6 +158,7 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 			return nil, err
 		}
 
+		// special characters need to be escaped via "\"
 		query := fmt.Sprintf("*%s*", elasticsearchSpecialCharacterRegex.ReplaceAllString(rightTerm, `\$1`))
 
 		return &Query{

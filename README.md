@@ -92,6 +92,9 @@ currently implemented features, along with the features that have not been imple
   - [ ] `>=` operator
   - [ ] array indexing (ex: `vulnerability.details[0].cpeUri`)
   - [ ] wildcard array indexing (ex: `vulnerability.details[*].cpeUri`)
+  - [x] `.startsWith` function (ex: `"resource.uri".startsWith("gcr.io")`)
+  - [x] `.contains` function (ex: `"resource.uri".contains("alpine")`)
+  - [ ] `.endsWith` function
 - [ ] Pagination
 - [ ] Elasticsearch config
   - [x] URL

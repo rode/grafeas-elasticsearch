@@ -234,6 +234,18 @@ var _ = Describe("Filter", func() {
 					},
 				},
 			}),
+			Entry("basic contains", `a.contains("b")`, &Query{
+				QueryString: &QueryString{
+					DefaultField: "a",
+					Query:        "*b*",
+				},
+			}),
+			Entry("contains with escaped special characters", `"resource.uri".contains("https://")`, &Query{
+				QueryString: &QueryString{
+					DefaultField: "resource.uri",
+					Query:        `*https\:\/\/*`,
+				},
+			}),
 		)
 
 		DescribeTable("error handling", func(filter string) {

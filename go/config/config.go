@@ -16,12 +16,14 @@ package config
 
 import (
 	"fmt"
+
 	"github.com/hashicorp/go-multierror"
 )
 
 type ElasticsearchConfig struct {
 	Refresh                 RefreshOption
 	URL, Username, Password string
+	InsecureSkipVerify      bool
 }
 
 func (c ElasticsearchConfig) IsValid() (e error) {

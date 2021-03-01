@@ -100,28 +100,23 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 		{
 			index: occurrencesIndex(projectId),
 			properties: map[string]interface{}{
-				"details": map[string]interface{}{
+				"build": map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
-						"build": map[string]interface{}{
+						"provenance": map[string]interface{}{
 							"type": "object",
 							"properties": map[string]interface{}{
-								"provenance": map[string]interface{}{
-									"type": "object",
+								"builtArtifacts": map[string]interface{}{
+									"type": "nested",
 									"properties": map[string]interface{}{
-										"builtartifacts": map[string]interface{}{
-											"type": "nested",
-											"properties": map[string]interface{}{
-												"checksum": map[string]interface{}{
-													"type": "keyword",
-												},
-												"id": map[string]interface{}{
-													"type": "keyword",
-												},
-												"names": map[string]interface{}{
-													"type": "keyword",
-												},
-											},
+										"checksum": map[string]interface{}{
+											"type": "keyword",
+										},
+										"id": map[string]interface{}{
+											"type": "keyword",
+										},
+										"names": map[string]interface{}{
+											"type": "keyword",
 										},
 									},
 								},

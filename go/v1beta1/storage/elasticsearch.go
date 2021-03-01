@@ -19,6 +19,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/protobuf/proto"
@@ -30,7 +32,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
-	"io"
 
 	pb "github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
@@ -91,14 +92,54 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 	}
 
 	// create indices for occurrences and notes
-	for _, index := range []string{
-		occurrencesIndex(projectId),
-		notesIndex(projectId),
+	for _, index := range []struct {
+		index      string
+		properties map[string]interface{}
+	}{
+
+		{
+			index: occurrencesIndex(projectId),
+			properties: map[string]interface{}{
+				"details": map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"build": map[string]interface{}{
+							"type": "object",
+							"properties": map[string]interface{}{
+								"provenance": map[string]interface{}{
+									"type": "object",
+									"properties": map[string]interface{}{
+										"builtartifacts": map[string]interface{}{
+											"type": "nested",
+											"properties": map[string]interface{}{
+												"checksum": map[string]interface{}{
+													"type": "keyword",
+												},
+												"id": map[string]interface{}{
+													"type": "keyword",
+												},
+												"names": map[string]interface{}{
+													"type": "keyword",
+												},
+											},
+										},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+		{
+			index:      notesIndex(projectId),
+			properties: map[string]interface{}{},
+		},
 	} {
 		res, err := es.client.Indices.Create(
-			index,
+			index.index,
 			es.client.Indices.Create.WithContext(ctx),
-			withIndexMetadataAndStringMapping(),
+			withIndexMetadataAndStringMapping(index.properties),
 		)
 		if err != nil {
 			return nil, createError(log, "error sending request to elasticsearch", err)
@@ -804,7 +845,7 @@ func createError(log *zap.Logger, message string, err error, fields ...zap.Field
 
 // withIndexMetadataAndStringMapping adds an index mapping to add metadata that can be used to help identify an index as
 // a part of the Grafeas storage backend, and a dynamic template to map all strings to keywords.
-func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
+func withIndexMetadataAndStringMapping(properties map[string]interface{}) func(*esapi.IndicesCreateRequest) {
 	var indexCreateBuffer bytes.Buffer
 	indexCreateBody := map[string]interface{}{
 		"mappings": map[string]interface{}{
@@ -822,6 +863,7 @@ func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
 					},
 				},
 			},
+			"properties": properties,
 		},
 	}
 

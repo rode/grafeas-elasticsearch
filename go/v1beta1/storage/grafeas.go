@@ -16,11 +16,12 @@ package storage
 
 import (
 	"fmt"
+	"net/http"
+
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
 	"github.com/grafeas/grafeas/go/v1beta1/storage"
 	"github.com/rode/grafeas-elasticsearch/go/config"
 	"go.uber.org/zap"
-	"net/http"
 )
 
 type newElasticsearchStorageFunc func(*config.ElasticsearchConfig) (*ElasticsearchStorage, error)
@@ -70,7 +71,7 @@ func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorageFunc, 
 			log.Info("initial index for grafeas projects not found, creating...")
 			res, err = es.client.Indices.Create(
 				projectsIndex(),
-				withIndexMetadataAndStringMapping(),
+				withIndexMetadataAndStringMapping(map[string]interface{}{}),
 			)
 			if err != nil {
 				return nil, createError(log, "error sending index creation request to elasticsearch", err)

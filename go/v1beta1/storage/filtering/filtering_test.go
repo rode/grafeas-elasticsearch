@@ -250,14 +250,14 @@ var _ = Describe("Filter", func() {
 			// "build.provenance.builtArtifacts"['*'].names == "abc"
 			// "build.provenance.builtArtifacts"["names" == "abc"]
 			Entry("index with ident", `a["b" == "bar"]`, &Query{
-			Nested: &Nested{
-				Path: "a",
-				Query: &Query{
-					Term: &Term{
-						"a.b": "bar",
+				Nested: &Nested{
+					Path: "a",
+					Query: &Query{
+						Term: &Term{
+							"a.b": "bar",
+						},
 					},
 				},
-			},
 			}),
 			Entry("index with const", `"a.b.c"["d" == "bar"]`, &Query{
 				Nested: &Nested{

@@ -24,7 +24,7 @@ import (
 var _ = Describe("Filter", func() {
 	Describe("ParseExpression", func() {
 		DescribeTable("filter cases", func(filter string, expected interface{}) {
-			result, err := NewFilterer().ParseExpression(filter)
+			result, err := NewFilterer().Parse(filter)
 			resultJson, _ := json.MarshalIndent(result, "", "  ")
 
 			Expect(err).ToNot(HaveOccurred())
@@ -246,50 +246,62 @@ var _ = Describe("Filter", func() {
 					Query:        `*https\:\/\/*`,
 				},
 			}),
-			// "build.provenance.builtArtifacts['*'].names" == "abc"
-			// "build.provenance.builtArtifacts"['*'].names == "abc"
-			// "build.provenance.builtArtifacts"["names" == "abc"]
-			Entry("index with ident", `a["b" == "bar"]`, &Query{
-				Nested: &Nested{
-					Path: "a",
-					Query: &Query{
-						Term: &Term{
-							"a.b": "bar",
-						},
-					},
+			//// "build.provenance.builtArtifacts['*'].names" == "abc"
+			//// "build.provenance.builtArtifacts"['*'].names == "abc"
+			//// "build.provenance.builtArtifacts"["names" == "abc"]
+			//Entry("index with ident", `a["b" == "bar"]`, &Query{
+			//	Nested: &Nested{
+			//		Path: "a",
+			//		Query: &Query{
+			//			Term: &Term{
+			//				"a.b": "bar",
+			//			},
+			//		},
+			//	},
+			//}),
+			//Entry("index with const", `"a.b.c"["d" == "bar"]`, &Query{
+			//	Nested: &Nested{
+			//		Path: "a.b.c",
+			//		Query: &Query{
+			//			Term: &Term{
+			//				"a.b.c.d": "bar",
+			//			},
+			//		},
+			//	},
+			//}),
+			//Entry("index with startsWith subexpression", `a["b".startsWith("d")]`, &Query{
+			//	Nested: &Nested{
+			//		Path: "a",
+			//		Query: &Query{
+			//			Prefix: &Term{
+			//				"a.b": "d",
+			//			},
+			//		},
+			//	},
+			//}),
+			Entry("select expression", `a.b`, "a.b"),
+			Entry("select expression function call", `a.b.c.d.startsWith("e")`, &Query{
+				Prefix: &Term{
+					"a.b.c.d": "e",
 				},
 			}),
-			Entry("index with const", `"a.b.c"["d" == "bar"]`, &Query{
-				Nested: &Nested{
-					Path: "a.b.c",
-					Query: &Query{
-						Term: &Term{
-							"a.b.c.d": "bar",
-						},
-					},
-				},
-			}),
-			Entry("index with startsWith subexpression", `a["b".startsWith("d")]`, &Query{
-				Nested: &Nested{
-					Path: "a",
-					Query: &Query{
-						Prefix: &Term{
-							"a.b": "d",
-						},
-					},
+			Entry("contains on select expression", `a.b.c.contains("d")`, &Query{
+				QueryString: &QueryString{
+					DefaultField: "a.b.c",
+					Query:        "*d*",
 				},
 			}),
 		)
 
 		DescribeTable("error handling", func(filter string) {
-			result, err := NewFilterer().ParseExpression(filter)
+			result, err := NewFilterer().Parse(filter)
 
 			Expect(err).To(HaveOccurred())
 			Expect(result).To(BeNil())
 		},
 			Entry("single term missing lhs value", `==b`),
 			Entry("single term missing rhs value", `a==`),
-			Entry("doesn't resemble anything close to a filter", "lol"),
+			//Entry("doesn't resemble anything close to a filter", "lol"),
 			Entry("equal comparison with lhs value containing unknown operator without quotes", `a/b==c`),
 			Entry("equal comparison with rhs value containing unknown operator without quotes", `a==b/c`),
 			Entry("not equal comparison with lhs value containing unknown operator without quotes", `a/b!=c`),

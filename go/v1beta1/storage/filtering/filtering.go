@@ -27,6 +27,7 @@ import (
 
 type Filterer interface {
 	ParseExpression(filter string) (*Query, error)
+	Parse(filter string) (interface{}, error)
 }
 
 type filterer struct{}
@@ -51,12 +52,193 @@ func (f *filterer) ParseExpression(filter string) (*Query, error) {
 	}
 
 	expression := parsedExpr.GetExpr()
-
+	//
 	if _, ok := expression.GetExprKind().(*expr.Expr_CallExpr); !ok {
 		return nil, fmt.Errorf("expected call expression when parsing filter, got %T", expression.GetExprKind())
 	}
 
 	return parseExpression(expression)
+	//return f.parse(expression)
+}
+
+func (f *filterer) Parse(filter string) (interface{}, error) {
+	parsedExpr, commonErr := parser.Parse(common.NewStringSource(filter, ""))
+	if len(commonErr.GetErrors()) > 0 {
+		resultErr := fmt.Errorf("error parsing filter")
+		for _, e := range commonErr.GetErrors() {
+			resultErr = multierror.Append(resultErr, fmt.Errorf("%s (%d:%d)", e.Message, e.Location.Line(), e.Location.Column()))
+		}
+
+		return nil, resultErr
+	}
+
+	expression := parsedExpr.GetExpr()
+
+	return parse(expression)
+}
+
+func twoArityArguments(functionExpr *expr.Expr_Call) (interface{}, interface{}, error) {
+	if len(functionExpr.Args) != 2 {
+		return nil, nil, fmt.Errorf("unexpected number of arguments: %d", len(functionExpr.Args))
+	}
+
+	leftArg := functionExpr.Args[0]
+	parsedLeftArg, err := parse(leftArg)
+	if err != nil {
+		return nil, nil, err
+	}
+	rightArg := functionExpr.Args[1]
+	parsedRightArg, err := parse(rightArg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return parsedLeftArg, parsedRightArg, nil
+}
+
+// target, arg, error
+func targetAndArgument(functionExpr *expr.Expr_Call) (interface{}, interface{}, error) {
+	target := functionExpr.Target
+	if len(functionExpr.Args) != 1 {
+		return nil, nil, fmt.Errorf("unexpected number of arguments: %d", len(functionExpr.Args))
+	}
+	arg := functionExpr.Args[0] // TODO: length checks
+
+	parsedTarget, err := parse(target)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	parsedArg, err := parse(arg)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return parsedTarget, parsedArg, nil
+}
+
+func parse(expression *expr.Expr) (interface{}, error) {
+	switch expression.ExprKind.(type) {
+	case *expr.Expr_IdentExpr:
+		return expression.GetIdentExpr().Name, nil
+	case *expr.Expr_ConstExpr:
+		return expression.GetConstExpr().GetStringValue(), nil // TODO: type switch for non-string literals
+	case *expr.Expr_SelectExpr:
+		selectExpr := expression.GetSelectExpr()
+
+		val, err := parse(selectExpr.Operand)
+		if err != nil {
+			return nil, err
+		}
+
+		return fmt.Sprintf("%s.%s", val, selectExpr.Field), nil
+	case *expr.Expr_CallExpr:
+		functionExpr := expression.GetCallExpr()
+
+		switch functionExpr.Function {
+		case operators.Equals:
+			left, right, err := twoArityArguments(functionExpr)
+			if err != nil {
+				return nil, err
+			}
+			leftTerm := left.(string)
+			rightTerm := right.(string)
+
+			return &Query{
+				Term: &Term{
+					leftTerm: rightTerm,
+				},
+			}, nil
+		case operators.NotEquals:
+			left, right, err := twoArityArguments(functionExpr)
+			if err != nil {
+				return nil, err
+			}
+			leftTerm := left.(string)
+			rightTerm := right.(string)
+
+			return &Query{
+				Bool: &Bool{
+					MustNot: &MustNot{
+						&Bool{
+							Term: &Term{
+								leftTerm: rightTerm,
+							},
+						},
+					},
+				},
+			}, nil
+		case operators.LogicalAnd:
+			left, right, err := twoArityArguments(functionExpr)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Query{
+				Bool: &Bool{
+					Must: &Must{
+						left,
+						right,
+					},
+				},
+			}, nil
+		case operators.LogicalOr:
+			left, right, err := twoArityArguments(functionExpr)
+			if err != nil {
+				return nil, err
+			}
+
+			return &Query{
+				Bool: &Bool{
+					Should: &Should{
+						left, //append left recursively and add to the must slice
+						right, //append right recursively and add to the must slice
+					},
+				},
+			}, nil
+
+		case overloads.Contains:
+			target, arg, err := targetAndArgument(functionExpr)
+			if err != nil {
+				return nil, err
+			}
+			targetStr := target.(string) // TODO: better type check
+			argStr := arg.(string)
+
+			query := fmt.Sprintf("*%s*", elasticsearchSpecialCharacterRegex.ReplaceAllString(argStr, `\$1`))
+
+			return &Query{
+				QueryString: &QueryString{
+					DefaultField: targetStr,
+					Query:        query,
+				},
+			}, nil
+
+		case overloads.StartsWith:
+			target, arg, err := targetAndArgument(functionExpr)
+			if err != nil {
+				return nil, err
+			}
+			targetStr := target.(string) // TODO: better type check
+			argStr := arg.(string)
+
+			q := &Query{
+				Prefix: &Term{
+					targetStr: argStr,
+				},
+			}
+
+			return q, nil
+
+		default:
+			return nil, fmt.Errorf("unknown function: %s", functionExpr.Function)
+		}
+
+	default:
+		return nil, fmt.Errorf("unknown expression: %v", expression)
+	}
+
+	//return nil, nil
 }
 
 // ParseExpression to parse and create a query

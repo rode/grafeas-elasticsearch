@@ -15,6 +15,7 @@
 package filtering
 
 import (
+	"encoding/json"
 	"fmt"
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/common/operators"
@@ -23,6 +24,7 @@ import (
 	"github.com/hashicorp/go-multierror"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 	"regexp"
+	"strings"
 )
 
 type Filterer interface {
@@ -52,7 +54,7 @@ func (f *filterer) ParseExpression(filter string) (*Query, error) {
 	}
 
 	expression := parsedExpr.GetExpr()
-	//
+
 	if _, ok := expression.GetExprKind().(*expr.Expr_CallExpr); !ok {
 		return nil, fmt.Errorf("expected call expression when parsing filter, got %T", expression.GetExprKind())
 	}
@@ -73,6 +75,9 @@ func (f *filterer) Parse(filter string) (interface{}, error) {
 	}
 
 	expression := parsedExpr.GetExpr()
+
+	b, _ := json.Marshal(&expression)
+	fmt.Printf("%s\n", b)
 
 	return parse(expression)
 }
@@ -132,6 +137,37 @@ func parse(expression *expr.Expr) (interface{}, error) {
 		}
 
 		return fmt.Sprintf("%s.%s", val, selectExpr.Field), nil
+	case *expr.Expr_ComprehensionExpr:
+		comprehension := expression.GetComprehensionExpr()
+		arr, err := parse(comprehension.IterRange)
+		if err != nil {
+			return nil, err
+		}
+
+		loopStep := comprehension.GetLoopStep()
+		filter := loopStep.GetCallExpr().Args[0]
+		fmt.Println("filter", filter)
+		parsedFilter, err := parse(filter)
+		fmt.Println("parsed", parsedFilter)
+		if err != nil {
+			return nil, err
+		}
+
+		q, ok := parsedFilter.(*Query)
+		if !ok {
+			return nil, fmt.Errorf("unable to cast %v to query type", parsedFilter)
+		}
+		path := arr.(string)
+		qq := rewriteNestedQueryTerms(path, comprehension.IterVar,  q)
+
+		return &Query{
+			Nested: &Nested{
+				Path: path,
+				Query: qq,
+				//Query: q,
+			},
+		}, nil
+
 	case *expr.Expr_CallExpr:
 		functionExpr := expression.GetCallExpr()
 
@@ -341,7 +377,7 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 			return nil, e
 		}
 
-		rewrittenQuery := rewriteNestedQueryTerms(path, q)
+		rewrittenQuery := rewriteNestedQueryTerms(path,"", q)
 
 		return &Query{
 			Nested: &Nested{
@@ -380,10 +416,17 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 	}
 }
 
-func rewriteTerm(path string, term *Term) *Term {
+func rewriteTerm(path, iter string, term *Term) *Term {
 	for k, v := range *term {
 		delete(*term, k)
-		newKey := fmt.Sprintf("%s.%s", path, k)
+		parts := strings.Split(k, ".")
+		subPath := parts
+		if parts[0] == iter {
+			subPath = parts[1:]
+		}
+		subPathStr := strings.Join(subPath, ".")
+
+		newKey := fmt.Sprintf("%s.%s", path, subPathStr)
 
 		(*term)[newKey] = v
 	}
@@ -391,13 +434,13 @@ func rewriteTerm(path string, term *Term) *Term {
 	return term
 }
 
-func rewriteNestedQueryTerms(path string, query *Query) *Query {
+func rewriteNestedQueryTerms(path, iter string, query *Query) *Query {
 	if query.Term != nil {
-		query.Term = rewriteTerm(path, query.Term)
+		query.Term = rewriteTerm(path, iter, query.Term)
 	}
 
 	if query.Prefix != nil {
-		query.Prefix = rewriteTerm(path, query.Prefix)
+		query.Prefix = rewriteTerm(path, iter, query.Prefix)
 	}
 
 	return query

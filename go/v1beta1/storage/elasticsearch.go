@@ -792,6 +792,10 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 		if err != nil {
 			return nil, createError(log, "error while parsing filter expression", err)
 		}
+		if _, ok := filterQuery.(*filtering.Query); !ok {
+			return nil, fmt.Errorf("not a filter")
+		}
+
 
 		body.Query = filterQuery.(*filtering.Query) // TODO: type check
 	}

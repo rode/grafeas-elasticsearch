@@ -49,13 +49,13 @@ var _ = Describe("ElasticsearchConfig", func() {
 	)
 
 	When("setting the InsecureSkipVerify boolean value", func() {
-		It("shoulbe be true when set to true", func() {
+		It("should be true when set to true", func() {
 			abc := &ElasticsearchConfig{
 				InsecureSkipVerify: true,
 			}
 			Expect(abc.InsecureSkipVerify).Should(BeTrue())
 		})
-		It("shoulbe be false when set to false", func() {
+		It("should be false when set to false", func() {
 			abc := &ElasticsearchConfig{
 				InsecureSkipVerify: false,
 			}

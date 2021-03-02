@@ -141,6 +141,32 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 				},
 			},
 		}, nil
+	case operators.Index:
+		path := ""
+		switch leftArg.ExprKind.(type) {
+		case *expr.Expr_IdentExpr:
+			path = leftArg.GetIdentExpr().Name
+		case *expr.Expr_ConstExpr:
+			path = leftArg.GetConstExpr().GetStringValue()
+		}
+
+		if path == "" {
+			return nil, fmt.Errorf("unexpected path: %v", leftArg)
+		}
+
+		q, e := parseExpression(rightArg)
+		if e != nil {
+			return nil, e
+		}
+
+		rewrittenQuery := rewriteNestedQueryTerms(path, q)
+
+		return &Query{
+			Nested: &Nested{
+				Path:  path,
+				Query: rewrittenQuery,
+			},
+		}, nil
 	case overloads.StartsWith:
 		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
 		if err != nil {
@@ -170,6 +196,29 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 	default:
 		return nil, fmt.Errorf("unknown parse expression function: %s", function)
 	}
+}
+
+func rewriteTerm(path string, term *Term) *Term {
+	for k, v := range *term {
+		delete(*term, k)
+		newKey := fmt.Sprintf("%s.%s", path, k)
+
+		(*term)[newKey] = v
+	}
+
+	return term
+}
+
+func rewriteNestedQueryTerms(path string, query *Query) *Query {
+	if query.Term != nil {
+		query.Term = rewriteTerm(path, query.Term)
+	}
+
+	if query.Prefix != nil {
+		query.Prefix = rewriteTerm(path, query.Prefix)
+	}
+
+	return query
 }
 
 // converts left and right call expressions into simple term strings.

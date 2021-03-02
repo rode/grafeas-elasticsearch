@@ -246,6 +246,39 @@ var _ = Describe("Filter", func() {
 					Query:        `*https\:\/\/*`,
 				},
 			}),
+			// "build.provenance.builtArtifacts['*'].names" == "abc"
+			// "build.provenance.builtArtifacts"['*'].names == "abc"
+			// "build.provenance.builtArtifacts"["names" == "abc"]
+			Entry("index with ident", `a["b" == "bar"]`, &Query{
+			Nested: &Nested{
+				Path: "a",
+				Query: &Query{
+					Term: &Term{
+						"a.b": "bar",
+					},
+				},
+			},
+			}),
+			Entry("index with const", `"a.b.c"["d" == "bar"]`, &Query{
+				Nested: &Nested{
+					Path: "a.b.c",
+					Query: &Query{
+						Term: &Term{
+							"a.b.c.d": "bar",
+						},
+					},
+				},
+			}),
+			Entry("index with startsWith subexpression", `a["b".startsWith("d")]`, &Query{
+				Nested: &Nested{
+					Path: "a",
+					Query: &Query{
+						Prefix: &Term{
+							"a.b": "d",
+						},
+					},
+				},
+			}),
 		)
 
 		DescribeTable("error handling", func(filter string) {

@@ -60,9 +60,11 @@ const (
 // Elasticsearch /_doc response
 
 type esIndexDocResponse struct {
-	Id     string           `json:"_id"`
-	Status int              `json:"status"`
-	Error  *esIndexDocError `json:"error,omitempty"`
+	Id      string           `json:"_id"`
+	Result  string           `json:"result"`
+	Version int              `json:"_version"`
+	Status  int              `json:"status"`
+	Error   *esIndexDocError `json:"error,omitempty"`
 }
 
 type esIndexDocError struct {
@@ -120,4 +122,8 @@ type esMultiSearchResponseHits struct {
 
 type esMultiSearchResponseHit struct {
 	Source json.RawMessage `json:"_source"`
+}
+
+type esUpdate struct {
+	Doc json.RawMessage `json:"doc"`
 }

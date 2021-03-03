@@ -21,7 +21,7 @@ docker run \
   -p 8080:8080 \
   -v ./config.yaml:/etc/grafeas/config.yaml \
   ghcr.io/rode/grafeas-elasticsearch --config /etc/grafeas/config.yaml
-````
+```
 
 A configuration file must be provided, with the path specified with a `--config` flag.
 
@@ -35,18 +35,18 @@ grafeas:
     keyfile:
     certfile:
     cors_allowed_origins:
-  
+
   # Must be `elasticsearch`
   storage_type: elasticsearch
-  
+
   elasticsearch:
     # URL to external Elasticsearch
     url: "http://elasticsearch:9200"
-    
+
     # Basic auth to external Elasticsearch
     username: "grafeas"
     password: "grafeas"
-    
+
     # How Grafeas should interact with Elasticsearch index refreshes.
     # Recommend using `true`, unless unique circumstances require otherwise.
     # Options are `true`, `wait_for`, `false`.
@@ -68,7 +68,7 @@ currently implemented features, along with the features that have not been imple
   - [x] `BatchCreateOccurrences`
   - [x] `GetOccurrence`
   - [x] `ListOccurrences`
-  - [ ] `UpdateOccurrence`
+  - [x] `UpdateOccurrence`
   - [x] `DeleteOccurrence`
 - [ ] Note Methods
   - [x] `CreateNote`
@@ -101,7 +101,7 @@ currently implemented features, along with the features that have not been imple
   - [x] Index refresh behavior
   - [ ] Basic Auth
   - [ ] SSL
-  
+
 ## Local Development
 
 - [Go](https://golang.org/)
@@ -121,7 +121,7 @@ Unit tests live alongside production code in `go/` directory.
 
 `make test` will run unit tests, along with vet and fmt.
 
-`go test unit` IDE run configuration is also available. 
+`go test unit` IDE run configuration is also available.
 
 `make mocks` will regenerate test mocks in `go/mocks` directory.
 
@@ -132,10 +132,10 @@ These require Elasticsearch and a build of this project to be running.
 This is handled through `docker-compose`.
 
 1. `docker-compose up -d --build elasticsearch server`
-    - Remove `-d` if you want to watch logs.
-    - Remove `--build` if you have already built the local images against the latest code.
-   Skipping build will significantly improve startup time.
+   - Remove `-d` if you want to watch logs.
+   - Remove `--build` if you have already built the local images against the latest code.
+     Skipping build will significantly improve startup time.
 1. `make integration` or `go test integration` IDE run configuration
    - Can be continuously run between docker-compose resets.
-   Tests generate UUIDs for resources, to avoid collisions between runs.
+     Tests generate UUIDs for resources, to avoid collisions between runs.
 1. `docker-compose down`

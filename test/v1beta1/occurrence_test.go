@@ -16,6 +16,8 @@ package v1beta1_test
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/golang/protobuf/ptypes"
 	"github.com/grafeas/grafeas/proto/v1beta1/attestation_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/build_go_proto"
@@ -29,7 +31,6 @@ import (
 	"github.com/rode/grafeas-elasticsearch/test/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"testing"
 )
 
 func TestOccurrence(t *testing.T) {
@@ -70,6 +71,27 @@ func TestOccurrence(t *testing.T) {
 			_, err = s.Gc.GetOccurrence(s.Ctx, &grafeas_go_proto.GetOccurrenceRequest{Name: o.GetName()})
 			Expect(err).ToNot(HaveOccurred())
 		}
+	})
+
+	t.Run("updating an occurrence", func(t *testing.T) {
+		o, err := s.Gc.CreateOccurrence(s.Ctx, &grafeas_go_proto.CreateOccurrenceRequest{
+			Parent:     projectName,
+			Occurrence: createFakeBuildOccurrence(projectName),
+		})
+		Expect(err).ToNot(HaveOccurred())
+
+		o.Resource.Uri = fake.URL()
+
+		_, _ = s.Gc.UpdateOccurrence(s.Ctx, &grafeas_go_proto.UpdateOccurrenceRequest{
+			Name:       o.GetName(),
+			Occurrence: o,
+			UpdateMask: nil,
+		})
+
+		newlyUpdatedOccurrence, err := s.Gc.GetOccurrence(s.Ctx, &grafeas_go_proto.GetOccurrenceRequest{Name: o.GetName()})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(newlyUpdatedOccurrence.Resource.Uri).To(Equal(o.Resource.Uri))
+		Expect(newlyUpdatedOccurrence.UpdateTime).ToNot(Equal(o.UpdateTime))
 	})
 
 	t.Run("deleting an occurrence", func(t *testing.T) {

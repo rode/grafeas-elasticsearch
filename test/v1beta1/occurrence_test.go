@@ -16,6 +16,8 @@ package v1beta1_test
 
 import (
 	"fmt"
+	"testing"
+
 	"github.com/golang/protobuf/ptypes"
 	"github.com/grafeas/grafeas/proto/v1beta1/attestation_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/build_go_proto"
@@ -29,7 +31,6 @@ import (
 	"github.com/rode/grafeas-elasticsearch/test/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
-	"testing"
 )
 
 func TestOccurrence(t *testing.T) {
@@ -280,6 +281,38 @@ func TestOccurrence(t *testing.T) {
 					expected: batchResponse.Occurrences,
 				},
 				{
+					name:     "nestedFilter",
+					filter:   fmt.Sprintf(`build.provenance.builtArtifacts.nestedFilter(names == "%s")`, buildOccurrence.GetBuild().Provenance.BuiltArtifacts[0].Names[0]),
+					expected: []*grafeas_go_proto.Occurrence{
+						buildOccurrence,
+					},
+				},
+				{
+					name:     "nestedFilter startsWith",
+					filter:   fmt.Sprintf(`build.provenance.builtArtifacts.nestedFilter(names.startsWith("%s"))`, buildOccurrence.GetBuild().Provenance.BuiltArtifacts[0].Names[0]),
+					expected: []*grafeas_go_proto.Occurrence{
+						buildOccurrence,
+					},
+				},
+				{
+					name:     "nestedFilter empty results",
+					filter:   fmt.Sprintf(`build.provenance.builtArtifacts.nestedFilter(checksum == "%s")`, fake.UUID()),
+					expected: []*grafeas_go_proto.Occurrence{},
+				},
+				{
+					name:     "nestedFilter not on array",
+					filter:   `build.provenance.id.nestedFilter(foo == "bar")`,
+					expectError: true,
+				},
+				{
+					name:   "match resource uri field literal",
+					filter: fmt.Sprintf(`"resource.uri"=="%s"`, buildOccurrence.Resource.Uri),
+					expected: []*grafeas_go_proto.Occurrence{
+						buildOccurrence,
+						vulnerabilityOccurrence,
+					},
+				},
+				{
 					name:        "bad filter",
 					filter:      "lol",
 					expectError: true,
@@ -333,6 +366,14 @@ func createFakeBuildOccurrence(projectName string) *grafeas_go_proto.Occurrence 
 			Build: &build_go_proto.Details{
 				Provenance: &provenance_go_proto.BuildProvenance{
 					Id: fake.UUID(),
+					BuiltArtifacts: []*provenance_go_proto.Artifact{
+						{
+							Names: []string{
+								fake.UUID(),
+								fake.UUID(),
+							},
+						},
+					},
 				},
 			},
 		},

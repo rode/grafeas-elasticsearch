@@ -44,6 +44,33 @@ const indexPrefix = "grafeas-" + apiVersion
 const grafeasMaxPageSize = 1000
 const sortField = "createTime"
 
+var occurrenceProperties = map[string]interface{}{
+	"build": map[string]interface{}{
+		"type": "object",
+		"properties": map[string]interface{}{
+			"provenance": map[string]interface{}{
+				"type": "object",
+				"properties": map[string]interface{}{
+					"builtArtifacts": map[string]interface{}{
+						"type": "nested",
+						"properties": map[string]interface{}{
+							"checksum": map[string]interface{}{
+								"type": "keyword",
+							},
+							"id": map[string]interface{}{
+								"type": "keyword",
+							},
+							"names": map[string]interface{}{
+								"type": "keyword",
+							},
+						},
+					},
+				},
+			},
+		},
+	},
+}
+
 type ElasticsearchStorage struct {
 	client   *elasticsearch.Client
 	config   *config.ElasticsearchConfig
@@ -91,50 +118,26 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 		return nil, err
 	}
 
-	// create indices for occurrences and notes
-	for _, index := range []struct {
+	indexSettings := []struct {
 		index      string
 		properties map[string]interface{}
 	}{
-
 		{
-			index: occurrencesIndex(projectId),
-			properties: map[string]interface{}{
-				"build": map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"provenance": map[string]interface{}{
-							"type": "object",
-							"properties": map[string]interface{}{
-								"builtArtifacts": map[string]interface{}{
-									"type": "nested",
-									"properties": map[string]interface{}{
-										"checksum": map[string]interface{}{
-											"type": "keyword",
-										},
-										"id": map[string]interface{}{
-											"type": "keyword",
-										},
-										"names": map[string]interface{}{
-											"type": "keyword",
-										},
-									},
-								},
-							},
-						},
-					},
-				},
-			},
+			index:      occurrencesIndex(projectId),
+			properties: occurrenceProperties,
 		},
 		{
 			index:      notesIndex(projectId),
 			properties: map[string]interface{}{},
 		},
-	} {
+	}
+
+	// create indices for occurrences and notes
+	for _, indexSettings := range indexSettings {
 		res, err := es.client.Indices.Create(
-			index.index,
+			indexSettings.index,
 			es.client.Indices.Create.WithContext(ctx),
-			withIndexMetadataAndStringMapping(index.properties),
+			withIndexMetadataAndStringMapping(indexSettings.properties),
 		)
 		if err != nil {
 			return nil, createError(log, "error sending request to elasticsearch", err)

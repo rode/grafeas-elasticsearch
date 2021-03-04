@@ -23,6 +23,7 @@ import (
 	"github.com/google/cel-go/checker/decls"
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/cel-go/common/overloads"
+	"github.com/hashicorp/go-multierror"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 )
 
@@ -52,12 +53,17 @@ func (f *filterer) ParseExpression(filter string) (*Query, error) {
 	if err != nil {
 		return nil, err
 	}
-	parsed, issues := env.Parse(filter)
-	if issues != nil {
-		return nil, issues.Err()
+	parsedExpr, issues := env.Parse(filter)
+	if issues != nil && len(issues.Errors()) > 0 {
+		resultErr := fmt.Errorf("error parsing filter")
+		for _, e := range issues.Errors() {
+			resultErr = multierror.Append(resultErr, fmt.Errorf("%s (%d:%d)", e.Message, e.Location.Line(), e.Location.Column()))
+		}
+
+		return nil, resultErr
 	}
 
-	maybeQuery, err := f.visit(parsed.Expr(), "")
+	maybeQuery, err := f.visit(parsedExpr.Expr(), "")
 	if err != nil {
 		return nil, err
 	}
@@ -149,15 +155,15 @@ func (f *filterer) visitBinaryOperator(expression *expr.Expr, depth string) (int
 		return nil, fmt.Errorf("unexpected number of arguments to binary operator")
 	}
 
-	left := args[0]
-	right := args[1]
+	leftExpr := args[0]
+	rightExpr := args[1]
 
-	lhs, err := f.visit(left, depth)
+	lhs, err := f.visit(leftExpr, depth)
 	if err != nil {
 		return nil, err
 	}
 
-	rhs, err := f.visit(right, depth)
+	rhs, err := f.visit(rightExpr, depth)
 	if err != nil {
 		return nil, err
 	}
@@ -167,8 +173,8 @@ func (f *filterer) visitBinaryOperator(expression *expr.Expr, depth string) (int
 		return &Query{
 			Bool: &Bool{
 				Must: &Must{
-					lhs,
-					rhs,
+					lhs, //append left recursively and add to the must slice
+					rhs, //append right recursively and add to the must slice
 				},
 			},
 		}, nil
@@ -176,8 +182,8 @@ func (f *filterer) visitBinaryOperator(expression *expr.Expr, depth string) (int
 		return &Query{
 			Bool: &Bool{
 				Should: &Should{
-					lhs,
-					rhs,
+					lhs, //append left recursively and add to the should slice
+					rhs, //append right recursively and add to the should slice
 				},
 			},
 		}, nil
@@ -228,7 +234,7 @@ func (f *filterer) visitCallFunction(expression *expr.Expr, depth string) (inter
 	callExpr := expression.GetCallExpr()
 	targetExpr := callExpr.Target
 
-	target, err := f.visit(targetExpr, depth)
+	parsedTarget, err := f.visit(targetExpr, depth)
 	if err != nil {
 		return nil, err
 	}
@@ -238,17 +244,17 @@ func (f *filterer) visitCallFunction(expression *expr.Expr, depth string) (inter
 	}
 
 	argExpr := callExpr.Args[0]
-	arg, err := f.visit(argExpr, depth)
+	parsedArg, err := f.visit(argExpr, depth)
 	if err != nil {
 		return nil, err
 	}
 
-	t, err := assertString(target)
+	target, err := assertString(parsedTarget)
 	if err != nil {
 		return nil, err
 	}
 
-	a, err := assertString(arg)
+	arg, err := assertString(parsedArg)
 	if err != nil {
 		return nil, err
 	}
@@ -257,24 +263,14 @@ func (f *filterer) visitCallFunction(expression *expr.Expr, depth string) (inter
 	case overloads.StartsWith:
 		return &Query{
 			Prefix: &Term{
-				t: a,
+				target: arg,
 			},
 		}, nil
 	case overloads.Contains:
-		t, err := assertString(target)
-		if err != nil {
-			return nil, err
-		}
-
-		a, err := assertString(arg)
-		if err != nil {
-			return nil, err
-		}
-
 		return &Query{
 			QueryString: &QueryString{
-				DefaultField: t,
-				Query:        fmt.Sprintf("*%s*", elasticsearchSpecialCharacterRegex.ReplaceAllString(a, `\$1`)),
+				DefaultField: target,
+				Query:        fmt.Sprintf("*%s*", elasticsearchSpecialCharacterRegex.ReplaceAllString(arg, `\$1`)),
 			},
 		}, nil
 	}
@@ -286,7 +282,7 @@ func (f *filterer) visitNestedFilterCall(expression *expr.Expr, depth string) (i
 	callExpr := expression.GetCallExpr()
 	targetExpr := callExpr.Target
 
-	target, err := f.visit(targetExpr, depth)
+	parsedTarget, err := f.visit(targetExpr, depth)
 	if err != nil {
 		return nil, err
 	}
@@ -296,12 +292,12 @@ func (f *filterer) visitNestedFilterCall(expression *expr.Expr, depth string) (i
 	}
 
 	argExpr := callExpr.Args[0]
-	t, err := assertString(target)
+	target, err := assertString(parsedTarget)
 	if err != nil {
 		return nil, err
 	}
 
-	newDepth := t
+	newDepth := target
 	if depth != "" {
 		newDepth = fmt.Sprintf("%s.%s", depth, newDepth)
 	}
@@ -317,7 +313,7 @@ func (f *filterer) visitNestedFilterCall(expression *expr.Expr, depth string) (i
 
 	return &Query{
 		Nested: &Nested{
-			Path:  t,
+			Path:  target,
 			Query: nestedQuery,
 		},
 	}, nil

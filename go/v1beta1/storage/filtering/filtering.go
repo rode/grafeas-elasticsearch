@@ -15,21 +15,19 @@
 package filtering
 
 import (
-	"encoding/json"
 	"fmt"
+	"regexp"
+
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/cel-go/common/overloads"
 	"github.com/google/cel-go/parser"
 	"github.com/hashicorp/go-multierror"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
-	"regexp"
-	"strings"
 )
 
 type Filterer interface {
 	ParseExpression(filter string) (*Query, error)
-	Parse(filter string) (interface{}, error)
 }
 
 type filterer struct{}
@@ -41,7 +39,7 @@ func NewFilterer() Filterer {
 var elasticsearchSpecialCharacterRegex = regexp.MustCompile(`([\-=&|!(){}\[\]^"~*?:\\/])`)
 
 // ParseExpression will serve as the entrypoint to the filter
-// that is eventually passed to parseExpression which will handle the recursive logic
+// that is eventually passed to visit which will handle the recursive logic
 func (f *filterer) ParseExpression(filter string) (*Query, error) {
 	parsedExpr, commonErr := parser.Parse(common.NewStringSource(filter, ""))
 	if len(commonErr.GetErrors()) > 0 {
@@ -53,286 +51,135 @@ func (f *filterer) ParseExpression(filter string) (*Query, error) {
 		return nil, resultErr
 	}
 
-	expression := parsedExpr.GetExpr()
-
-	if _, ok := expression.GetExprKind().(*expr.Expr_CallExpr); !ok {
-		return nil, fmt.Errorf("expected call expression when parsing filter, got %T", expression.GetExprKind())
+	maybeQuery, err := f.visit(parsedExpr.GetExpr(), "")
+	if err != nil {
+		return nil, err
 	}
 
-	return parseExpression(expression)
-	//return f.parse(expression)
+	query, ok := maybeQuery.(*Query)
+	if !ok {
+		return nil, fmt.Errorf("source did not result in a valid Elasticsearch query")
+	}
+
+	return query, nil
 }
 
-func (f *filterer) Parse(filter string) (interface{}, error) {
-	parsedExpr, commonErr := parser.Parse(common.NewStringSource(filter, ""))
-	if len(commonErr.GetErrors()) > 0 {
-		resultErr := fmt.Errorf("error parsing filter")
-		for _, e := range commonErr.GetErrors() {
-			resultErr = multierror.Append(resultErr, fmt.Errorf("%s (%d:%d)", e.Message, e.Location.Line(), e.Location.Column()))
-		}
-
-		return nil, resultErr
-	}
-
-	expression := parsedExpr.GetExpr()
-
-	b, _ := json.Marshal(&expression)
-	fmt.Printf("%s\n", b)
-
-	return parse(expression)
-}
-
-func twoArityArguments(functionExpr *expr.Expr_Call) (interface{}, interface{}, error) {
-	if len(functionExpr.Args) != 2 {
-		return nil, nil, fmt.Errorf("unexpected number of arguments: %d", len(functionExpr.Args))
-	}
-
-	leftArg := functionExpr.Args[0]
-	parsedLeftArg, err := parse(leftArg)
-	if err != nil {
-		return nil, nil, err
-	}
-	rightArg := functionExpr.Args[1]
-	parsedRightArg, err := parse(rightArg)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return parsedLeftArg, parsedRightArg, nil
-}
-
-// target, arg, error
-func targetAndArgument(functionExpr *expr.Expr_Call) (interface{}, interface{}, error) {
-	target := functionExpr.Target
-	if len(functionExpr.Args) != 1 {
-		return nil, nil, fmt.Errorf("unexpected number of arguments: %d", len(functionExpr.Args))
-	}
-	arg := functionExpr.Args[0] // TODO: length checks
-
-	parsedTarget, err := parse(target)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	parsedArg, err := parse(arg)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	return parsedTarget, parsedArg, nil
-}
-
-func parse(expression *expr.Expr) (interface{}, error) {
+func (f *filterer) visit(expression *expr.Expr, depth string) (interface{}, error) {
 	switch expression.ExprKind.(type) {
 	case *expr.Expr_IdentExpr:
-		return expression.GetIdentExpr().Name, nil
+		return f.visitIdent(expression, depth)
 	case *expr.Expr_ConstExpr:
-		return expression.GetConstExpr().GetStringValue(), nil // TODO: type switch for non-string literals
+		return f.visitConst(expression, depth)
 	case *expr.Expr_SelectExpr:
-		selectExpr := expression.GetSelectExpr()
-
-		val, err := parse(selectExpr.Operand)
-		if err != nil {
-			return nil, err
-		}
-
-		return fmt.Sprintf("%s.%s", val, selectExpr.Field), nil
-	case *expr.Expr_ComprehensionExpr:
-		comprehension := expression.GetComprehensionExpr()
-		arr, err := parse(comprehension.IterRange)
-		if err != nil {
-			return nil, err
-		}
-
-		loopStep := comprehension.GetLoopStep()
-		filter := loopStep.GetCallExpr().Args[0]
-		fmt.Println("filter", filter)
-		parsedFilter, err := parse(filter)
-		fmt.Println("parsed", parsedFilter)
-		if err != nil {
-			return nil, err
-		}
-
-		q, ok := parsedFilter.(*Query)
-		if !ok {
-			return nil, fmt.Errorf("unable to cast %v to query type", parsedFilter)
-		}
-		path := arr.(string)
-		qq := rewriteNestedQueryTerms(path, comprehension.IterVar,  q)
-
-		return &Query{
-			Nested: &Nested{
-				Path: path,
-				Query: qq,
-				//Query: q,
-			},
-		}, nil
-
+		return f.visitSelect(expression, depth)
 	case *expr.Expr_CallExpr:
-		functionExpr := expression.GetCallExpr()
-
-		switch functionExpr.Function {
-		case operators.Equals:
-			left, right, err := twoArityArguments(functionExpr)
-			if err != nil {
-				return nil, err
-			}
-			leftTerm := left.(string)
-			rightTerm := right.(string)
-
-			return &Query{
-				Term: &Term{
-					leftTerm: rightTerm,
-				},
-			}, nil
-		case operators.NotEquals:
-			left, right, err := twoArityArguments(functionExpr)
-			if err != nil {
-				return nil, err
-			}
-			leftTerm := left.(string)
-			rightTerm := right.(string)
-
-			return &Query{
-				Bool: &Bool{
-					MustNot: &MustNot{
-						&Bool{
-							Term: &Term{
-								leftTerm: rightTerm,
-							},
-						},
-					},
-				},
-			}, nil
-		case operators.LogicalAnd:
-			left, right, err := twoArityArguments(functionExpr)
-			if err != nil {
-				return nil, err
-			}
-
-			return &Query{
-				Bool: &Bool{
-					Must: &Must{
-						left,
-						right,
-					},
-				},
-			}, nil
-		case operators.LogicalOr:
-			left, right, err := twoArityArguments(functionExpr)
-			if err != nil {
-				return nil, err
-			}
-
-			return &Query{
-				Bool: &Bool{
-					Should: &Should{
-						left, //append left recursively and add to the must slice
-						right, //append right recursively and add to the must slice
-					},
-				},
-			}, nil
-
-		case overloads.Contains:
-			target, arg, err := targetAndArgument(functionExpr)
-			if err != nil {
-				return nil, err
-			}
-			targetStr := target.(string) // TODO: better type check
-			argStr := arg.(string)
-
-			query := fmt.Sprintf("*%s*", elasticsearchSpecialCharacterRegex.ReplaceAllString(argStr, `\$1`))
-
-			return &Query{
-				QueryString: &QueryString{
-					DefaultField: targetStr,
-					Query:        query,
-				},
-			}, nil
-
-		case overloads.StartsWith:
-			target, arg, err := targetAndArgument(functionExpr)
-			if err != nil {
-				return nil, err
-			}
-			targetStr := target.(string) // TODO: better type check
-			argStr := arg.(string)
-
-			q := &Query{
-				Prefix: &Term{
-					targetStr: argStr,
-				},
-			}
-
-			return q, nil
-
-		default:
-			return nil, fmt.Errorf("unknown function: %s", functionExpr.Function)
-		}
-
+		return f.visitCall(expression, depth)
 	default:
-		return nil, fmt.Errorf("unknown expression: %v", expression)
+		return nil, fmt.Errorf("unrecognized expression: %v", expression)
 	}
-
-	//return nil, nil
 }
 
-// ParseExpression to parse and create a query
-func parseExpression(expression *expr.Expr) (*Query, error) {
-	function := expression.GetCallExpr().GetFunction()
+func (f *filterer) visitIdent(expression *expr.Expr, _ string) (interface{}, error) {
+	return expression.GetIdentExpr().Name, nil
+}
 
-	// Determine if left and right side are final and if so formulate query
-	var leftArg, rightArg *expr.Expr
+func (f *filterer) visitConst(expression *expr.Expr, _ string) (interface{}, error) {
+	constantExpr := expression.GetConstExpr()
 
-	if len(expression.GetCallExpr().Args) == 2 {
-		// For the expression a == b, a and b are treated as arguments to the _==_ operator
-		leftArg = expression.GetCallExpr().Args[0]
-		rightArg = expression.GetCallExpr().Args[1]
-	} else {
-		// In the expression a.startsWith(b), a is the target/receiver and b is the argument.
-		leftArg = expression.GetCallExpr().Target
-		rightArg = expression.GetCallExpr().Args[0]
+	var value interface{}
+
+	switch constantExpr.ConstantKind.(type) {
+	case *expr.Constant_BoolValue:
+		value = constantExpr.GetBoolValue()
+	case *expr.Constant_StringValue:
+		value = constantExpr.GetStringValue()
+	case *expr.Constant_Int64Value:
+		value = constantExpr.GetInt64Value()
+	case *expr.Constant_Uint64Value:
+		value = constantExpr.GetUint64Value()
+	default:
+		return nil, fmt.Errorf("unrecognized constant kind %T", constantExpr.ConstantKind)
 	}
 
-	switch function {
-	case operators.LogicalAnd:
-		l, err := parseExpression(leftArg)
-		if err != nil {
-			return nil, err
-		}
-		r, err := parseExpression(rightArg)
-		if err != nil {
-			return nil, err
-		}
+	return value, nil
+}
 
+func (f *filterer) visitSelect(expression *expr.Expr, depth string) (interface{}, error) {
+	selectExp := expression.GetSelectExpr()
+
+	value, err := f.visit(selectExp.Operand, depth)
+	if err != nil {
+		return nil, err
+	}
+	if depth != "" {
+		return fmt.Sprintf("%s.%s.%s", depth, value, selectExp.Field), nil
+	}
+
+	return fmt.Sprintf("%s.%s", value, selectExp.Field), nil
+}
+
+func (f *filterer) visitCall(expression *expr.Expr, depth string) (interface{}, error) {
+	function := expression.GetCallExpr().Function
+	switch function {
+	case operators.LogicalAnd,
+		operators.LogicalOr,
+		operators.Equals,
+		operators.NotEquals:
+		return f.visitBinaryOperator(expression, depth)
+	case overloads.Contains,
+		overloads.StartsWith:
+		return f.visitCallFunction(expression, depth)
+	default:
+		return nil, fmt.Errorf("unrecognized function: %s", function)
+	}
+}
+
+func (f *filterer) visitBinaryOperator(expression *expr.Expr, depth string) (interface{}, error) {
+	args := expression.GetCallExpr().Args
+
+	if len(args) != 2 {
+		return nil, fmt.Errorf("unexpected number of arguments to binary operator")
+	}
+
+	left := args[0]
+	right := args[1]
+
+	lhs, err := f.visit(left, depth)
+	if err != nil {
+		return nil, err
+	}
+
+	rhs, err := f.visit(right, depth)
+	if err != nil {
+		return nil, err
+	}
+
+	switch expression.GetCallExpr().Function {
+	case operators.LogicalAnd:
 		return &Query{
 			Bool: &Bool{
 				Must: &Must{
-					l, //append left recursively and add to the must slice
-					r, //append right recursively and add to the must slice
+					lhs,
+					rhs,
 				},
 			},
 		}, nil
 	case operators.LogicalOr:
-		l, err := parseExpression(leftArg)
-		if err != nil {
-			return nil, err
-		}
-		r, err := parseExpression(rightArg)
-		if err != nil {
-			return nil, err
-		}
-
 		return &Query{
 			Bool: &Bool{
 				Should: &Should{
-					l, //append left recursively and add to the must slice
-					r, //append right recursively and add to the must slice
+					lhs,
+					rhs,
 				},
 			},
 		}, nil
 	case operators.Equals:
-		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
+		leftTerm, err := assertString(lhs)
+		if err != nil {
+			return nil, err
+		}
+
+		rightTerm, err := assertString(rhs)
 		if err != nil {
 			return nil, err
 		}
@@ -343,7 +190,12 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 			},
 		}, nil
 	case operators.NotEquals:
-		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
+		leftTerm, err := assertString(lhs)
+		if err != nil {
+			return nil, err
+		}
+
+		rightTerm, err := assertString(rhs)
 		if err != nil {
 			return nil, err
 		}
@@ -359,115 +211,64 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 				},
 			},
 		}, nil
-	case operators.Index:
-		path := ""
-		switch leftArg.ExprKind.(type) {
-		case *expr.Expr_IdentExpr:
-			path = leftArg.GetIdentExpr().Name
-		case *expr.Expr_ConstExpr:
-			path = leftArg.GetConstExpr().GetStringValue()
-		}
+	}
 
-		if path == "" {
-			return nil, fmt.Errorf("unexpected path: %v", leftArg)
-		}
+	return nil, fmt.Errorf("unrecognized function %s", expression.GetCallExpr().Function)
+}
 
-		q, e := parseExpression(rightArg)
-		if e != nil {
-			return nil, e
-		}
+func (f *filterer) visitCallFunction(expression *expr.Expr, depth string) (interface{}, error) {
+	callExpr := expression.GetCallExpr()
+	targetExpr := callExpr.Target
 
-		rewrittenQuery := rewriteNestedQueryTerms(path,"", q)
+	target, err := f.visit(targetExpr, depth)
+	if err != nil {
+		return nil, err
+	}
 
-		return &Query{
-			Nested: &Nested{
-				Path:  path,
-				Query: rewrittenQuery,
-			},
-		}, nil
+	if len(callExpr.Args) != 1 {
+		return nil, fmt.Errorf("invalid number of arguments")
+	}
+
+	argExpr := callExpr.Args[0]
+	arg, err := f.visit(argExpr, depth)
+	if err != nil {
+		return nil, err
+	}
+
+	t, err := assertString(target)
+	if err != nil {
+		return nil, err
+	}
+
+	a, err := assertString(arg)
+	if err != nil {
+		return nil, err
+	}
+
+	switch callExpr.Function {
 	case overloads.StartsWith:
-		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
-		if err != nil {
-			return nil, err
-		}
-
 		return &Query{
 			Prefix: &Term{
-				leftTerm: rightTerm,
+				t: a,
 			},
 		}, nil
 	case overloads.Contains:
-		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
-		if err != nil {
-			return nil, err
-		}
-
-		// special characters need to be escaped via "\"
-		query := fmt.Sprintf("*%s*", elasticsearchSpecialCharacterRegex.ReplaceAllString(rightTerm, `\$1`))
-
 		return &Query{
 			QueryString: &QueryString{
-				DefaultField: leftTerm,
-				Query:        query,
+				DefaultField: t,
+				Query:        fmt.Sprintf("*%s*", elasticsearchSpecialCharacterRegex.ReplaceAllString(a, `\$1`)),
 			},
 		}, nil
-	default:
-		return nil, fmt.Errorf("unknown parse expression function: %s", function)
 	}
+
+	return nil, fmt.Errorf("unrecognized function: %s", callExpr.Function)
 }
 
-func rewriteTerm(path, iter string, term *Term) *Term {
-	for k, v := range *term {
-		delete(*term, k)
-		parts := strings.Split(k, ".")
-		subPath := parts
-		if parts[0] == iter {
-			subPath = parts[1:]
-		}
-		subPathStr := strings.Join(subPath, ".")
-
-		newKey := fmt.Sprintf("%s.%s", path, subPathStr)
-
-		(*term)[newKey] = v
+func assertString(value interface{}) (string, error) {
+	stringValue, ok := value.(string)
+	if !ok {
+		return "", fmt.Errorf("not a string")
 	}
 
-	return term
-}
-
-func rewriteNestedQueryTerms(path, iter string, query *Query) *Query {
-	if query.Term != nil {
-		query.Term = rewriteTerm(path, iter, query.Term)
-	}
-
-	if query.Prefix != nil {
-		query.Prefix = rewriteTerm(path, iter, query.Prefix)
-	}
-
-	return query
-}
-
-// converts left and right call expressions into simple term strings.
-// this function should be used at the top of the `parseExpression` call stack.
-func getSimpleExpressionTerms(leftArg, rightArg *expr.Expr) (leftTerm, rightTerm string, err error) {
-	if _, ok := leftArg.GetExprKind().(*expr.Expr_IdentExpr); ok {
-		leftTerm = leftArg.GetIdentExpr().Name
-	}
-
-	if _, ok := leftArg.GetExprKind().(*expr.Expr_ConstExpr); ok {
-		leftTerm = leftArg.GetConstExpr().GetStringValue()
-	}
-
-	if _, ok := rightArg.GetExprKind().(*expr.Expr_IdentExpr); ok {
-		rightTerm = rightArg.GetIdentExpr().Name
-	}
-
-	if _, ok := rightArg.GetExprKind().(*expr.Expr_ConstExpr); ok {
-		rightTerm = rightArg.GetConstExpr().GetStringValue()
-	}
-
-	if leftTerm == "" || rightTerm == "" {
-		err = fmt.Errorf("encountered unexpected expression kinds when evaluating filter: %T, %T", leftArg.GetExprKind(), rightArg.GetExprKind())
-	}
-
-	return
+	return stringValue, nil
 }

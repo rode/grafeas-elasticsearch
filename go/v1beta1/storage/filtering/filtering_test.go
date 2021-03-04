@@ -247,6 +247,16 @@ var _ = Describe("Filter", func() {
 					Query:        `*https\:\/\/*`,
 				},
 			}),
+			Entry("select expression", `a.b.c.d.e == "foo"`, &Query{
+				Term: &Term{
+					"a.b.c.d.e": "foo",
+				},
+			}),
+			Entry("select right-hand side", `a == b.c.d.e`, &Query{
+				Term: &Term{
+					"a": "b.c.d.e",
+				},
+			}),
 			Entry("select expression function call", `a.b.c.d.startsWith("e")`, &Query{
 				Prefix: &Term{
 					"a.b.c.d": "e",
@@ -268,7 +278,7 @@ var _ = Describe("Filter", func() {
 					},
 				},
 			}),
-			Entry("nestedFilter with complex", `a.nestedFilter(d != "abc" || d.e == "def")`, &Query{
+			Entry("nestedFilter with complex expression", `a.nestedFilter(d != "abc" || d.e == "def")`, &Query{
 				Nested: &Nested{
 					Path: "a",
 					Query: &Query{
@@ -291,6 +301,16 @@ var _ = Describe("Filter", func() {
 									},
 								},
 							},
+						},
+					},
+				},
+			}),
+			Entry("nestedFilter with startsWith", `a.nestedFilter(b.startsWith("c"))`, &Query{
+				Nested: &Nested{
+					Path: "a",
+					Query: &Query{
+						Prefix: &Term{
+							"a.b": "c",
 						},
 					},
 				},

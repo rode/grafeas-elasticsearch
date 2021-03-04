@@ -17,12 +17,12 @@ package filtering
 import (
 	"fmt"
 	"regexp"
+	"strings"
 
-	"github.com/google/cel-go/common"
+	"github.com/google/cel-go/cel"
+	"github.com/google/cel-go/checker/decls"
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/cel-go/common/overloads"
-	"github.com/google/cel-go/parser"
-	"github.com/hashicorp/go-multierror"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 )
 
@@ -36,22 +36,28 @@ func NewFilterer() Filterer {
 	return &filterer{}
 }
 
+const nestedFilter = "nestedFilter"
+
 var elasticsearchSpecialCharacterRegex = regexp.MustCompile(`([\-=&|!(){}\[\]^"~*?:\\/])`)
 
 // ParseExpression will serve as the entrypoint to the filter
 // that is eventually passed to visit which will handle the recursive logic
 func (f *filterer) ParseExpression(filter string) (*Query, error) {
-	parsedExpr, commonErr := parser.Parse(common.NewStringSource(filter, ""))
-	if len(commonErr.GetErrors()) > 0 {
-		resultErr := fmt.Errorf("error parsing filter")
-		for _, e := range commonErr.GetErrors() {
-			resultErr = multierror.Append(resultErr, fmt.Errorf("%s (%d:%d)", e.Message, e.Location.Line(), e.Location.Column()))
-		}
+	env, err := cel.NewEnv(
+		cel.ClearMacros(),
+		cel.Declarations(decls.NewFunction(
+			nestedFilter, decls.NewOverload(nestedFilter, []*expr.Type{decls.Any}, decls.Any))),
+	)
 
-		return nil, resultErr
+	if err != nil {
+		return nil, err
+	}
+	parsed, issues := env.Parse(filter)
+	if issues != nil {
+		return nil, issues.Err()
 	}
 
-	maybeQuery, err := f.visit(parsedExpr.GetExpr(), "")
+	maybeQuery, err := f.visit(parsed.Expr(), "")
 	if err != nil {
 		return nil, err
 	}
@@ -79,8 +85,10 @@ func (f *filterer) visit(expression *expr.Expr, depth string) (interface{}, erro
 	}
 }
 
-func (f *filterer) visitIdent(expression *expr.Expr, _ string) (interface{}, error) {
-	return expression.GetIdentExpr().Name, nil
+func (f *filterer) visitIdent(expression *expr.Expr, depth string) (string, error) {
+	ident := addPath(depth, expression.GetIdentExpr().Name)
+
+	return ident, nil
 }
 
 func (f *filterer) visitConst(expression *expr.Expr, _ string) (interface{}, error) {
@@ -104,18 +112,16 @@ func (f *filterer) visitConst(expression *expr.Expr, _ string) (interface{}, err
 	return value, nil
 }
 
-func (f *filterer) visitSelect(expression *expr.Expr, depth string) (interface{}, error) {
+func (f *filterer) visitSelect(expression *expr.Expr, depth string) (string, error) {
 	selectExp := expression.GetSelectExpr()
 
 	value, err := f.visit(selectExp.Operand, depth)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	if depth != "" {
-		return fmt.Sprintf("%s.%s.%s", depth, value, selectExp.Field), nil
-	}
+	field := addPath(depth, fmt.Sprintf("%s.%s", value, selectExp.Field))
 
-	return fmt.Sprintf("%s.%s", value, selectExp.Field), nil
+	return field, nil
 }
 
 func (f *filterer) visitCall(expression *expr.Expr, depth string) (interface{}, error) {
@@ -129,6 +135,8 @@ func (f *filterer) visitCall(expression *expr.Expr, depth string) (interface{}, 
 	case overloads.Contains,
 		overloads.StartsWith:
 		return f.visitCallFunction(expression, depth)
+	case nestedFilter:
+		return f.visitNestedFilterCall(expression, depth)
 	default:
 		return nil, fmt.Errorf("unrecognized function: %s", function)
 	}
@@ -253,6 +261,16 @@ func (f *filterer) visitCallFunction(expression *expr.Expr, depth string) (inter
 			},
 		}, nil
 	case overloads.Contains:
+		t, err := assertString(target)
+		if err != nil {
+			return nil, err
+		}
+
+		a, err := assertString(arg)
+		if err != nil {
+			return nil, err
+		}
+
 		return &Query{
 			QueryString: &QueryString{
 				DefaultField: t,
@@ -264,6 +282,47 @@ func (f *filterer) visitCallFunction(expression *expr.Expr, depth string) (inter
 	return nil, fmt.Errorf("unrecognized function: %s", callExpr.Function)
 }
 
+func (f *filterer) visitNestedFilterCall(expression *expr.Expr, depth string) (interface{}, error) {
+	callExpr := expression.GetCallExpr()
+	targetExpr := callExpr.Target
+
+	target, err := f.visit(targetExpr, depth)
+	if err != nil {
+		return nil, err
+	}
+
+	if len(callExpr.Args) != 1 {
+		return nil, fmt.Errorf("invalid number of arguments")
+	}
+
+	argExpr := callExpr.Args[0]
+	t, err := assertString(target)
+	if err != nil {
+		return nil, err
+	}
+
+	newDepth := t
+	if depth != "" {
+		newDepth = fmt.Sprintf("%s.%s", depth, newDepth)
+	}
+
+	maybeNestedQuery, err := f.visit(argExpr, newDepth)
+	if err != nil {
+		return nil, err
+	}
+	nestedQuery, ok := maybeNestedQuery.(*Query)
+	if !ok {
+		return nil, fmt.Errorf("nested expression was not a valid query")
+	}
+
+	return &Query{
+		Nested: &Nested{
+			Path:  t,
+			Query: nestedQuery,
+		},
+	}, nil
+}
+
 func assertString(value interface{}) (string, error) {
 	stringValue, ok := value.(string)
 	if !ok {
@@ -271,4 +330,12 @@ func assertString(value interface{}) (string, error) {
 	}
 
 	return stringValue, nil
+}
+
+func addPath(path, field string) string {
+	if path == "" || strings.HasPrefix(field, path) {
+		return field
+	}
+
+	return fmt.Sprintf("%s.%s", path, field)
 }

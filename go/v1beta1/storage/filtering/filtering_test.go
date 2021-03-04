@@ -258,6 +258,43 @@ var _ = Describe("Filter", func() {
 					Query:        "*d*",
 				},
 			}),
+			Entry("nestedFilter on select expression", `a.b.c.nestedFilter(d == "a")`, &Query{
+				Nested: &Nested{
+					Path: "a.b.c",
+					Query: &Query{
+						Term: &Term{
+							"a.b.c.d": "a",
+						},
+					},
+				},
+			}),
+			Entry("nestedFilter with complex", `a.nestedFilter(d != "abc" || d.e == "def")`, &Query{
+				Nested: &Nested{
+					Path: "a",
+					Query: &Query{
+						Bool: &Bool{
+							Should: &Should{
+								&Query{
+									Bool: &Bool{
+										MustNot: &MustNot{
+											&Bool{
+												Term: &Term{
+													"a.d": "abc",
+												},
+											},
+										},
+									},
+								},
+								&Query{
+									Term: &Term{
+										"a.d.e": "def",
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
 		)
 
 		DescribeTable("error handling", func(filter string) {
@@ -277,6 +314,7 @@ var _ = Describe("Filter", func() {
 			Entry("or comparison with rhs value containing unknown operator without quotes", `a==b||c/d`),
 			Entry("and comparison with lhs value containing unknown operator without quotes", `a/b&&c==d`),
 			Entry("and comparison with rhs value containing unknown operator without quotes", `a==b&&c/d`),
+			Entry("nestedFilter with no expression arg", `a.nestedFilter()`),
 		)
 	})
 })

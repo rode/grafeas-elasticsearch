@@ -281,15 +281,15 @@ func TestOccurrence(t *testing.T) {
 					expected: batchResponse.Occurrences,
 				},
 				{
-					name:     "nestedFilter",
-					filter:   fmt.Sprintf(`build.provenance.builtArtifacts.nestedFilter(names == "%s")`, buildOccurrence.GetBuild().Provenance.BuiltArtifacts[0].Names[0]),
+					name:   "nestedFilter",
+					filter: fmt.Sprintf(`build.provenance.builtArtifacts.nestedFilter(names == "%s")`, buildOccurrence.GetBuild().Provenance.BuiltArtifacts[0].Names[0]),
 					expected: []*grafeas_go_proto.Occurrence{
 						buildOccurrence,
 					},
 				},
 				{
-					name:     "nestedFilter startsWith",
-					filter:   fmt.Sprintf(`build.provenance.builtArtifacts.nestedFilter(names.startsWith("%s"))`, buildOccurrence.GetBuild().Provenance.BuiltArtifacts[0].Names[0]),
+					name:   "nestedFilter startsWith",
+					filter: fmt.Sprintf(`build.provenance.builtArtifacts.nestedFilter(names.startsWith("%s"))`, buildOccurrence.GetBuild().Provenance.BuiltArtifacts[0].Names[0]),
 					expected: []*grafeas_go_proto.Occurrence{
 						buildOccurrence,
 					},
@@ -300,8 +300,8 @@ func TestOccurrence(t *testing.T) {
 					expected: []*grafeas_go_proto.Occurrence{},
 				},
 				{
-					name:     "nestedFilter not on array",
-					filter:   `build.provenance.id.nestedFilter(foo == "bar")`,
+					name:        "nestedFilter not on array",
+					filter:      `build.provenance.id.nestedFilter(foo == "bar")`,
 					expectError: true,
 				},
 				{

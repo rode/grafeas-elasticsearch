@@ -70,7 +70,7 @@ func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorageFunc, 
 			log.Info("initial index for grafeas projects not found, creating...")
 			res, err = es.client.Indices.Create(
 				projectsIndex(),
-				withIndexMetadataAndStringMapping(projectsIndex()),
+				withIndexMetadataAndStringMapping(projectsAlias()),
 			)
 			if err != nil {
 				return nil, createError(log, "error sending index creation request to elasticsearch", err)

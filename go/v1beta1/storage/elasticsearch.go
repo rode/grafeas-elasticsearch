@@ -39,10 +39,13 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
-const apiVersion = "v1beta1"
-const indexPrefix = "grafeas-" + apiVersion
-const grafeasMaxPageSize = 1000
-const sortField = "createTime"
+const (
+	apiVersion         = "v1beta1"
+	indexPrefix        = "grafeas-" + apiVersion
+	aliasPrefix        = "grafeas"
+	grafeasMaxPageSize = 1000
+	sortField          = "createTime"
+)
 
 type ElasticsearchStorage struct {
 	client   *elasticsearch.Client
@@ -91,15 +94,26 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 		return nil, err
 	}
 
+	indexSettings := []struct {
+		name  string
+		alias string
+	}{
+		{
+			name:  occurrencesIndex(projectId),
+			alias: occurrencesAlias(projectId),
+		},
+		{
+			name:  notesIndex(projectId),
+			alias: notesAlias(projectId),
+		},
+	}
+
 	// create indices for occurrences and notes
-	for _, index := range []string{
-		occurrencesIndex(projectId),
-		notesIndex(projectId),
-	} {
+	for _, indexSetting := range indexSettings {
 		res, err := es.client.Indices.Create(
-			index,
+			indexSetting.name,
 			es.client.Indices.Create.WithContext(ctx),
-			withIndexMetadataAndStringMapping(index),
+			withIndexMetadataAndStringMapping(indexSetting.alias),
 		)
 		if err != nil {
 			return nil, createError(log, "error sending request to elasticsearch", err)
@@ -851,6 +865,18 @@ func encodeRequest(body interface{}) (io.Reader, string) {
 
 func projectsIndex() string {
 	return fmt.Sprintf("%s-projects", indexPrefix)
+}
+
+func projectsAlias() string {
+	return fmt.Sprintf("%s-projects", aliasPrefix)
+}
+
+func occurrencesAlias(projectId string) string {
+	return fmt.Sprintf("%s-%s-occurrences", aliasPrefix, projectId)
+}
+
+func notesAlias(projectId string) string {
+	return fmt.Sprintf("%s-%s-notes", aliasPrefix, projectId)
 }
 
 func occurrencesIndex(projectId string) string {

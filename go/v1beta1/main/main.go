@@ -15,8 +15,12 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
+	"os"
+
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/grafeas/grafeas/go/v1beta1/server"
 	grafeasStorage "github.com/grafeas/grafeas/go/v1beta1/storage"
@@ -24,8 +28,6 @@ import (
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"go.uber.org/zap"
-	"log"
-	"os"
 )
 
 func main() {
@@ -37,8 +39,19 @@ func main() {
 
 	registerStorageTypeProvider := storage.ElasticsearchStorageTypeProviderCreator(func(c *config.ElasticsearchConfig) (*storage.ElasticsearchStorage, error) {
 		esClient, err := createESClient(logger, c.URL, c.Username, c.Password)
+
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to Elasticsearch")
+		}
+
+		m := storage.ESMigrater{
+			Client: esClient,
+		}
+
+		err = m.Migrate(context.Background(), "grafeas-v1beta1-rode-occurrences")
+
+		if err != nil {
+			log.Fatal("migration failed", err)
 		}
 
 		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c), nil

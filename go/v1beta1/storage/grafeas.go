@@ -37,7 +37,6 @@ type registerStorageTypeProviderFunc func(string, *grafeasConfig.StorageConfigur
 func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorageFunc, logger *zap.Logger) registerStorageTypeProviderFunc {
 	return func(storageType string, sc *grafeasConfig.StorageConfiguration) (*storage.Storage, error) {
 		var c *config.ElasticsearchConfig
-		aliasName := "grafeas-projects"
 		log := logger.Named("ElasticsearchStorageTypeProvider")
 		log.Info("registering elasticsearch storage provider")
 
@@ -71,7 +70,7 @@ func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorageFunc, 
 			log.Info("initial index for grafeas projects not found, creating...")
 			res, err = es.client.Indices.Create(
 				projectsIndex(),
-				withIndexMetadataAndStringMapping(aliasName),
+				withIndexMetadataAndStringMapping(projectsIndex()),
 			)
 			if err != nil {
 				return nil, createError(log, "error sending index creation request to elasticsearch", err)

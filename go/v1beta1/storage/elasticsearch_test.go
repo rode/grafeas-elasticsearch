@@ -2305,23 +2305,6 @@ func deepCopyNote(note *pb.Note) *pb.Note {
 	return result
 }
 
-// helper function for asserting two messages are equivalent based on their JSON representations
-// you can use this to get a cleaner error message when a test fails to help determine the difference
-// between two messages
-func assertProtoMessagesAreEquivalent(m1, m2 proto.Message) {
-	m := protojson.MarshalOptions{
-		Indent: "  ",
-	}
-
-	str1, err := m.Marshal(proto.MessageV2(m1))
-	Expect(err).ToNot(HaveOccurred())
-
-	str2, err := m.Marshal(proto.MessageV2(m2))
-	Expect(err).ToNot(HaveOccurred())
-
-	Expect(string(str1)).To(BeEquivalentTo(string(str2)))
-}
-
 func ioReadCloserToByteSlice(r io.ReadCloser) []byte {
 	builder := new(strings.Builder)
 	_, err := io.Copy(builder, r)

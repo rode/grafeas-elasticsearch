@@ -19,6 +19,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/protobuf/proto"
@@ -30,7 +32,6 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
-	"io"
 
 	pb "github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
@@ -98,7 +99,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 		res, err := es.client.Indices.Create(
 			index,
 			es.client.Indices.Create.WithContext(ctx),
-			withIndexMetadataAndStringMapping(),
+			withIndexMetadataAndStringMapping(index),
 		)
 		if err != nil {
 			return nil, createError(log, "error sending request to elasticsearch", err)
@@ -804,13 +805,14 @@ func createError(log *zap.Logger, message string, err error, fields ...zap.Field
 
 // withIndexMetadataAndStringMapping adds an index mapping to add metadata that can be used to help identify an index as
 // a part of the Grafeas storage backend, and a dynamic template to map all strings to keywords.
-func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
+func withIndexMetadataAndStringMapping(aliasName string) func(*esapi.IndicesCreateRequest) {
 	var indexCreateBuffer bytes.Buffer
 	indexCreateBody := map[string]interface{}{
 		"mappings": map[string]interface{}{
 			"_meta": map[string]string{
 				"type": "grafeas",
 			},
+
 			"dynamic_templates": []map[string]interface{}{
 				{
 					"strings_as_keywords": map[string]interface{}{
@@ -822,6 +824,9 @@ func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
 					},
 				},
 			},
+		},
+		"aliases": map[string]interface{}{
+			aliasName: map[string]interface{}{},
 		},
 	}
 

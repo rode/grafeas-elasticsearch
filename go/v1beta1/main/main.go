@@ -15,7 +15,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -42,23 +41,6 @@ func main() {
 
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to Elasticsearch")
-		}
-
-		migrate := os.Getenv("GRAFEAS_MIGRATE")
-		fmt.Println("Migrate??", migrate)
-		if migrate == "yes" {
-			migration := &storage.Migration{
-				Version: "v2",
-				Mapping: map[string]interface{}{},
-				Index:   "grafeas-v1beta1-rode-occurrences",
-				Alias:   "grafeas-rode-occurrences",
-			}
-			migrator := storage.NewESMigrator(logger, esClient)
-			err = migrator.Migrate(context.Background(), migration)
-
-			if err != nil {
-				log.Fatal("migration failed", err)
-			}
 		}
 
 		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c), nil

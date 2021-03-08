@@ -2,7 +2,14 @@ package storage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path"
+	"path/filepath"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v7"
@@ -10,21 +17,23 @@ import (
 	"go.uber.org/zap"
 )
 
+
+
 type ESMigrator struct {
 	client *elasticsearch.Client
 	logger *zap.Logger
+	mappings map[string]*migrationVersion // resource types -> latest version of mappings
 }
 
 func NewESMigrator(logger *zap.Logger, client *elasticsearch.Client) *ESMigrator {
+	mappings := map[string]*migrationVersion{}
+
 	return &ESMigrator{
 		client: client,
 		logger: logger,
+		mappings: mappings,
 	}
 }
-
-// {"acknowledged":true,
-// "shards_acknowledged":true,
-// "indices":[{"name":"grafeas-v1beta1-rode-occurrences","blocked":true}]}
 
 type ESBlockIndex struct {
 	Name    string `json:"name"`
@@ -75,10 +84,73 @@ type ReindexFields struct {
 	Index string `json:"index"`
 }
 
-// new index requires: mapping, name
+const migrationsDir = "mappings"
+
+type migrationVersion struct {
+	version int
+	mapping map[string]interface{}
+}
+
+func (e *ESMigrator) LoadMigrations() error {
+	if err := filepath.Walk(migrationsDir, func(filePath string, info os.FileInfo, err error) error {
+		if err != nil {
+			return err
+		}
+
+		if info.IsDir() {
+			return nil
+		}
+
+		localPath := strings.TrimPrefix(filePath, migrationsDir+"/")
+		fileName := path.Base(localPath)
+		resourceDir := path.Dir(localPath)
+		fileNameWithoutExtension := strings.TrimPrefix(strings.TrimSuffix(fileName, filepath.Ext(fileName)), "v")
+		version, err := strconv.Atoi(fileNameWithoutExtension)
+		if err != nil {
+			return err
+		}
+
+		if mappingVersion, ok := e.mappings[resourceDir]; ok {
+			if mappingVersion.version > version {
+				return nil
+			}
+		}
+
+		// v1
+		//version := strings.Split(migrationFileName, ".")[0]
+
+		mappingJson, err := ioutil.ReadFile(filePath)
+		if err != nil {
+			return err
+		}
+		var mapping map[string]interface{}
+
+		if err := json.Unmarshal(mappingJson, &mapping); err != nil {
+			return err
+		}
+
+		e.mappings[resourceDir] = &migrationVersion{
+			version: version,
+			mapping: mapping,
+		}
+
+		return nil
+	}); err != nil {
+		return err
+	}
+
+	for k, v := range e.mappings {
+		vv := v
+		fmt.Printf("%s -> %d\n", k, vv.version)
+	}
+
+	return nil
+}
+
 func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	log := e.logger.Named("Migrate").With(zap.String("indexName", migration.Index))
 	log.Info("Starting migration")
+
 	log.Info("Placing write block on index")
 	res, err := e.client.Indices.AddBlock([]string{migration.Index}, "write", e.client.Indices.AddBlock.WithContext(ctx))
 	if err := getErrorFromESResponse(res, err); err != nil {

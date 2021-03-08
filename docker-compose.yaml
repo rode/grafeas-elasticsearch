@@ -6,6 +6,8 @@ services:
       context: "."
     ports:
       - "8080:8080"
+    environment:
+      GRAFEAS_MIGRATE: "${GRAFEAS_MIGRATE}"
     volumes:
       - ./local/config.yaml:/etc/grafeas/config.yaml
     command: "--config /etc/grafeas/config.yaml"

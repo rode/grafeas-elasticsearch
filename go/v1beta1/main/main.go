@@ -44,14 +44,19 @@ func main() {
 			return nil, fmt.Errorf("failed to connect to Elasticsearch")
 		}
 
-		m := storage.ESMigrater{
-			Client: esClient,
-		}
+		migrate := os.Getenv("GRAFEAS_MIGRATE")
+		fmt.Println("Migrate??", migrate)
+		if migrate == "yes" {
+			migration := &storage.Migration{
+				Version: "v2",
+				Mapping: map[string]interface{}{},
+			}
+			migrator := storage.NewESMigrator(logger, esClient)
+			err = migrator.Migrate(context.Background(), "grafeas-v1beta1-rode-occurrences", migration)
 
-		err = m.Migrate(context.Background(), "grafeas-v1beta1-rode-occurrences")
-
-		if err != nil {
-			log.Fatal("migration failed", err)
+			if err != nil {
+				log.Fatal("migration failed", err)
+			}
 		}
 
 		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c), nil

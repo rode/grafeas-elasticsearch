@@ -36,6 +36,8 @@ import (
 	pb "github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 
+	"github.com/golang/protobuf/protoc-gen-go/generator"
+	fieldmask_utils "github.com/mennanov/fieldmask-utils"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
@@ -382,15 +384,23 @@ func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, projectId,
 	occurrence := &pb.Occurrence{}
 
 	targetDocumentID, err := es.genericGet(ctx, log, search, occurrencesIndex(projectId), occurrence)
+
 	if err != nil {
 		return nil, err
 	}
 
 	o.UpdateTime = ptypes.TimestampNow()
 
-	err = es.genericUpdate(ctx, log, occurrencesIndex(projectId), targetDocumentID, o)
+	m, err := fieldmask_utils.MaskFromPaths(mask.Paths, generator.CamelCase)
+	if err != nil {
+		log.Info("errors while mapping occurrences", zap.Any("errors", err))
+		return occurrence, err
+	}
+	fieldmask_utils.StructToStruct(m, o, occurrence)
 
-	return o, nil
+	err = es.genericUpdate(ctx, log, occurrencesIndex(projectId), targetDocumentID, occurrence)
+
+	return occurrence, nil
 }
 
 // DeleteOccurrence deletes the occurrence with the given projectId and occurrenceId

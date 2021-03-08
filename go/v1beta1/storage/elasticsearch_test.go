@@ -35,6 +35,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 
@@ -987,11 +988,16 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("updating a Grafeas occurrence", func() {
 		var (
+			currentOccurrence *pb.Occurrence
+
 			expectedOccurrence       *pb.Occurrence
+			occurrencePatchData      *pb.Occurrence
 			expectedOccurrencesIndex string
 			expectedOccurrenceId     string
 			expectedOccurrenceName   string
+			fieldMask                *fieldmaskpb.FieldMask
 			actualErr                error
+			actualOccurrence         *pb.Occurrence
 		)
 
 		// BeforeEach configures the happy path for this context
@@ -1000,14 +1006,22 @@ var _ = Describe("elasticsearch storage", func() {
 			expectedOccurrenceId = fake.LetterN(10)
 			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-occurrences", indexPrefix, expectedProjectId)
 			expectedOccurrenceName = fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)
-			expectedOccurrence = generateTestOccurrence("")
+			currentOccurrence = generateTestOccurrence("")
+			occurrencePatchData = &grafeas_go_proto.Occurrence{
+				Resource: &grafeas_go_proto.Resource{
+					Uri: "updatedvalue",
+				},
+			}
+			fieldMask = &fieldmaskpb.FieldMask{
+				Paths: []string{"Resource.Uri"},
+			}
+			expectedOccurrence = currentOccurrence
+			expectedOccurrence.Resource.Uri = "updatedvalue"
 
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
-					Body: createGenericEsSearchResponse(&pb.Occurrence{
-						Name: expectedOccurrenceName,
-					}),
+					Body:       createGenericEsSearchResponse(currentOccurrence),
 				},
 				{
 					StatusCode: http.StatusCreated,
@@ -1020,10 +1034,8 @@ var _ = Describe("elasticsearch storage", func() {
 
 		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
-			occurrence := deepCopyOccurrence(expectedOccurrence)
-
 			// actualOccurrence, actualErr = elasticsearchStorage.UpdateOccurrence(context.Background(), expectedProjectId, "", occurrence, nil)
-			_, actualErr = elasticsearchStorage.UpdateOccurrence(context.Background(), expectedProjectId, expectedOccurrenceId, occurrence, nil)
+			actualOccurrence, actualErr = elasticsearchStorage.UpdateOccurrence(context.Background(), expectedProjectId, expectedOccurrenceId, occurrencePatchData, fieldMask)
 		})
 
 		It("should have sent a request to elasticsearch to retreive the occurrence document", func() {
@@ -1089,6 +1101,9 @@ var _ = Describe("elasticsearch storage", func() {
 
 			It("should not return an error", func() {
 				Expect(actualErr).ToNot(HaveOccurred())
+			})
+			It("should contain the newly added field", func() {
+				Expect(actualOccurrence).To(BeEquivalentTo(expectedOccurrence))
 			})
 		})
 

@@ -28,6 +28,7 @@ services:
       interval: 10s
       timeout: 1m
       retries: 3
+      start_period: 30s
   kibana:
     image: bitnami/kibana:7.9.3
     ports:

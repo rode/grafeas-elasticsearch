@@ -3,10 +3,10 @@ package storage
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v7"
+	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"go.uber.org/zap"
 )
 
@@ -45,116 +45,158 @@ type ESTask struct {
 	Completed bool `json:"completed"`
 }
 
+type ESActions struct {
+	Add    *ESIndexAlias `json:"add,omitempty"`
+	Remove *ESIndexAlias `json:"remove,omitempty"`
+}
+
+type ESIndexAlias struct {
+	Index string `json:"index"`
+	Alias string `json:"alias"`
+}
+
+type ESIndexAliasRequest struct {
+	Actions []ESActions `json:"actions"`
+}
+
 type Migration struct {
 	Version string
 	Mapping map[string]interface{}
+	Index   string
+	Alias   string
+}
+
+type ESReindex struct {
+	Source      *ReindexFields `json:"source"`
+	Destination *ReindexFields `json:"dest"`
+}
+
+type ReindexFields struct {
+	Index string `json:"index"`
 }
 
 // new index requires: mapping, name
-func (e *ESMigrator) Migrate(ctx context.Context, indexName string, migration *Migration) error {
-	log := e.logger.Named("Migrate").With(zap.String("indexName", indexName))
+func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
+	log := e.logger.Named("Migrate").With(zap.String("indexName", migration.Index))
 	log.Info("Starting migration")
 	log.Info("Placing write block on index")
-	res, err := e.client.Indices.AddBlock([]string{indexName}, "write", e.client.Indices.AddBlock.WithContext(ctx))
-	if err != nil {
-		log.Error("Error placing write block on index", zap.Error(err))
-		return err
-	}
-	if res.IsError() {
-		log.Error("Not ok response from Elasticsearch", zap.Int("status", res.StatusCode))
-		return fmt.Errorf("Error from Elasticsearch", res.StatusCode)
-	}
-
-	br := &ESBlockResponse{}
-	if err := decodeResponse(res.Body, br); err != nil {
+	res, err := e.client.Indices.AddBlock([]string{migration.Index}, "write", e.client.Indices.AddBlock.WithContext(ctx))
+	if err := getErrorFromESResponse(res, err); err != nil {
 		return err
 	}
 
-	if len(br.Indices) == 0 { // TODO: already blocked, should poll for migration completion
+	blockResponse := &ESBlockResponse{}
+	if err := decodeResponse(res.Body, blockResponse); err != nil {
+		return err
+	}
+
+	if len(blockResponse.Indices) == 0 { // TODO: already blocked, should poll for migration completion
 		log.Info("Index is already blocked")
 		return fmt.Errorf("unblocked")
 	}
 
-	index := br.Indices[0] // TODO: length check
+	index := blockResponse.Indices[0] // TODO: length check
 	// TODO: do we need to check acknowledged and shards acknowledged?
-	if !(br.Acknowledged && br.ShardsAcknowledged && index.Name == indexName && index.Blocked) {
-		log.Error("Write block unsuccessful", zap.Any("response", br))
-		return fmt.Errorf("unable to block writes for index: %s", indexName)
+	if !(blockResponse.Acknowledged && blockResponse.ShardsAcknowledged && index.Name == migration.Index && index.Blocked) {
+		log.Error("Write block unsuccessful", zap.Any("response", blockResponse))
+		return fmt.Errorf("unable to block writes for index: %s", migration.Index)
 	}
 
-	newIndexName := fmt.Sprintf("%s-%s", indexName, migration.Version)
+	newIndexName := fmt.Sprintf("%s-%s", migration.Index, migration.Version)
 	log = log.With(zap.String("newIndex", newIndexName))
 	indexBody := map[string]interface{}{
 		"mappings": migration.Mapping,
 	}
-	b, _ := encodeRequest(&indexBody)
+	indexCreateBody, _ := encodeRequest(&indexBody)
 
 	log.Info("Creating new index")
 	res, err = e.client.Indices.Create(
 		newIndexName,
 		e.client.Indices.Create.WithContext(ctx),
-		e.client.Indices.Create.WithBody(b),
+		e.client.Indices.Create.WithBody(indexCreateBody),
 	)
-
-	if err != nil {
-		log.Error("Failed to create new index", zap.Error(err))
+	if err := getErrorFromESResponse(res, err); err != nil {
 		return err
 	}
 
-	if res.IsError() {
-		log.Error("not okay response from Elasticsearch", zap.Int("status", res.StatusCode))
-		return fmt.Errorf("response error from ES: %d", res.StatusCode)
+	reindexReq := &ESReindex{
+		Source:      &ReindexFields{Index: migration.Index},
+		Destination: &ReindexFields{Index: newIndexName},
 	}
-
-	reindexReq := map[string]interface{}{
-		"source": map[string]interface{}{"index": indexName},
-		"dest":   map[string]interface{}{"index": newIndexName},
-	}
-	bb, _ := encodeRequest(reindexReq)
+	reindexBody, _ := encodeRequest(reindexReq)
 	log.Info("Starting reindex")
 	res, err = e.client.Reindex(
-		bb,
+		reindexBody,
 		e.client.Reindex.WithContext(ctx),
 		e.client.Reindex.WithWaitForCompletion(false))
-	if err != nil {
-		log.Error("Reindex error", zap.Error(err))
+	if err := getErrorFromESResponse(res, err); err != nil {
 		return err
 	}
-	if res.IsError() {
-		log.Error("Reindex not-okay response", zap.Int("status", res.StatusCode))
-	}
-	t := &ESTaskCreationResponse{}
+	taskCreationResponse := &ESTaskCreationResponse{}
 
-	_ = decodeResponse(res.Body, t)
-	log.Info("Reindex started", zap.String("taskId", t.Task))
+	_ = decodeResponse(res.Body, taskCreationResponse)
+	log.Info("Reindex started", zap.String("taskId", taskCreationResponse.Task))
 
 	for i := 0; i < 10; i++ {
-		log.Info("Polling task API", zap.String("taskId", t.Task))
-		res, err = e.client.Tasks.Get(t.Task, e.client.Tasks.Get.WithContext(ctx))
-		if err != nil {
-			log.Error("Failed to query task API", zap.Error(err))
+		log.Info("Polling task API", zap.String("taskId", taskCreationResponse.Task))
+		res, err = e.client.Tasks.Get(taskCreationResponse.Task, e.client.Tasks.Get.WithContext(ctx))
+		if err := getErrorFromESResponse(res, err); err != nil {
 			return err
 		}
 
-		if res.IsError() {
-			log.Error("not okay response from Elasticsearch", zap.Int("status", res.StatusCode))
-			return fmt.Errorf("response error from ES: %d", res.StatusCode)
-		}
+		task := &ESTask{}
+		_ = decodeResponse(res.Body, task)
 
-		tt := &ESTask{}
-		_ = decodeResponse(res.Body, tt)
-
-		r, _ := ioutil.ReadAll(res.Body)
-		fmt.Printf("raw body: %s\n", r)
-
-		if tt.Completed {
+		if task.Completed {
 			log.Info("Reindex completed")
 			break
 		}
 
-		log.Info("Task incomplete, waiting before polling again", zap.String("taskId", t.Task))
-		time.Sleep(time.Minute)
+		log.Info("Task incomplete, waiting before polling again", zap.String("taskId", taskCreationResponse.Task))
+		time.Sleep(time.Second * 10)
+	}
+	aliasReq := &ESIndexAliasRequest{
+		Actions: []ESActions{
+			{
+				Remove: &ESIndexAlias{
+					Index: migration.Index,
+					Alias: migration.Alias,
+				},
+			},
+			{
+				Add: &ESIndexAlias{
+					Index: newIndexName,
+					Alias: migration.Alias,
+				},
+			},
+		},
 	}
 
+	aliasReqBody, _ := encodeRequest(aliasReq)
+
+	res, err = e.client.Indices.UpdateAliases(
+		aliasReqBody,
+		e.client.Indices.UpdateAliases.WithContext(ctx),
+	)
+	if err := getErrorFromESResponse(res, err); err != nil {
+		return err
+	}
+
+	res, err = e.client.Indices.Delete(
+		[]string{migration.Index},
+		e.client.Indices.Delete.WithContext(ctx),
+	)
+
+	return getErrorFromESResponse(res, err)
+}
+
+func getErrorFromESResponse(res *esapi.Response, err error) error {
+	if err != nil {
+		return err
+	}
+
+	if res.IsError() {
+		return fmt.Errorf("response error from ES: %d", res.StatusCode)
+	}
 	return nil
 }

@@ -50,9 +50,11 @@ func main() {
 			migration := &storage.Migration{
 				Version: "v2",
 				Mapping: map[string]interface{}{},
+				Index:   "grafeas-v1beta1-rode-occurrences",
+				Alias:   "grafeas-rode-occurrences",
 			}
 			migrator := storage.NewESMigrator(logger, esClient)
-			err = migrator.Migrate(context.Background(), "grafeas-v1beta1-rode-occurrences", migration)
+			err = migrator.Migrate(context.Background(), migration)
 
 			if err != nil {
 				log.Fatal("migration failed", err)

@@ -1131,6 +1131,17 @@ var _ = Describe("elasticsearch storage", func() {
 				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
 			})
 		})
+
+		When("using a badly formatted field mask", func() {
+			BeforeEach(func() {
+				fieldMask = &fieldmaskpb.FieldMask{
+					Paths: []string{"Resource..bro"},
+				}
+			})
+			It("should return an error", func() {
+				Expect(actualErr).To(HaveOccurred())
+			})
+		})
 	})
 
 	Context("deleting a Grafeas occurrence", func() {

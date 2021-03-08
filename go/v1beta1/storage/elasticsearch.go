@@ -393,7 +393,7 @@ func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, projectId,
 
 	m, err := fieldmask_utils.MaskFromPaths(mask.Paths, generator.CamelCase)
 	if err != nil {
-		log.Info("errors while mapping occurrences", zap.Any("errors", err))
+		log.Info("errors while mapping masks", zap.Any("errors", err))
 		return occurrence, err
 	}
 	fieldmask_utils.StructToStruct(m, o, occurrence)

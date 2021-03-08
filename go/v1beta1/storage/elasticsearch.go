@@ -389,7 +389,8 @@ func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, projectId,
 		return nil, err
 	}
 
-	o.UpdateTime = ptypes.TimestampNow()
+	// TO DISCUSS. Remove the updateTime as the responsibility may be up to the updater
+	// o.UpdateTime = ptypes.TimestampNow()
 
 	m, err := fieldmask_utils.MaskFromPaths(mask.Paths, generator.CamelCase)
 	if err != nil {

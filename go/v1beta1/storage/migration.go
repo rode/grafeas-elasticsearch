@@ -237,8 +237,87 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	return getErrorFromESResponse(res, err)
 }
 
-func (e *ESMigrator) GetMigrations() ([]*Migration, error) {
-	return nil, nil
+func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
+	createDoc := false
+	metadataIndexName := "grafeas-metadata"
+	var indexDoc map[string]interface{}
+	res, err := e.client.Get(metadataIndexName, "grafeas-indices-metadata", e.client.Get.WithContext(ctx))
+
+	if err != nil {
+		return nil, err
+	}
+
+	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound {
+		return nil, fmt.Errorf("Unexpected status code from Elasticsearch %d", res.StatusCode)
+	}
+	if res.StatusCode == http.StatusNotFound {
+		createDoc = true
+		indexDoc = map[string]interface{}{}
+	} else {
+		docResponse := map[string]interface{}{}
+		_ = decodeResponse(res.Body, &docResponse)
+		indexDoc = docResponse["_source"].(map[string]interface{})
+	}
+
+	res, err = e.client.Indices.Get([]string{"_all"}, e.client.Indices.Get.WithContext(ctx))
+	if err := getErrorFromESResponse(res, err); err != nil {
+		return nil, err
+	}
+
+	allIndices := map[string]interface{}{}
+
+	_ = decodeResponse(res.Body, &allIndices)
+	for indexName, index := range allIndices {
+		if indexName == metadataIndexName || !strings.HasPrefix(indexName, "grafeas") {
+			continue
+		}
+
+		index := index.(map[string]interface{})
+		mappings := index["mappings"].(map[string]interface{})
+		meta := mappings["_meta"].(map[string]interface{})
+		metaType := meta["type"].(string)
+
+		if metaType == "grafeas" {
+			if _, ok := indexDoc[indexName]; !ok {
+				indexDoc[indexName] = map[string]interface{}{
+					"mappingsVersion": "v1",
+				}
+			}
+		}
+	}
+	var migrations []*Migration
+	for indexName, metadata := range indexDoc {
+		metadataMap := metadata.(map[string]interface{})
+		res := strings.Split(indexName, "-")
+		docKind := res[len(res)-1]
+		versionedMapping := e.mappings[docKind]
+		if metadataMap["mappingsVersion"] != versionedMapping.Version {
+			indexData := allIndices[indexName].(map[string]interface{})
+			aliases := indexData["aliases"].(map[string]interface{})
+			alias := ""
+			for key, _ := range aliases {
+				alias = key
+			}
+			migrations = append(migrations, &Migration{Index: indexName, DocumentKind: docKind, Alias: alias})
+		}
+	}
+	if createDoc {
+		docBody, _ := encodeRequest(indexDoc)
+		res, err = e.client.Create(metadataIndexName, "grafeas-indices-metadata", docBody, e.client.Create.WithContext(ctx))
+
+	} else {
+		doc := map[string]interface{}{
+			"doc": indexDoc,
+		}
+		docUpdateReq, _ := encodeRequest(doc)
+		res, err = e.client.Update(metadataIndexName, "grafeas-indices-metadata", docUpdateReq, e.client.Update.WithContext(ctx))
+	}
+	arr, _ := ioutil.ReadAll(res.Body)
+	fmt.Printf("Update response %s\n", arr)
+	if err := getErrorFromESResponse(res, err); err != nil {
+		return nil, err
+	}
+	return migrations, nil
 }
 
 func (e *ESMigrator) CreateIndexFromMigration(ctx context.Context, migration *Migration) error {
@@ -292,7 +371,7 @@ func getErrorFromESResponse(res *esapi.Response, err error) error {
 
 type Migrator interface {
 	LoadMappings(dir string) error                                            // read mappings from files
-	GetMigrations() ([]*Migration, error)                                     // find all migrations that need to run
+	GetMigrations(ctx context.Context) ([]*Migration, error)                  // find all migrations that need to run
 	Migrate(ctx context.Context, migration *Migration) error                  // run a single migration on a single index
 	CreateIndexFromMigration(ctx context.Context, migration *Migration) error // create an index for the first time
 }

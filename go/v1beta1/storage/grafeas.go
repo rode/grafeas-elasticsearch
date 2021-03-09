@@ -79,7 +79,15 @@ func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorageFunc, 
 		}); err != nil {
 			return nil, createError(log, "error creating initial projects index", err)
 		}
+		migrations, err := es.migrator.GetMigrations(context.Background())
 
+		if err != nil {
+			return nil, err
+		}
+		fmt.Printf("length of migrations %d, printing them now \n", len(migrations))
+		for _, v := range migrations {
+			fmt.Println("migrating %s", v.Index)
+		}
 		if os.Getenv("GRAFEAS_MIGRATE") == "yes" {
 			migration := &Migration{
 				DocumentKind: "occurrence",

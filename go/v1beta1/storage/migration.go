@@ -8,7 +8,6 @@ import (
 	"os"
 	"path"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 
@@ -17,20 +16,18 @@ import (
 	"go.uber.org/zap"
 )
 
-
-
 type ESMigrator struct {
-	client *elasticsearch.Client
-	logger *zap.Logger
-	mappings map[string]*migrationVersion // resource types -> latest version of mappings
+	client   *elasticsearch.Client
+	logger   *zap.Logger
+	mappings map[string]*VersionedMapping // resource types -> latest version of mappings
 }
 
 func NewESMigrator(logger *zap.Logger, client *elasticsearch.Client) *ESMigrator {
-	mappings := map[string]*migrationVersion{}
+	mappings := map[string]*VersionedMapping{}
 
 	return &ESMigrator{
-		client: client,
-		logger: logger,
+		client:   client,
+		logger:   logger,
 		mappings: mappings,
 	}
 }
@@ -69,10 +66,9 @@ type ESIndexAliasRequest struct {
 }
 
 type Migration struct {
-	Version string
-	Mapping map[string]interface{}
-	Index   string
-	Alias   string
+	DocumentKind string
+	Index        string
+	Alias        string
 }
 
 type ESReindex struct {
@@ -84,15 +80,13 @@ type ReindexFields struct {
 	Index string `json:"index"`
 }
 
-const migrationsDir = "mappings"
-
-type migrationVersion struct {
-	version int
-	mapping map[string]interface{}
+type VersionedMapping struct {
+	Version  string                 `json:"version"`
+	Mappings map[string]interface{} `json:"mappings"`
 }
 
-func (e *ESMigrator) LoadMigrations() error {
-	if err := filepath.Walk(migrationsDir, func(filePath string, info os.FileInfo, err error) error {
+func (e *ESMigrator) LoadMigrations(dir string) error {
+	if err := filepath.Walk(dir, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
 		}
@@ -101,47 +95,25 @@ func (e *ESMigrator) LoadMigrations() error {
 			return nil
 		}
 
-		localPath := strings.TrimPrefix(filePath, migrationsDir+"/")
+		localPath := strings.TrimPrefix(filePath, dir+"/")
 		fileName := path.Base(localPath)
-		resourceDir := path.Dir(localPath)
 		fileNameWithoutExtension := strings.TrimPrefix(strings.TrimSuffix(fileName, filepath.Ext(fileName)), "v")
-		version, err := strconv.Atoi(fileNameWithoutExtension)
+
+		versionedMappingJson, err := ioutil.ReadFile(filePath)
 		if err != nil {
 			return err
 		}
+		var mapping VersionedMapping
 
-		if mappingVersion, ok := e.mappings[resourceDir]; ok {
-			if mappingVersion.version > version {
-				return nil
-			}
-		}
-
-		// v1
-		//version := strings.Split(migrationFileName, ".")[0]
-
-		mappingJson, err := ioutil.ReadFile(filePath)
-		if err != nil {
-			return err
-		}
-		var mapping map[string]interface{}
-
-		if err := json.Unmarshal(mappingJson, &mapping); err != nil {
+		if err := json.Unmarshal(versionedMappingJson, &mapping); err != nil {
 			return err
 		}
 
-		e.mappings[resourceDir] = &migrationVersion{
-			version: version,
-			mapping: mapping,
-		}
+		e.mappings[fileNameWithoutExtension] = &mapping
 
 		return nil
 	}); err != nil {
 		return err
-	}
-
-	for k, v := range e.mappings {
-		vv := v
-		fmt.Printf("%s -> %d\n", k, vv.version)
 	}
 
 	return nil
@@ -174,10 +146,12 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		return fmt.Errorf("unable to block writes for index: %s", migration.Index)
 	}
 
-	newIndexName := fmt.Sprintf("%s-%s", migration.Index, migration.Version)
+	versionedMapping := e.mappings[migration.DocumentKind]
+
+	newIndexName := fmt.Sprintf("%s-%s", migration.Index, versionedMapping.Version)
 	log = log.With(zap.String("newIndex", newIndexName))
 	indexBody := map[string]interface{}{
-		"mappings": migration.Mapping,
+		"mappings": versionedMapping.Mappings,
 	}
 	indexCreateBody, _ := encodeRequest(&indexBody)
 

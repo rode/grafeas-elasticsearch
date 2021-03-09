@@ -71,13 +71,13 @@ func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorageFunc, 
 		fmt.Println("Migrate??", migrate)
 
 		migrator := NewESMigrator(logger, es.client)
-		fmt.Println("error?", migrator.LoadMigrations())
+		const migrationsDir = "mappings"
+		fmt.Println("error?", migrator.LoadMigrations(migrationsDir))
 		if migrate == "yes" {
 			migration := &Migration{
-				Version: "v2",
-				Mapping: map[string]interface{}{},
-				Index:   "grafeas-v1beta1-rode-occurrences",
-				Alias:   "grafeas-rode-occurrences",
+				DocumentKind: "occurrence",
+				Index:        "grafeas-v1beta1-rode-occurrences",
+				Alias:        "grafeas-rode-occurrences",
 			}
 			err = migrator.Migrate(context.Background(), migration)
 

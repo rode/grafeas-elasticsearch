@@ -1,0 +1,19 @@
+{
+  "version": "v1",
+  "mappings": {
+    "_meta": {
+      "type": "grafeas"
+    },
+    "dynamic_templates": [
+      {
+        "strings_as_keywords": {
+          "match_mapping_type": "string",
+          "mapping": {
+            "type": "keyword",
+            "norms": false
+          }
+        }
+      }
+    ]
+  }
+}

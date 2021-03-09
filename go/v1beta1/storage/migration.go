@@ -96,7 +96,7 @@ type indexMetadata struct {
 }
 
 type ESDocumentResponse struct {
-	Source     json.RawMessage `json:"_source"`
+	Source json.RawMessage `json:"_source"`
 }
 
 func (e *ESMigrator) LoadMappings(dir string) error {
@@ -258,12 +258,10 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	_ = decodeResponse(res.Body, &docResponse)
 	data, _ := docResponse.Source.MarshalJSON()
 	if err := json.Unmarshal(data, &metadataDoc); err != nil {
-		return fmt.Errorf("json error", err)
+		return err
 	}
 
-	// remove old index
 	delete(metadataDoc, migration.Index)
-	// add new index
 	metadataDoc[newIndexName] = &indexMetadata{MappingsVersion: versionedMapping.Version}
 
 	doc := map[string]interface{}{
@@ -286,7 +284,7 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 	}
 
 	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound {
-		return nil, fmt.Errorf("Unexpected status code from Elasticsearch %d", res.StatusCode)
+		return nil, fmt.Errorf("unexpected status code from Elasticsearch %d", res.StatusCode)
 	}
 	if res.StatusCode == http.StatusNotFound {
 		createDoc = true
@@ -296,7 +294,7 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 
 		data, _ := docResponse.Source.MarshalJSON()
 		if err := json.Unmarshal(data, &indexDoc); err != nil {
-			return nil, fmt.Errorf("json error", err)
+			return nil, err
 		}
 	}
 
@@ -335,7 +333,7 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 			indexData := allIndices[indexName].(map[string]interface{})
 			aliases := indexData["aliases"].(map[string]interface{})
 			alias := ""
-			for key, _ := range aliases {
+			for key := range aliases {
 				alias = key
 			}
 			migrations = append(migrations, &Migration{Index: indexName, DocumentKind: docKind, Alias: alias})

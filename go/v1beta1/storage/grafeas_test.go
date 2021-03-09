@@ -50,7 +50,7 @@ var _ = Describe("Grafeas integration", func() {
 	JustBeforeEach(func() {
 		mockEsClient := &elasticsearch.Client{Transport: transport, API: esapi.New(transport)}
 
-		elasticsearchStorage = NewElasticsearchStorage(logger, mockEsClient, filterer, esConfig)
+		elasticsearchStorage = NewElasticsearchStorage(logger, mockEsClient, filterer, esConfig, nil)
 	})
 
 	AfterEach(func() {

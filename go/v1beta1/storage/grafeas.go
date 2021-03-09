@@ -83,7 +83,7 @@ func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorageFunc, 
 		migrationOrchestrator := NewMigrationOrchestrator(logger.Named("MigrationOrchestrator"), es.migrator)
 
 		if err := migrationOrchestrator.RunMigrations(ctx); err != nil {
-			return nil, fmt.Errorf("error running migrations", err)
+			return nil, fmt.Errorf("error running migrations: %s", err)
 		}
 
 		return &storage.Storage{

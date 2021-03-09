@@ -195,8 +195,8 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 
 	res, err := es.client.Indices.Delete(
 		[]string{
-			occurrencesAlias(projectId),
-			notesAlias(projectId),
+			occurrencesIndex(projectId),
+			notesIndex(projectId),
 		},
 		es.client.Indices.Delete.WithContext(ctx),
 	)

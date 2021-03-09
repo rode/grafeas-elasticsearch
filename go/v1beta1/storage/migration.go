@@ -17,6 +17,11 @@ import (
 	"go.uber.org/zap"
 )
 
+const (
+	metadataIndexName    string = "grafeas-metadata"
+	indicesMetadataDocId string = "grafeas-indices-metadata"
+)
+
 type ESMigrator struct {
 	client   *elasticsearch.Client
 	logger   *zap.Logger
@@ -84,6 +89,14 @@ type ReindexFields struct {
 type VersionedMapping struct {
 	Version  string                 `json:"version"`
 	Mappings map[string]interface{} `json:"mappings"`
+}
+
+type indexMetadata struct {
+	MappingsVersion string `json:"mappingsVersion"`
+}
+
+type ESDocumentResponse struct {
+	Source     json.RawMessage `json:"_source"`
 }
 
 func (e *ESMigrator) LoadMappings(dir string) error {
@@ -231,17 +244,42 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		[]string{migration.Index},
 		e.client.Indices.Delete.WithContext(ctx),
 	)
+	if err := getErrorFromESResponse(res, err); err != nil {
+		return err
+	}
 
-	// TODO: remove old index from metadata doc and add new index at appropriate version
+	res, err = e.client.Get(metadataIndexName, indicesMetadataDocId, e.client.Get.WithContext(ctx))
+	if err := getErrorFromESResponse(res, err); err != nil {
+		return err
+	}
+
+	docResponse := ESDocumentResponse{}
+	metadataDoc := map[string]*indexMetadata{}
+	_ = decodeResponse(res.Body, &docResponse)
+	data, _ := docResponse.Source.MarshalJSON()
+	if err := json.Unmarshal(data, &metadataDoc); err != nil {
+		return fmt.Errorf("json error", err)
+	}
+
+	// remove old index
+	delete(metadataDoc, migration.Index)
+	// add new index
+	metadataDoc[newIndexName] = &indexMetadata{MappingsVersion: versionedMapping.Version}
+
+	doc := map[string]interface{}{
+		"doc": metadataDoc,
+	}
+	docUpdateReq, _ := encodeRequest(doc)
+	res, err = e.client.Update(metadataIndexName, indicesMetadataDocId, docUpdateReq, e.client.Update.WithContext(ctx))
 
 	return getErrorFromESResponse(res, err)
 }
 
 func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 	createDoc := false
-	metadataIndexName := "grafeas-metadata"
-	var indexDoc map[string]interface{}
-	res, err := e.client.Get(metadataIndexName, "grafeas-indices-metadata", e.client.Get.WithContext(ctx))
+
+	indexDoc := map[string]*indexMetadata{}
+	res, err := e.client.Get(metadataIndexName, indicesMetadataDocId, e.client.Get.WithContext(ctx))
 
 	if err != nil {
 		return nil, err
@@ -252,11 +290,14 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 	}
 	if res.StatusCode == http.StatusNotFound {
 		createDoc = true
-		indexDoc = map[string]interface{}{}
 	} else {
-		docResponse := map[string]interface{}{}
+		docResponse := ESDocumentResponse{}
 		_ = decodeResponse(res.Body, &docResponse)
-		indexDoc = docResponse["_source"].(map[string]interface{})
+
+		data, _ := docResponse.Source.MarshalJSON()
+		if err := json.Unmarshal(data, &indexDoc); err != nil {
+			return nil, fmt.Errorf("json error", err)
+		}
 	}
 
 	res, err = e.client.Indices.Get([]string{"_all"}, e.client.Indices.Get.WithContext(ctx))
@@ -279,19 +320,18 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 
 		if metaType == "grafeas" {
 			if _, ok := indexDoc[indexName]; !ok {
-				indexDoc[indexName] = map[string]interface{}{
-					"mappingsVersion": "v1",
+				indexDoc[indexName] = &indexMetadata{
+					MappingsVersion: "v1",
 				}
 			}
 		}
 	}
 	var migrations []*Migration
 	for indexName, metadata := range indexDoc {
-		metadataMap := metadata.(map[string]interface{})
 		res := strings.Split(indexName, "-")
 		docKind := res[len(res)-1]
 		versionedMapping := e.mappings[docKind]
-		if metadataMap["mappingsVersion"] != versionedMapping.Version {
+		if metadata.MappingsVersion != versionedMapping.Version {
 			indexData := allIndices[indexName].(map[string]interface{})
 			aliases := indexData["aliases"].(map[string]interface{})
 			alias := ""
@@ -301,19 +341,18 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 			migrations = append(migrations, &Migration{Index: indexName, DocumentKind: docKind, Alias: alias})
 		}
 	}
+
 	if createDoc {
 		docBody, _ := encodeRequest(indexDoc)
-		res, err = e.client.Create(metadataIndexName, "grafeas-indices-metadata", docBody, e.client.Create.WithContext(ctx))
-
+		res, err = e.client.Create(metadataIndexName, indicesMetadataDocId, docBody, e.client.Create.WithContext(ctx))
 	} else {
 		doc := map[string]interface{}{
 			"doc": indexDoc,
 		}
 		docUpdateReq, _ := encodeRequest(doc)
-		res, err = e.client.Update(metadataIndexName, "grafeas-indices-metadata", docUpdateReq, e.client.Update.WithContext(ctx))
+		res, err = e.client.Update(metadataIndexName, indicesMetadataDocId, docUpdateReq, e.client.Update.WithContext(ctx))
 	}
-	arr, _ := ioutil.ReadAll(res.Body)
-	fmt.Printf("Update response %s\n", arr)
+
 	if err := getErrorFromESResponse(res, err); err != nil {
 		return nil, err
 	}
@@ -388,8 +427,26 @@ func NewMigrationOrchestrator(logger *zap.Logger, migrator Migrator) *MigrationO
 	}
 }
 
-func (m *MigrationOrchestrator) RunMigrations() error {
-	// m.migrator.LoadMappings()
+func (m *MigrationOrchestrator) RunMigrations(ctx context.Context) error {
+	log := m.logger.Named("RunMigrations")
+	migrationsToRun, err := m.migrator.GetMigrations(ctx)
+	if err != nil {
+		return err
+	}
+
+	if len(migrationsToRun) == 0 {
+		log.Info("No migrations to run")
+		return nil
+	}
+
+	log.Info(fmt.Sprintf("Discovered %d migrations to run", len(migrationsToRun)))
+
+	for _, migration := range migrationsToRun {
+		if err := m.migrator.Migrate(ctx, migration); err != nil {
+			return err
+		}
+	}
+
 	// try to block writes on metadata index
 	// if it's already locked, bail
 	// m.migrator.GetMigrations()

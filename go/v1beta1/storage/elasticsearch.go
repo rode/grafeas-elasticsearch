@@ -97,12 +97,12 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 
 	indexesToCreate := []*Migration{
 		{
-			DocumentKind: "occurrence",
+			DocumentKind: "occurrences",
 			Index:        occurrencesIndex(projectId),
 			Alias:        occurrencesAlias(projectId),
 		},
 		{
-			DocumentKind: "note",
+			DocumentKind: "notes",
 			Index:        notesIndex(projectId),
 			Alias:        notesAlias(projectId),
 		},

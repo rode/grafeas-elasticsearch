@@ -17,7 +17,6 @@ package storage
 import (
 	"context"
 	"fmt"
-	"os"
 
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
 	"github.com/grafeas/grafeas/go/v1beta1/storage"
@@ -61,44 +60,30 @@ func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorageFunc, 
 		}
 
 		const migrationsDir = "mappings"
+		ctx := context.Background()
 		if err := es.migrator.LoadMappings(migrationsDir); err != nil {
 			return nil, err
 		}
 
-		if err := es.migrator.CreateIndexFromMigration(context.Background(), &Migration{
+		if err := es.migrator.CreateIndexFromMigration(ctx, &Migration{
 			DocumentKind: "metadata",
 			Index:        "grafeas-metadata",
 		}); err != nil {
 			return nil, createError(log, "error creating metadata index", err)
 		}
 
-		if err := es.migrator.CreateIndexFromMigration(context.Background(), &Migration{
-			DocumentKind: "project",
+		if err := es.migrator.CreateIndexFromMigration(ctx, &Migration{
+			DocumentKind: "projects",
 			Index:        projectsIndex(),
 			Alias:        projectsAlias(),
 		}); err != nil {
 			return nil, createError(log, "error creating initial projects index", err)
 		}
-		migrations, err := es.migrator.GetMigrations(context.Background())
 
-		if err != nil {
-			return nil, err
-		}
-		fmt.Printf("length of migrations %d, printing them now \n", len(migrations))
-		for _, v := range migrations {
-			fmt.Println("migrating %s", v.Index)
-		}
-		if os.Getenv("GRAFEAS_MIGRATE") == "yes" {
-			migration := &Migration{
-				DocumentKind: "occurrence",
-				Index:        "grafeas-v1beta1-rode-occurrences",
-				Alias:        "grafeas-rode-occurrences",
-			}
-			err = es.migrator.Migrate(context.Background(), migration)
+		migrationOrchestrator := NewMigrationOrchestrator(logger.Named("MigrationOrchestrator"), es.migrator)
 
-			if err != nil {
-				log.Fatal("migration failed", zap.Error(err))
-			}
+		if err := migrationOrchestrator.RunMigrations(ctx); err != nil {
+			return nil, fmt.Errorf("error running migrations", err)
 		}
 
 		return &storage.Storage{
@@ -107,83 +92,3 @@ func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorageFunc, 
 		}, nil
 	}
 }
-
-//func createMetadataIndexIfNotExists(log *zap.Logger, es *elasticsearch.Client) error {
-//	metadataIndexName := fmt.Sprintf("grafeas-metadata")
-//	res, err := es.Indices.Exists([]string{metadataIndexName})
-//	ctx := context.Background()
-//	if err != nil || (res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound) {
-//		return createError(log, fmt.Sprintf("error checking if index %s already exists", metadataIndexName), err)
-//	}
-//
-//	// the response is an error if the index was not found, so we need to create it
-//	if !res.IsError() {
-//		return nil
-//	}
-//
-//	log = log.With(zap.String("index", projectsIndex()))
-//	log.Info("index not found, creating...", zap.String("index", metadataIndexName))
-//
-//	metadataSchema := map[string]interface{}{
-//		"mappings": map[string]interface{}{
-//			"_meta": map[string]string{
-//				"type": "grafeas",
-//			},
-//		},
-//	}
-//	payload, _ := encodeRequest(&metadataSchema)
-//	res, err = es.Indices.Create(
-//		metadataIndexName,
-//		es.Indices.Create.WithBody(payload),
-//	)
-//	if err != nil {
-//		return createError(log, "error sending index creation request to elasticsearch", err)
-//	}
-//	if res.IsError() {
-//		return createError(log, "error creating index in elasticsearch", fmt.Errorf(res.String()))
-//	}
-//	log.Info("metadata index created", zap.String("index", metadataIndexName))
-//
-//	res, err = es.Indices.Get([]string{"_all"}, es.Indices.Get.WithContext(ctx))
-//	if err != nil {
-//		return err
-//	}
-//
-//	if res.IsError() {
-//		return fmt.Errorf("not okay response listing indices: %d", res.StatusCode)
-//	}
-//
-//	allIndices := map[string]interface{}{}
-//
-//	_ = decodeResponse(res.Body, &allIndices)
-//	indexDoc := map[string]interface{}{}
-//	for indexName, index := range allIndices {
-//		if indexName == metadataIndexName || !strings.HasPrefix(indexName, "grafeas") {
-//			continue
-//		}
-//
-//		index := index.(map[string]interface{})
-//		mappings := index["mappings"].(map[string]interface{})
-//		meta := mappings["_meta"].(map[string]interface{})
-//		metaType := meta["type"].(string)
-//
-//		if metaType == "grafeas" {
-//			indexDoc[indexName] = map[string]interface{}{
-//				"mappingsVersion": "v1",
-//			}
-//		}
-//	}
-//
-//	docBody, _ := encodeRequest(indexDoc)
-//	res, err = es.Create(metadataIndexName, "grafeas-indices-metadata", docBody, es.Create.WithContext(ctx))
-//
-//	if err != nil {
-//		return err
-//	}
-//
-//	if res.IsError() {
-//		return fmt.Errorf("not okay response creating metadata doc: %d", res.StatusCode)
-//	}
-//
-//	return nil
-//}

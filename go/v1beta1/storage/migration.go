@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
@@ -85,7 +86,7 @@ type VersionedMapping struct {
 	Mappings map[string]interface{} `json:"mappings"`
 }
 
-func (e *ESMigrator) LoadMigrations(dir string) error {
+func (e *ESMigrator) LoadMappings(dir string) error {
 	if err := filepath.Walk(dir, func(filePath string, info os.FileInfo, err error) error {
 		if err != nil {
 			return err
@@ -97,8 +98,7 @@ func (e *ESMigrator) LoadMigrations(dir string) error {
 
 		localPath := strings.TrimPrefix(filePath, dir+"/")
 		fileName := path.Base(localPath)
-		fileNameWithoutExtension := strings.TrimPrefix(strings.TrimSuffix(fileName, filepath.Ext(fileName)), "v")
-
+		fileNameWithoutExtension := strings.TrimSuffix(fileName, filepath.Ext(fileName))
 		versionedMappingJson, err := ioutil.ReadFile(filePath)
 		if err != nil {
 			return err
@@ -147,7 +147,6 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	}
 
 	versionedMapping := e.mappings[migration.DocumentKind]
-
 	newIndexName := fmt.Sprintf("%s-%s", migration.Index, versionedMapping.Version)
 	log = log.With(zap.String("newIndex", newIndexName))
 	indexBody := map[string]interface{}{
@@ -233,7 +232,51 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		e.client.Indices.Delete.WithContext(ctx),
 	)
 
+	// TODO: remove old index from metadata doc and add new index at appropriate version
+
 	return getErrorFromESResponse(res, err)
+}
+
+func (e *ESMigrator) GetMigrations() ([]*Migration, error) {
+	return nil, nil
+}
+
+func (e *ESMigrator) CreateIndexFromMigration(ctx context.Context, migration *Migration) error {
+	log := e.logger.Named("CreateIndexFromMigration").With(zap.String("index", migration.Index))
+
+	res, err := e.client.Indices.Exists([]string{migration.Index}, e.client.Indices.Exists.WithContext(ctx))
+	if err != nil || (res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound) {
+		return createError(log, fmt.Sprintf("error checking if %s index already exists", migration.Index), err)
+	}
+
+	if !res.IsError() {
+		return nil
+	}
+
+	mapping, ok := e.mappings[migration.DocumentKind]
+	if !ok {
+		return fmt.Errorf("no mapping found for index %s with document kind %s", migration.Index, migration.DocumentKind)
+	}
+	createIndexReq := map[string]interface{}{
+		"mappings": mapping.Mappings,
+	}
+	if migration.Alias != "" {
+		createIndexReq["aliases"] = map[string]interface{}{
+			migration.Alias: map[string]interface{}{},
+		}
+	}
+
+	payload, _ := encodeRequest(&createIndexReq)
+	res, err = e.client.Indices.Create(migration.Index, e.client.Indices.Create.WithContext(ctx), e.client.Indices.Create.WithBody(payload))
+	if err := getErrorFromESResponse(res, err); err != nil {
+		return err
+	}
+
+	log.Info("index created", zap.String("index", migration.Index))
+
+	// TODO: create or update index doc
+
+	return nil
 }
 
 func getErrorFromESResponse(res *esapi.Response, err error) error {
@@ -244,5 +287,37 @@ func getErrorFromESResponse(res *esapi.Response, err error) error {
 	if res.IsError() {
 		return fmt.Errorf("response error from ES: %d", res.StatusCode)
 	}
+	return nil
+}
+
+type Migrator interface {
+	LoadMappings(dir string) error                                            // read mappings from files
+	GetMigrations() ([]*Migration, error)                                     // find all migrations that need to run
+	Migrate(ctx context.Context, migration *Migration) error                  // run a single migration on a single index
+	CreateIndexFromMigration(ctx context.Context, migration *Migration) error // create an index for the first time
+}
+
+type MigrationOrchestrator struct {
+	logger   *zap.Logger
+	migrator Migrator
+}
+
+func NewMigrationOrchestrator(logger *zap.Logger, migrator Migrator) *MigrationOrchestrator {
+	return &MigrationOrchestrator{
+		logger:   logger,
+		migrator: migrator,
+	}
+}
+
+func (m *MigrationOrchestrator) RunMigrations() error {
+	// m.migrator.LoadMappings()
+	// try to block writes on metadata index
+	// if it's already locked, bail
+	// m.migrator.GetMigrations()
+	// for each migrations: m.migrator.Migrate() (separate go routine)
+	// wait group for all migrations to settle
+	// unblock metadata index, bump versions
+	// fin
+
 	return nil
 }

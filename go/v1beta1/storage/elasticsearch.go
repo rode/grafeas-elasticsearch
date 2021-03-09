@@ -22,7 +22,6 @@ import (
 	"io"
 
 	"github.com/elastic/go-elasticsearch/v7"
-	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/google/uuid"
@@ -51,15 +50,17 @@ type ElasticsearchStorage struct {
 	client   *elasticsearch.Client
 	config   *config.ElasticsearchConfig
 	filterer filtering.Filterer
+	migrator Migrator
 	logger   *zap.Logger
 }
 
-func NewElasticsearchStorage(logger *zap.Logger, client *elasticsearch.Client, filterer filtering.Filterer, config *config.ElasticsearchConfig) *ElasticsearchStorage {
+func NewElasticsearchStorage(logger *zap.Logger, client *elasticsearch.Client, filterer filtering.Filterer, config *config.ElasticsearchConfig, migrator Migrator) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
-		client,
-		config,
-		filterer,
-		logger,
+		client:   client,
+		config:   config,
+		filterer: filterer,
+		logger:   logger,
+		migrator: migrator,
 	}
 }
 
@@ -94,32 +95,23 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 		return nil, err
 	}
 
-	indexSettings := []struct {
-		name  string
-		alias string
-	}{
+	indexesToCreate := []*Migration{
 		{
-			name:  occurrencesIndex(projectId),
-			alias: occurrencesAlias(projectId),
+			DocumentKind: "occurrence",
+			Index:        occurrencesIndex(projectId),
+			Alias:        occurrencesAlias(projectId),
 		},
 		{
-			name:  notesIndex(projectId),
-			alias: notesAlias(projectId),
+			DocumentKind: "note",
+			Index:        notesIndex(projectId),
+			Alias:        notesAlias(projectId),
 		},
 	}
 
 	// create indices for occurrences and notes
-	for _, indexSetting := range indexSettings {
-		res, err := es.client.Indices.Create(
-			indexSetting.name,
-			es.client.Indices.Create.WithContext(ctx),
-			withIndexMetadataAndStringMapping(indexSetting.alias),
-		)
-		if err != nil {
-			return nil, createError(log, "error sending request to elasticsearch", err)
-		}
-		if res.IsError() {
-			return nil, createError(log, "error creating index in elasticsearch", err)
+	for _, indexToCreate := range indexesToCreate {
+		if err := es.migrator.CreateIndexFromMigration(ctx, indexToCreate); err != nil {
+			return nil, createError(log, "error creating index", err)
 		}
 	}
 
@@ -815,38 +807,6 @@ func createError(log *zap.Logger, message string, err error, fields ...zap.Field
 
 	log.Error(message, append(fields, zap.Error(err))...)
 	return status.Errorf(codes.Internal, "%s: %s", message, err)
-}
-
-// withIndexMetadataAndStringMapping adds an index mapping to add metadata that can be used to help identify an index as
-// a part of the Grafeas storage backend, and a dynamic template to map all strings to keywords.
-func withIndexMetadataAndStringMapping(aliasName string) func(*esapi.IndicesCreateRequest) {
-	var indexCreateBuffer bytes.Buffer
-	indexCreateBody := map[string]interface{}{
-		"mappings": map[string]interface{}{
-			"_meta": map[string]string{
-				"type": "grafeas",
-			},
-
-			"dynamic_templates": []map[string]interface{}{
-				{
-					"strings_as_keywords": map[string]interface{}{
-						"match_mapping_type": "string",
-						"mapping": map[string]interface{}{
-							"type":  "keyword",
-							"norms": false,
-						},
-					},
-				},
-			},
-		},
-		"aliases": map[string]interface{}{
-			aliasName: map[string]interface{}{},
-		},
-	}
-
-	_ = json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody)
-
-	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
 }
 
 func decodeResponse(r io.ReadCloser, i interface{}) error {

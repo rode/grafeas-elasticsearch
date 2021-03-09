@@ -43,7 +43,9 @@ func main() {
 			return nil, fmt.Errorf("failed to connect to Elasticsearch")
 		}
 
-		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c), nil
+		migrator := storage.NewESMigrator(logger.Named("ESMigrator"), esClient)
+
+		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c, migrator), nil
 	}, logger)
 
 	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", registerStorageTypeProvider)

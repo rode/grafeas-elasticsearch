@@ -79,7 +79,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 			},
 		},
 	}
-	err := es.genericGet(ctx, log, search, projectsIndex(), &prpb.Project{})
+	err := es.genericGet(ctx, log, search, projectsAlias(), &prpb.Project{})
 	if err == nil { // project exists
 		log.Debug("project already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s already exists", projectName))
@@ -90,7 +90,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 	p.Name = projectName
 
 	// create project document
-	err = es.genericCreate(ctx, log, projectsIndex(), p)
+	err = es.genericCreate(ctx, log, projectsAlias(), p)
 	if err != nil {
 		return nil, err
 	}
@@ -134,7 +134,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectId string
 	}
 	project := &prpb.Project{}
 
-	err := es.genericGet(ctx, log, search, projectsIndex(), project)
+	err := es.genericGet(ctx, log, search, projectsAlias(), project)
 	if err != nil {
 		return nil, err
 	}
@@ -148,7 +148,7 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 	var projects []*prpb.Project
 	log := es.logger.Named("ListProjects")
 
-	res, err := es.genericList(ctx, log, projectsIndex(), filter, false)
+	res, err := es.genericList(ctx, log, projectsAlias(), filter, false)
 	if err != nil {
 		return nil, "", err
 	}
@@ -186,7 +186,7 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 		},
 	}
 
-	err := es.genericDelete(ctx, log, search, projectsIndex())
+	err := es.genericDelete(ctx, log, search, projectsAlias())
 	if err != nil {
 		return err
 	}
@@ -195,8 +195,8 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 
 	res, err := es.client.Indices.Delete(
 		[]string{
-			occurrencesIndex(projectId),
-			notesIndex(projectId),
+			occurrencesAlias(projectId),
+			notesAlias(projectId),
 		},
 		es.client.Indices.Delete.WithContext(ctx),
 	)
@@ -223,7 +223,7 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectId, oc
 	}
 	occurrence := &pb.Occurrence{}
 
-	err := es.genericGet(ctx, log, search, occurrencesIndex(projectId), occurrence)
+	err := es.genericGet(ctx, log, search, occurrencesAlias(projectId), occurrence)
 	if err != nil {
 		return nil, err
 	}
@@ -237,7 +237,7 @@ func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, projectId, 
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("ListOccurrences").With(zap.String("project", projectName))
 
-	res, err := es.genericList(ctx, log, occurrencesIndex(projectId), filter, true)
+	res, err := es.genericList(ctx, log, occurrencesAlias(projectId), filter, true)
 	if err != nil {
 		return nil, "", err
 	}
@@ -270,7 +270,7 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId,
 	}
 	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, uuid.New().String())
 
-	err := es.genericCreate(ctx, log, occurrencesIndex(projectId), o)
+	err := es.genericCreate(ctx, log, occurrencesAlias(projectId), o)
 	if err != nil {
 		return nil, err
 	}
@@ -287,7 +287,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 
 	indexMetadata := &esBulkQueryFragment{
 		Index: &esBulkQueryIndexFragment{
-			Index: occurrencesIndex(projectId),
+			Index: occurrencesAlias(projectId),
 		},
 	}
 
@@ -392,7 +392,7 @@ func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, projectId,
 		},
 	}
 
-	return es.genericDelete(ctx, log, search, occurrencesIndex(projectId))
+	return es.genericDelete(ctx, log, search, occurrencesAlias(projectId))
 }
 
 // GetNote returns the note with project (pID) and note ID (nID)
@@ -409,7 +409,7 @@ func (es *ElasticsearchStorage) GetNote(ctx context.Context, projectId, noteId s
 	}
 	note := &pb.Note{}
 
-	err := es.genericGet(ctx, log, search, notesIndex(projectId), note)
+	err := es.genericGet(ctx, log, search, notesAlias(projectId), note)
 	if err != nil {
 		return nil, err
 	}
@@ -423,7 +423,7 @@ func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectId, filter
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("ListNotes").With(zap.String("project", projectName))
 
-	res, err := es.genericList(ctx, log, notesIndex(projectId), filter, true)
+	res, err := es.genericList(ctx, log, notesAlias(projectId), filter, true)
 	if err != nil {
 		return nil, "", err
 	}
@@ -460,7 +460,7 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 			},
 		},
 	}
-	err := es.genericGet(ctx, log, search, notesIndex(projectId), &pb.Note{})
+	err := es.genericGet(ctx, log, search, notesAlias(projectId), &pb.Note{})
 	if err == nil { // note exists
 		log.Debug("note already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("note with name %s already exists", noteName))
@@ -473,7 +473,7 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 	}
 	n.Name = noteName
 
-	err = es.genericCreate(ctx, log, notesIndex(projectId), n)
+	err = es.genericCreate(ctx, log, notesAlias(projectId), n)
 	if err != nil {
 		return nil, err
 	}
@@ -487,7 +487,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	log.Debug("creating notes")
 
 	searchMetadata, _ := json.Marshal(&esMultiSearchQueryFragment{
-		Index: notesIndex(projectId),
+		Index: notesAlias(projectId),
 	})
 	searchMetadata = append(searchMetadata, "\n"...)
 
@@ -563,7 +563,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 
 	indexMetadata, _ := json.Marshal(&esBulkQueryFragment{
 		Index: &esBulkQueryIndexFragment{
-			Index: notesIndex(projectId),
+			Index: notesAlias(projectId),
 		},
 	})
 	indexMetadata = append(indexMetadata, "\n"...)
@@ -648,7 +648,7 @@ func (es *ElasticsearchStorage) DeleteNote(ctx context.Context, projectId, noteI
 		},
 	}
 
-	return es.genericDelete(ctx, log, search, notesIndex(projectId))
+	return es.genericDelete(ctx, log, search, notesAlias(projectId))
 }
 
 // GetOccurrenceNote gets the note for the specified occurrence from PostgreSQL.
@@ -831,20 +831,20 @@ func projectsAlias() string {
 	return fmt.Sprintf("%s-projects", aliasPrefix)
 }
 
-func occurrencesAlias(projectId string) string {
-	return fmt.Sprintf("%s-%s-occurrences", aliasPrefix, projectId)
-}
-
-func notesAlias(projectId string) string {
-	return fmt.Sprintf("%s-%s-notes", aliasPrefix, projectId)
-}
-
 func occurrencesIndex(projectId string) string {
 	return fmt.Sprintf("%s-%s-occurrences", indexPrefix, projectId)
 }
 
+func occurrencesAlias(projectId string) string {
+	return fmt.Sprintf("%s-%s-occurrences", aliasPrefix, projectId)
+}
+
 func notesIndex(projectId string) string {
 	return fmt.Sprintf("%s-%s-notes", indexPrefix, projectId)
+}
+
+func notesAlias(projectId string) string {
+	return fmt.Sprintf("%s-%s-notes", aliasPrefix, projectId)
 }
 
 // DeleteByQuery does not support `wait_for` value, although API docs say it is available.

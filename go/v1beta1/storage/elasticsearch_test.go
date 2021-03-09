@@ -20,6 +20,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"net/http"
+	"strconv"
+	"strings"
+
 	"github.com/golang/mock/gomock"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
@@ -29,11 +35,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
-	"io"
-	"io/ioutil"
-	"net/http"
-	"strconv"
-	"strings"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 
@@ -980,6 +982,167 @@ var _ = Describe("elasticsearch storage", func() {
 				// assert that we got a single error back
 				Expect(actualErrs).To(HaveLen(1))
 				Expect(actualErrs[0]).To(HaveOccurred())
+			})
+		})
+	})
+
+	Context("updating a Grafeas occurrence", func() {
+		var (
+			currentOccurrence *pb.Occurrence
+
+			expectedOccurrence       *pb.Occurrence
+			occurrencePatchData      *pb.Occurrence
+			expectedOccurrencesIndex string
+			expectedOccurrenceId     string
+			expectedOccurrenceName   string
+			fieldMask                *fieldmaskpb.FieldMask
+			actualErr                error
+			actualOccurrence         *pb.Occurrence
+		)
+
+		// BeforeEach configures the happy path for this context
+		// Variables configured here may be overridden in nested BeforeEach blocks
+		BeforeEach(func() {
+			expectedOccurrenceId = fake.LetterN(10)
+			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-occurrences", indexPrefix, expectedProjectId)
+			expectedOccurrenceName = fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)
+			currentOccurrence = generateTestOccurrence("")
+			occurrencePatchData = &grafeas_go_proto.Occurrence{
+				Resource: &grafeas_go_proto.Resource{
+					Uri: "updatedvalue",
+				},
+			}
+			fieldMask = &fieldmaskpb.FieldMask{
+				Paths: []string{"Resource.Uri"},
+			}
+			expectedOccurrence = currentOccurrence
+			expectedOccurrence.Resource.Uri = "updatedvalue"
+
+			transport.preparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body:       createGenericEsSearchResponse(currentOccurrence),
+				},
+				{
+					StatusCode: http.StatusCreated,
+					Body: structToJsonBody(&esIndexDocResponse{
+						Result: "updated",
+					}),
+				},
+			}
+		})
+
+		// JustBeforeEach actually invokes the system under test
+		JustBeforeEach(func() {
+			// actualOccurrence, actualErr = elasticsearchStorage.UpdateOccurrence(context.Background(), expectedProjectId, "", occurrence, nil)
+			actualOccurrence, actualErr = elasticsearchStorage.UpdateOccurrence(context.Background(), expectedProjectId, expectedOccurrenceId, occurrencePatchData, fieldMask)
+		})
+
+		It("should have sent a request to elasticsearch to retreive the occurrence document", func() {
+			Expect(transport.receivedHttpRequests).To(HaveLen(2))
+			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedOccurrencesIndex)))
+
+			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
+			Expect(err).ToNot(HaveOccurred())
+
+			searchBody := &esSearch{}
+			err = json.Unmarshal(requestBody, searchBody)
+			Expect(err).ToNot(HaveOccurred())
+
+			Expect((*searchBody.Query.Term)["name"]).To(Equal(expectedOccurrenceName))
+		})
+
+		It("should have sent a request to elasticsearch to update the occurrence document", func() {
+			Expect(transport.receivedHttpRequests).To(HaveLen(2))
+			Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodPost))
+			Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedOccurrencesIndex)))
+
+			_, err := ioutil.ReadAll(transport.receivedHttpRequests[1].Body)
+			Expect(err).ToNot(HaveOccurred())
+		})
+
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
+			BeforeEach(func() {
+				esConfig.Refresh = config.RefreshTrue
+			})
+
+			It("should immediately refresh the index", func() {
+				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
+			})
+		})
+
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshWaitFor), func() {
+			BeforeEach(func() {
+				esConfig.Refresh = config.RefreshWaitFor
+			})
+
+			It("should immediately refresh the index", func() {
+				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
+			})
+		})
+
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshFalse), func() {
+			BeforeEach(func() {
+				esConfig.Refresh = config.RefreshFalse
+			})
+
+			It("should not wait or force refresh of index", func() {
+				Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
+			})
+		})
+
+		When("elasticsearch successfully updates the occurrence document", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[1].Body = structToJsonBody(&esIndexDocResponse{
+					Result: "updated",
+				})
+			})
+
+			It("should not return an error", func() {
+				Expect(actualErr).ToNot(HaveOccurred())
+			})
+			It("should contain the newly added field", func() {
+				Expect(actualOccurrence.Resource.Uri).To(BeEquivalentTo(expectedOccurrence.Resource.Uri))
+			})
+			It("should have an updated UpdateTime field", func() {
+				Expect(actualOccurrence.UpdateTime).ToNot(Equal(expectedOccurrence.UpdateTime))
+			})
+		})
+
+		When("the occurrence does not exist", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body:       createGenericEsSearchResponse(),
+					},
+				}
+			})
+
+			It("should return a not found error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.NotFound)
+			})
+		})
+
+		When("elasticsearch fails to update the occurrence document", func() {
+			BeforeEach(func() {
+				transport.preparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+		})
+
+		When("using a badly formatted field mask", func() {
+			BeforeEach(func() {
+				fieldMask = &fieldmaskpb.FieldMask{
+					Paths: []string{"Resource..bro"},
+				}
+			})
+			It("should return an error", func() {
+				Expect(actualErr).To(HaveOccurred())
 			})
 		})
 	})

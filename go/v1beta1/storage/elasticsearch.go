@@ -19,6 +19,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/protobuf/proto"
@@ -30,11 +32,12 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
-	"io"
 
 	pb "github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 
+	"github.com/golang/protobuf/protoc-gen-go/generator"
+	fieldmask_utils "github.com/mennanov/fieldmask-utils"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
@@ -74,7 +77,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 			},
 		},
 	}
-	err := es.genericGet(ctx, log, search, projectsIndex(), &prpb.Project{})
+	_, err := es.genericGet(ctx, log, search, projectsIndex(), &prpb.Project{})
 	if err == nil { // project exists
 		log.Debug("project already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s already exists", projectName))
@@ -127,7 +130,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectId string
 	}
 	project := &prpb.Project{}
 
-	err := es.genericGet(ctx, log, search, projectsIndex(), project)
+	_, err := es.genericGet(ctx, log, search, projectsIndex(), project)
 	if err != nil {
 		return nil, err
 	}
@@ -216,7 +219,7 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectId, oc
 	}
 	occurrence := &pb.Occurrence{}
 
-	err := es.genericGet(ctx, log, search, occurrencesIndex(projectId), occurrence)
+	_, err := es.genericGet(ctx, log, search, occurrencesIndex(projectId), occurrence)
 	if err != nil {
 		return nil, err
 	}
@@ -367,7 +370,40 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 
 // UpdateOccurrence updates the existing occurrence with the given projectId and occurrenceId
 func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, projectId, occurrenceId string, o *pb.Occurrence, mask *fieldmaskpb.FieldMask) (*pb.Occurrence, error) {
-	return nil, nil
+	occurrenceName := fmt.Sprintf("projects/%s/occurrences/%s", projectId, occurrenceId)
+	log := es.logger.Named("Update Occurrence").With(zap.String("occurrence", occurrenceName))
+
+	search := &esSearch{
+		Query: &filtering.Query{
+			Term: &filtering.Term{
+				"name": occurrenceName,
+			},
+		},
+	}
+
+	occurrence := &pb.Occurrence{}
+
+	targetDocumentID, err := es.genericGet(ctx, log, search, occurrencesIndex(projectId), occurrence)
+
+	if err != nil {
+		return nil, err
+	}
+
+	if o.UpdateTime == nil {
+		mask.Paths = append(mask.Paths, "UpdateTime")
+		o.UpdateTime = ptypes.TimestampNow()
+	}
+
+	m, err := fieldmask_utils.MaskFromPaths(mask.Paths, generator.CamelCase)
+	if err != nil {
+		log.Info("errors while mapping masks", zap.Any("errors", err))
+		return occurrence, err
+	}
+	fieldmask_utils.StructToStruct(m, o, occurrence)
+
+	err = es.genericUpdate(ctx, log, occurrencesIndex(projectId), targetDocumentID, occurrence)
+
+	return occurrence, nil
 }
 
 // DeleteOccurrence deletes the occurrence with the given projectId and occurrenceId
@@ -402,7 +438,7 @@ func (es *ElasticsearchStorage) GetNote(ctx context.Context, projectId, noteId s
 	}
 	note := &pb.Note{}
 
-	err := es.genericGet(ctx, log, search, notesIndex(projectId), note)
+	_, err := es.genericGet(ctx, log, search, notesIndex(projectId), note)
 	if err != nil {
 		return nil, err
 	}
@@ -453,7 +489,7 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 			},
 		},
 	}
-	err := es.genericGet(ctx, log, search, notesIndex(projectId), &pb.Note{})
+	_, err := es.genericGet(ctx, log, search, notesIndex(projectId), &pb.Note{})
 	if err == nil { // note exists
 		log.Debug("note already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("note with name %s already exists", noteName))
@@ -659,7 +695,7 @@ func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.C
 	return &pb.VulnerabilityOccurrencesSummary{}, nil
 }
 
-func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *esSearch, index string, protoMessage interface{}) error {
+func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *esSearch, index string, protoMessage interface{}) (string, error) {
 	encodedBody, requestJson := encodeRequest(search)
 	log = log.With(zap.String("request", requestJson))
 
@@ -669,23 +705,23 @@ func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger,
 		es.client.Search.WithBody(encodedBody),
 	)
 	if err != nil {
-		return createError(log, "error sending request to elasticsearch", err)
+		return "", createError(log, "error sending request to elasticsearch", err)
 	}
 	if res.IsError() {
-		return createError(log, "error searching elasticsearch for document", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
+		return "", createError(log, "error searching elasticsearch for document", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
 	}
 
 	var searchResults esSearchResponse
 	if err := decodeResponse(res.Body, &searchResults); err != nil {
-		return createError(log, "error unmarshalling elasticsearch response", err)
+		return "", createError(log, "error unmarshalling elasticsearch response", err)
 	}
 
 	if searchResults.Hits.Total.Value == 0 {
 		log.Debug("document not found", zap.Any("search", search))
-		return status.Error(codes.NotFound, fmt.Sprintf("%T not found", protoMessage))
+		return "", status.Error(codes.NotFound, fmt.Sprintf("%T not found", protoMessage))
 	}
 
-	return protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(protoMessage))
+	return searchResults.Hits.Hits[0].ID, protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(protoMessage))
 }
 
 func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logger, index string, protoMessage interface{}) error {
@@ -697,6 +733,38 @@ func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logg
 	res, err := es.client.Index(
 		index,
 		bytes.NewReader(str),
+		es.client.Index.WithContext(ctx),
+		es.client.Index.WithRefresh(es.config.Refresh.String()),
+	)
+	if err != nil {
+		return createError(log, "error sending request to elasticsearch", err)
+	}
+
+	if res.IsError() {
+		return createError(log, "error indexing document in elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
+	}
+
+	esResponse := &esIndexDocResponse{}
+	err = decodeResponse(res.Body, esResponse)
+	if err != nil {
+		return createError(log, "error decoding elasticsearch response", err)
+	}
+
+	log.Debug("elasticsearch response", zap.Any("response", esResponse))
+
+	return nil
+}
+
+func (es *ElasticsearchStorage) genericUpdate(ctx context.Context, log *zap.Logger, index string, docID string, protoMessage interface{}) error {
+	str, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(proto.MessageV2(protoMessage))
+	if err != nil {
+		return createError(log, fmt.Sprintf("error marshalling %T to json", protoMessage), err)
+	}
+
+	res, err := es.client.Index(
+		index,
+		bytes.NewReader(str),
+		es.client.Index.WithDocumentID(docID),
 		es.client.Index.WithContext(ctx),
 		es.client.Index.WithRefresh(es.config.Refresh.String()),
 	)

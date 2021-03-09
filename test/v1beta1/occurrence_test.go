@@ -101,7 +101,7 @@ func TestOccurrence(t *testing.T) {
 		newlyUpdatedOccurrence, err := s.Gc.GetOccurrence(s.Ctx, &grafeas_go_proto.GetOccurrenceRequest{Name: o.GetName()})
 		Expect(err).ToNot(HaveOccurred())
 		Expect(newlyUpdatedOccurrence.Resource.Uri).To(Equal(fakeUrl))
-		//Expect(newlyUpdatedOccurrence.UpdateTime).ToNot(Equal(o.UpdateTime))
+		Expect(newlyUpdatedOccurrence.UpdateTime).ToNot(Equal(o.UpdateTime))
 	})
 
 	t.Run("deleting an occurrence", func(t *testing.T) {

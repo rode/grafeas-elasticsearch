@@ -1103,7 +1103,10 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(actualErr).ToNot(HaveOccurred())
 			})
 			It("should contain the newly added field", func() {
-				Expect(actualOccurrence).To(BeEquivalentTo(expectedOccurrence))
+				Expect(actualOccurrence.Resource.Uri).To(BeEquivalentTo(expectedOccurrence.Resource.Uri))
+			})
+			It("should have an updated UpdateTime field", func() {
+				Expect(actualOccurrence.UpdateTime).ToNot(Equal(expectedOccurrence.UpdateTime))
 			})
 		})
 

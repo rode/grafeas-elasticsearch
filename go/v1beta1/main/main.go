@@ -15,9 +15,11 @@
 package main
 
 import (
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os"
 
 	"github.com/elastic/go-elasticsearch/v7"
@@ -38,7 +40,7 @@ func main() {
 	}
 
 	registerStorageTypeProvider := storage.ElasticsearchStorageTypeProviderCreator(func(c *config.ElasticsearchConfig) (*storage.ElasticsearchStorage, error) {
-		esClient, err := createESClient(logger, c.URL, c.Username, c.Password)
+		esClient, err := createESClient(logger, c.URL, c.Username, c.Password, c.InsecureSkipVerify)
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to Elasticsearch")
 		}
@@ -61,13 +63,16 @@ func main() {
 	}
 }
 
-func createESClient(logger *zap.Logger, elasticsearchEndpoint, username, password string) (*elasticsearch.Client, error) {
+func createESClient(logger *zap.Logger, elasticsearchEndpoint, username, password string, insecureSkipVerify bool) (*elasticsearch.Client, error) {
 	c, err := elasticsearch.NewClient(elasticsearch.Config{
 		Addresses: []string{
 			elasticsearchEndpoint,
 		},
 		Username: username,
 		Password: password,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: insecureSkipVerify},
+		},
 	})
 
 	if err != nil {

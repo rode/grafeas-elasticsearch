@@ -13,6 +13,7 @@ require (
 	github.com/google/uuid v1.1.2
 	github.com/grafeas/grafeas v0.1.6
 	github.com/hashicorp/go-multierror v1.0.0
+	github.com/mennanov/fieldmask-utils v0.3.3
 	github.com/onsi/ginkgo v1.14.2
 	github.com/onsi/gomega v1.10.3
 	github.com/pelletier/go-toml v1.7.0 // indirect

@@ -48,7 +48,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = Describe("elasticsearch storage", func() {
+var _ = FDescribe("elasticsearch storage", func() {
 	var (
 		elasticsearchStorage *ElasticsearchStorage
 		transport            *mockEsTransport
@@ -75,8 +75,10 @@ var _ = Describe("elasticsearch storage", func() {
 
 	JustBeforeEach(func() {
 		mockEsClient := &elasticsearch.Client{Transport: transport, API: esapi.New(transport)}
+		migrator := NewESMigrator(logger, mockEsClient)
+		_ = migrator.LoadMappings("mappings/")
 
-		elasticsearchStorage = NewElasticsearchStorage(logger, mockEsClient, filterer, esConfig, nil)
+		elasticsearchStorage = NewElasticsearchStorage(logger, mockEsClient, filterer, esConfig, migrator)
 	})
 
 	AfterEach(func() {
@@ -88,8 +90,8 @@ var _ = Describe("elasticsearch storage", func() {
 			createProjectErr         error
 			expectedProjectAlias     string
 			expectedProject          *prpb.Project
-			expectedOccurrencesAlias string
-			expectedNotesAlias       string
+			expectedOccurrencesIndex string
+			expectedNotesIndex       string
 		)
 
 		// BeforeEach configures the happy path for this context
@@ -114,8 +116,8 @@ var _ = Describe("elasticsearch storage", func() {
 				},
 			}
 			expectedProjectAlias = fmt.Sprintf("%s-%s", aliasPrefix, "projects")
-			expectedOccurrencesAlias = fmt.Sprintf("%s-%s-%s", aliasPrefix, expectedProjectId, "occurrences")
-			expectedNotesAlias = fmt.Sprintf("%s-%s-%s", aliasPrefix, expectedProjectId, "notes")
+			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")
+			expectedNotesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "notes")
 		})
 
 		// JustBeforeEach actually invokes the system under test
@@ -178,11 +180,11 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should create indices for storing occurrences/notes for the project", func() {
-				Expect(transport.receivedHttpRequests[2].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedOccurrencesAlias)))
+				Expect(transport.receivedHttpRequests[2].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedOccurrencesIndex)))
 				Expect(transport.receivedHttpRequests[2].Method).To(Equal(http.MethodPut))
 				assertIndexCreateBodyHasMetadataAndStringMapping(transport.receivedHttpRequests[2].Body)
 
-				Expect(transport.receivedHttpRequests[3].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedNotesAlias)))
+				Expect(transport.receivedHttpRequests[3].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedNotesIndex)))
 				Expect(transport.receivedHttpRequests[3].Method).To(Equal(http.MethodPut))
 				assertIndexCreateBodyHasMetadataAndStringMapping(transport.receivedHttpRequests[3].Body)
 			})

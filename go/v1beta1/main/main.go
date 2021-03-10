@@ -15,6 +15,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -42,10 +43,36 @@ func main() {
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to Elasticsearch")
 		}
+		indexManager := storage.NewIndexManager(logger.Named("IndexManager"), esClient)
+		migrator := storage.NewESMigrator(logger.Named("ESMigrator"), esClient, indexManager)
+		migrationOrchestrator := storage.NewMigrationOrchestrator(logger.Named("MigrationOrchestrator"), migrator)
 
-		migrator := storage.NewESMigrator(logger.Named("ESMigrator"), esClient)
+		const migrationsDir = "mappings"
+		ctx := context.Background()
+		if err := indexManager.LoadMappings(migrationsDir); err != nil {
+			return nil, err
+		}
 
-		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c, migrator), nil
+		if err := indexManager.CreateIndex(ctx, &storage.IndexInfo{
+			Index:        "grafeas-metadata",
+			DocumentKind: "metadata",
+		}, true); err != nil {
+			return nil, err
+		}
+
+		if err := indexManager.CreateIndex(ctx, &storage.IndexInfo{
+			DocumentKind: "projects",
+			Index:        indexManager.ProjectsIndex(),
+			Alias:        indexManager.ProjectsAlias(),
+		}, true); err != nil {
+			return nil, err
+		}
+
+		if err := migrationOrchestrator.RunMigrations(ctx); err != nil {
+			return nil, fmt.Errorf("error running migrations: %s", err)
+		}
+
+		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c, indexManager), nil
 	}, logger)
 
 	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", registerStorageTypeProvider)

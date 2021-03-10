@@ -4,8 +4,19 @@ set -euo pipefail
 
 GRAFEAS_URL="http://localhost:8080/v1beta1"
 
+function set_version {
+  tempFile=$(mktemp)
+  jq '.version = "'$1'"' < mappings/occurrences.json > $tempFile
+
+  mv $tempFile mappings/occurrences.json
+}
+
+
 echo "dc down"
 docker-compose down
+
+set_version "v1beta1"
+
 echo "dc up"
 
 docker-compose up --build -d elasticsearch server
@@ -29,5 +40,7 @@ curl --url "$GRAFEAS_URL/projects/rode/occurrences" \
 echo "Stopping grafeas"
 docker-compose stop server
 
+set_version "v1beta2"
+
 echo "Starting grafeas"
-GRAFEAS_MIGRATE=yes docker-compose up server
+docker-compose up --build server

@@ -15,7 +15,6 @@
 package storage
 
 import (
-	"context"
 	"fmt"
 
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
@@ -57,33 +56,6 @@ func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorageFunc, 
 		es, err := newES(c)
 		if err != nil {
 			return nil, err
-		}
-
-		const migrationsDir = "mappings"
-		ctx := context.Background()
-		if err := es.migrator.LoadMappings(migrationsDir); err != nil {
-			return nil, err
-		}
-
-		if err := es.migrator.CreateIndexFromMigration(ctx, &Migration{
-			DocumentKind: "metadata",
-			Index:        "grafeas-metadata",
-		}); err != nil {
-			return nil, createError(log, "error creating metadata index", err)
-		}
-
-		if err := es.migrator.CreateIndexFromMigration(ctx, &Migration{
-			DocumentKind: "projects",
-			Index:        projectsIndex(),
-			Alias:        projectsAlias(),
-		}); err != nil {
-			return nil, createError(log, "error creating initial projects index", err)
-		}
-
-		migrationOrchestrator := NewMigrationOrchestrator(logger.Named("MigrationOrchestrator"), es.migrator)
-
-		if err := migrationOrchestrator.RunMigrations(ctx); err != nil {
-			return nil, fmt.Errorf("error running migrations: %s", err)
 		}
 
 		return &storage.Storage{

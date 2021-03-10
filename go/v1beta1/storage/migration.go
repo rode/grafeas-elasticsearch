@@ -4,11 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"net/http"
-	"os"
-	"path"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -23,18 +19,16 @@ const (
 )
 
 type ESMigrator struct {
-	client   *elasticsearch.Client
-	logger   *zap.Logger
-	mappings map[string]*VersionedMapping // resource types -> latest version of mappings
+	client       *elasticsearch.Client
+	indexManager IndexManager
+	logger       *zap.Logger
 }
 
-func NewESMigrator(logger *zap.Logger, client *elasticsearch.Client) *ESMigrator {
-	mappings := map[string]*VersionedMapping{}
-
+func NewESMigrator(logger *zap.Logger, client *elasticsearch.Client, indexManager IndexManager) *ESMigrator {
 	return &ESMigrator{
-		client:   client,
-		logger:   logger,
-		mappings: mappings,
+		client:       client,
+		logger:       logger,
+		indexManager: indexManager,
 	}
 }
 
@@ -86,11 +80,6 @@ type ReindexFields struct {
 	Index string `json:"index"`
 }
 
-type VersionedMapping struct {
-	Version  string                 `json:"version"`
-	Mappings map[string]interface{} `json:"mappings"`
-}
-
 type indexMetadata struct {
 	MappingsVersion string `json:"mappingsVersion"`
 }
@@ -99,39 +88,7 @@ type ESDocumentResponse struct {
 	Source json.RawMessage `json:"_source"`
 }
 
-func (e *ESMigrator) LoadMappings(dir string) error {
-	if err := filepath.Walk(dir, func(filePath string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-
-		if info.IsDir() {
-			return nil
-		}
-
-		localPath := strings.TrimPrefix(filePath, dir+"/")
-		fileName := path.Base(localPath)
-		fileNameWithoutExtension := strings.TrimSuffix(fileName, filepath.Ext(fileName))
-		versionedMappingJson, err := ioutil.ReadFile(filePath)
-		if err != nil {
-			return err
-		}
-		var mapping VersionedMapping
-
-		if err := json.Unmarshal(versionedMappingJson, &mapping); err != nil {
-			return err
-		}
-
-		e.mappings[fileNameWithoutExtension] = &mapping
-
-		return nil
-	}); err != nil {
-		return err
-	}
-
-	return nil
-}
-
+// TODO: fail migration if document kind is not supported
 func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	log := e.logger.Named("Migrate").With(zap.String("indexName", migration.Index))
 	log.Info("Starting migration")
@@ -159,21 +116,13 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		return fmt.Errorf("unable to block writes for index: %s", migration.Index)
 	}
 
-	versionedMapping := e.mappings[migration.DocumentKind]
-	newIndexName := fmt.Sprintf("%s-%s", migration.Index, versionedMapping.Version)
-	log = log.With(zap.String("newIndex", newIndexName))
-	indexBody := map[string]interface{}{
-		"mappings": versionedMapping.Mappings,
-	}
-	indexCreateBody, _ := encodeRequest(&indexBody)
-
-	log.Info("Creating new index")
-	res, err = e.client.Indices.Create(
-		newIndexName,
-		e.client.Indices.Create.WithContext(ctx),
-		e.client.Indices.Create.WithBody(indexCreateBody),
-	)
-	if err := getErrorFromESResponse(res, err); err != nil {
+	newIndexName := e.indexManager.IncrementIndexVersion(migration.Index)
+	err = e.indexManager.CreateIndex(ctx, &IndexInfo{
+		Index:        newIndexName,
+		Alias:        migration.Alias,
+		DocumentKind: migration.DocumentKind,
+	}, false)
+	if err != nil {
 		return err
 	}
 
@@ -261,9 +210,10 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		return err
 	}
 
+	indexParts := parseIndexName(newIndexName)
+	// TODO: properly delete old index name from document
 	delete(metadataDoc, migration.Index)
-	metadataDoc[newIndexName] = &indexMetadata{MappingsVersion: versionedMapping.Version}
-
+	metadataDoc[newIndexName] = &indexMetadata{MappingsVersion: indexParts.Version}
 	doc := map[string]interface{}{
 		"doc": metadataDoc,
 	}
@@ -319,7 +269,7 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 		if metaType == "grafeas" {
 			if _, ok := indexDoc[indexName]; !ok {
 				indexDoc[indexName] = &indexMetadata{
-					MappingsVersion: "v1",
+					MappingsVersion: "v1beta1",
 				}
 			}
 		}
@@ -328,8 +278,9 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 	for indexName, metadata := range indexDoc {
 		res := strings.Split(indexName, "-")
 		docKind := res[len(res)-1]
-		versionedMapping := e.mappings[docKind]
-		if metadata.MappingsVersion != versionedMapping.Version {
+		indexParts := parseIndexName(indexName)
+		latestVersion := e.indexManager.GetLatestVersionForDocumentKind(indexParts.DocumentKind)
+		if metadata.MappingsVersion != latestVersion {
 			indexData := allIndices[indexName].(map[string]interface{})
 			aliases := indexData["aliases"].(map[string]interface{})
 			alias := ""
@@ -357,44 +308,6 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 	return migrations, nil
 }
 
-func (e *ESMigrator) CreateIndexFromMigration(ctx context.Context, migration *Migration) error {
-	log := e.logger.Named("CreateIndexFromMigration").With(zap.String("index", migration.Index))
-
-	res, err := e.client.Indices.Exists([]string{migration.Index}, e.client.Indices.Exists.WithContext(ctx))
-	if err != nil || (res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound) {
-		return createError(log, fmt.Sprintf("error checking if %s index already exists", migration.Index), err)
-	}
-
-	if !res.IsError() {
-		return nil
-	}
-
-	mapping, ok := e.mappings[migration.DocumentKind]
-	if !ok {
-		return fmt.Errorf("no mapping found for index %s with document kind %s", migration.Index, migration.DocumentKind)
-	}
-	createIndexReq := map[string]interface{}{
-		"mappings": mapping.Mappings,
-	}
-	if migration.Alias != "" {
-		createIndexReq["aliases"] = map[string]interface{}{
-			migration.Alias: map[string]interface{}{},
-		}
-	}
-
-	payload, _ := encodeRequest(&createIndexReq)
-	res, err = e.client.Indices.Create(migration.Index, e.client.Indices.Create.WithContext(ctx), e.client.Indices.Create.WithBody(payload))
-	if err := getErrorFromESResponse(res, err); err != nil {
-		return err
-	}
-
-	log.Info("index created", zap.String("index", migration.Index))
-
-	// TODO: create or update index doc
-
-	return nil
-}
-
 func getErrorFromESResponse(res *esapi.Response, err error) error {
 	if err != nil {
 		return err
@@ -407,10 +320,8 @@ func getErrorFromESResponse(res *esapi.Response, err error) error {
 }
 
 type Migrator interface {
-	LoadMappings(dir string) error                                            // read mappings from files
-	GetMigrations(ctx context.Context) ([]*Migration, error)                  // find all migrations that need to run
-	Migrate(ctx context.Context, migration *Migration) error                  // run a single migration on a single index
-	CreateIndexFromMigration(ctx context.Context, migration *Migration) error // create an index for the first time
+	GetMigrations(ctx context.Context) ([]*Migration, error) // find all migrations that need to run
+	Migrate(ctx context.Context, migration *Migration) error // run a single migration on a single index
 }
 
 type MigrationOrchestrator struct {

@@ -32,6 +32,7 @@ import (
 	"github.com/rode/grafeas-elasticsearch/go/config"
 	"github.com/rode/grafeas-elasticsearch/go/mocks"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -48,37 +49,57 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var _ = FDescribe("elasticsearch storage", func() {
+var _ = Describe("elasticsearch storage", func() {
 	var (
 		elasticsearchStorage *ElasticsearchStorage
 		transport            *mockEsTransport
 		ctx                  context.Context
+
 		expectedProjectId    string
-		mockCtrl             *gomock.Controller
-		filterer             *mocks.MockFilterer
-		esConfig             *config.ElasticsearchConfig
+		expectedProjectAlias string
+
+		expectedOccurrencesIndex string
+		expectedOccurrencesAlias string
+
+		expectedNotesIndex string
+		expectedNotesAlias string
+
+		mockCtrl     *gomock.Controller
+		filterer     *mocks.MockFilterer
+		indexManager *mocks.MockIndexManager
+		esConfig     *config.ElasticsearchConfig
 	)
 
 	BeforeEach(func() {
 		expectedProjectId = fake.LetterN(10)
+		expectedProjectAlias = fake.LetterN(10)
+		expectedOccurrencesIndex = fake.LetterN(10)
+		expectedOccurrencesAlias = fake.LetterN(10)
+		expectedNotesIndex = fake.LetterN(10)
+		expectedNotesAlias = fake.LetterN(10)
 
 		ctx = context.Background()
 
 		mockCtrl = gomock.NewController(GinkgoT())
 		filterer = mocks.NewMockFilterer(mockCtrl)
+		indexManager = mocks.NewMockIndexManager(mockCtrl)
 		transport = &mockEsTransport{}
 		esConfig = &config.ElasticsearchConfig{
 			URL:     fake.URL(),
 			Refresh: config.RefreshTrue,
 		}
+
+		indexManager.EXPECT().ProjectsAlias().Return(expectedProjectAlias).AnyTimes()
+		indexManager.EXPECT().OccurrencesIndex(expectedProjectId).Return(expectedOccurrencesIndex).AnyTimes()
+		indexManager.EXPECT().OccurrencesAlias(expectedProjectId).Return(expectedOccurrencesAlias).AnyTimes()
+		indexManager.EXPECT().NotesIndex(expectedProjectId).Return(expectedNotesIndex).AnyTimes()
+		indexManager.EXPECT().NotesAlias(expectedProjectId).Return(expectedNotesAlias).AnyTimes()
 	})
 
 	JustBeforeEach(func() {
 		mockEsClient := &elasticsearch.Client{Transport: transport, API: esapi.New(transport)}
-		migrator := NewESMigrator(logger, mockEsClient)
-		_ = migrator.LoadMappings("mappings/")
 
-		elasticsearchStorage = NewElasticsearchStorage(logger, mockEsClient, filterer, esConfig, migrator)
+		elasticsearchStorage = NewElasticsearchStorage(logger, mockEsClient, filterer, esConfig, indexManager, nil)
 	})
 
 	AfterEach(func() {
@@ -87,11 +108,8 @@ var _ = FDescribe("elasticsearch storage", func() {
 
 	Context("creating a new Grafeas project", func() {
 		var (
-			createProjectErr         error
-			expectedProjectAlias     string
-			expectedProject          *prpb.Project
-			expectedOccurrencesIndex string
-			expectedNotesIndex       string
+			createProjectErr error
+			expectedProject  *prpb.Project
 		)
 
 		// BeforeEach configures the happy path for this context
@@ -108,16 +126,7 @@ var _ = FDescribe("elasticsearch storage", func() {
 						Id: fake.LetterN(10),
 					}),
 				},
-				{
-					StatusCode: http.StatusOK,
-				},
-				{
-					StatusCode: http.StatusOK,
-				},
 			}
-			expectedProjectAlias = fmt.Sprintf("%s-%s", aliasPrefix, "projects")
-			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")
-			expectedNotesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "notes")
 		})
 
 		// JustBeforeEach actually invokes the system under test
@@ -125,12 +134,18 @@ var _ = FDescribe("elasticsearch storage", func() {
 			expectedProject, createProjectErr = elasticsearchStorage.CreateProject(context.Background(), expectedProjectId, &prpb.Project{})
 		})
 
-		It("should check if the project document already exists", func() {
-			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectAlias)))
-			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+		Describe("checking if the project document exists", func() {
+			BeforeEach(func() {
+				indexManager.EXPECT().CreateIndex(context.Background(), gomock.Any(), false).Times(2)
+			})
 
-			assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
-				"query.term.name": fmt.Sprintf("projects/%s", expectedProjectId),
+			It("should check if the project document already exists", func() {
+				Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectAlias)))
+				Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+
+				assertJsonHasValues(transport.receivedHttpRequests[0].Body, map[string]interface{}{
+					"query.term.name": fmt.Sprintf("projects/%s", expectedProjectId),
+				})
 			})
 		})
 
@@ -168,80 +183,84 @@ var _ = FDescribe("elasticsearch storage", func() {
 		})
 
 		When("the project does not exist", func() {
-			It("should create a new document for the project", func() {
-				Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedProjectAlias)))
-				Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodPost))
-
-				projectBody := &prpb.Project{}
-				err := protojson.Unmarshal(ioReadCloserToByteSlice(transport.receivedHttpRequests[1].Body), proto.MessageV2(projectBody))
-				Expect(err).ToNot(HaveOccurred())
-
-				Expect(projectBody.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
-			})
-
-			It("should create indices for storing occurrences/notes for the project", func() {
-				Expect(transport.receivedHttpRequests[2].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedOccurrencesIndex)))
-				Expect(transport.receivedHttpRequests[2].Method).To(Equal(http.MethodPut))
-				assertIndexCreateBodyHasMetadataAndStringMapping(transport.receivedHttpRequests[2].Body)
-
-				Expect(transport.receivedHttpRequests[3].URL.Path).To(Equal(fmt.Sprintf("/%s", expectedNotesIndex)))
-				Expect(transport.receivedHttpRequests[3].Method).To(Equal(http.MethodPut))
-				assertIndexCreateBodyHasMetadataAndStringMapping(transport.receivedHttpRequests[3].Body)
-			})
-
-			It("should return the project", func() {
-				Expect(expectedProject).ToNot(BeNil())
-				Expect(expectedProject.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
-			})
-
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
+			Describe("creating the project", func() {
 				BeforeEach(func() {
-					esConfig.Refresh = config.RefreshTrue
+					indexManager.EXPECT().CreateIndex(context.Background(), &migration.IndexInfo{
+						Index:        expectedOccurrencesIndex,
+						Alias:        expectedOccurrencesAlias,
+						DocumentKind: migration.OccurrenceDocumentKind,
+					}, false).Times(1)
+
+					indexManager.EXPECT().CreateIndex(context.Background(), &migration.IndexInfo{
+						Index:        expectedNotesIndex,
+						Alias:        expectedNotesAlias,
+						DocumentKind: migration.NoteDocumentKind,
+					}, false).Times(1)
 				})
 
-				It("should immediately refresh the index", func() {
-					Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
-				})
-			})
+				It("should create a new document for the project", func() {
+					Expect(transport.receivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedProjectAlias)))
+					Expect(transport.receivedHttpRequests[1].Method).To(Equal(http.MethodPost))
 
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshWaitFor), func() {
-				BeforeEach(func() {
-					esConfig.Refresh = config.RefreshWaitFor
-				})
+					projectBody := &prpb.Project{}
+					err := protojson.Unmarshal(ioReadCloserToByteSlice(transport.receivedHttpRequests[1].Body), proto.MessageV2(projectBody))
+					Expect(err).ToNot(HaveOccurred())
 
-				It("should wait for refresh of index", func() {
-					Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
-				})
-			})
-
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshFalse), func() {
-				BeforeEach(func() {
-					esConfig.Refresh = config.RefreshFalse
+					Expect(projectBody.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
 				})
 
-				It("should not wait or force refresh of index", func() {
-					Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
+				It("should return the project", func() {
+					Expect(expectedProject).ToNot(BeNil())
+					Expect(expectedProject.Name).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
+				})
+
+				When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
+					BeforeEach(func() {
+						esConfig.Refresh = config.RefreshTrue
+					})
+
+					It("should immediately refresh the index", func() {
+						Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
+					})
+				})
+
+				When(fmt.Sprintf("refresh configuration is %s", config.RefreshWaitFor), func() {
+					BeforeEach(func() {
+						esConfig.Refresh = config.RefreshWaitFor
+					})
+
+					It("should wait for refresh of index", func() {
+						Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
+					})
+				})
+
+				When(fmt.Sprintf("refresh configuration is %s", config.RefreshFalse), func() {
+					BeforeEach(func() {
+						esConfig.Refresh = config.RefreshFalse
+					})
+
+					It("should not wait or force refresh of index", func() {
+						Expect(transport.receivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
+					})
 				})
 			})
 
 			When("creating a new document fails", func() {
 				BeforeEach(func() {
 					transport.preparedHttpResponses[1] = &http.Response{StatusCode: http.StatusBadRequest}
+
+					indexManager.EXPECT().CreateIndex(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
 				})
 
 				It("should return an error", func() {
 					assertErrorHasGrpcStatusCode(createProjectErr, codes.Internal)
 					Expect(expectedProject).To(BeNil())
 				})
-
-				It("should not attempt to create indices", func() {
-					Expect(transport.receivedHttpRequests).To(HaveLen(2))
-				})
 			})
 
 			When("creating the indices fails", func() {
 				BeforeEach(func() {
-					transport.preparedHttpResponses[2] = &http.Response{StatusCode: http.StatusBadRequest}
+					indexManager.EXPECT().CreateIndex(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("foobar"))
 				})
 
 				It("should return an error", func() {
@@ -254,18 +273,16 @@ var _ = FDescribe("elasticsearch storage", func() {
 
 	Context("listing Grafeas projects", func() {
 		var (
-			actualErr            error
-			actualProjects       []*prpb.Project
-			expectedProjects     []*prpb.Project
-			expectedProjectAlias string
-			expectedFilter       string
-			expectedQuery        *filtering.Query
+			actualErr        error
+			actualProjects   []*prpb.Project
+			expectedProjects []*prpb.Project
+			expectedFilter   string
+			expectedQuery    *filtering.Query
 		)
 
 		BeforeEach(func() {
 			expectedQuery = &filtering.Query{}
 			expectedFilter = ""
-			expectedProjectAlias = fmt.Sprintf("%s-%s", aliasPrefix, "projects")
 			expectedProjects = generateTestProjects(fake.Number(2, 5))
 			transport.preparedHttpResponses = []*http.Response{
 				{
@@ -405,13 +422,11 @@ var _ = FDescribe("elasticsearch storage", func() {
 
 	Context("retrieving a Grafeas project", func() {
 		var (
-			actualErr            error
-			expectedProjectAlias string
-			actualProject        *prpb.Project
+			actualErr     error
+			actualProject *prpb.Project
 		)
 
 		BeforeEach(func() {
-			expectedProjectAlias = fmt.Sprintf("%s-%s", aliasPrefix, "projects")
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
@@ -499,18 +514,9 @@ var _ = FDescribe("elasticsearch storage", func() {
 	})
 
 	Context("deleting a Grafeas project", func() {
-		var (
-			actualErr                error
-			expectedProjectAlias     string
-			expectedNotesIndex       string
-			expectedOccurrencesIndex string
-		)
+		var actualErr error
 
 		BeforeEach(func() {
-			expectedProjectAlias = fmt.Sprintf("%s-projects", aliasPrefix)
-			expectedOccurrencesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "occurrences")
-			expectedNotesIndex = fmt.Sprintf("%s-%s-%s", indexPrefix, expectedProjectId, "notes")
-
 			transport.preparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
@@ -634,16 +640,14 @@ var _ = FDescribe("elasticsearch storage", func() {
 
 	Context("retrieving a Grafeas occurrence", func() {
 		var (
-			actualErr               error
-			actualOccurrence        *pb.Occurrence
-			expectedOccurrenceAlias string
-			expectedOccurrenceId    string
-			expectedOccurrenceName  string
+			actualErr              error
+			actualOccurrence       *pb.Occurrence
+			expectedOccurrenceId   string
+			expectedOccurrenceName string
 		)
 
 		BeforeEach(func() {
 			expectedOccurrenceId = fake.LetterN(10)
-			expectedOccurrenceAlias = fmt.Sprintf("%s-%s-occurrences", aliasPrefix, expectedProjectId)
 			expectedOccurrenceName = fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)
 			transport.preparedHttpResponses = []*http.Response{
 				{
@@ -662,7 +666,7 @@ var _ = FDescribe("elasticsearch storage", func() {
 		It("should query elasticsearch for the specified occurrence", func() {
 			Expect(transport.receivedHttpRequests).To(HaveLen(1))
 
-			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedOccurrenceAlias)))
+			Expect(transport.receivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedOccurrencesAlias)))
 			Expect(transport.receivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 
 			requestBody, err := ioutil.ReadAll(transport.receivedHttpRequests[0].Body)
@@ -733,18 +737,16 @@ var _ = FDescribe("elasticsearch storage", func() {
 
 	Context("creating a new Grafeas occurrence", func() {
 		var (
-			actualOccurrence         *pb.Occurrence
-			expectedOccurrence       *pb.Occurrence
-			expectedOccurrenceESId   string
-			expectedOccurrencesAlias string
-			actualErr                error
+			actualOccurrence       *pb.Occurrence
+			expectedOccurrence     *pb.Occurrence
+			expectedOccurrenceESId string
+			actualErr              error
 		)
 
 		// BeforeEach configures the happy path for this context
 		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
 			expectedOccurrenceESId = fake.LetterN(10)
-			expectedOccurrencesAlias = fmt.Sprintf("%s-%s-occurrences", aliasPrefix, expectedProjectId)
 			expectedOccurrence = generateTestOccurrence("")
 
 			transport.preparedHttpResponses = []*http.Response{
@@ -842,17 +844,15 @@ var _ = FDescribe("elasticsearch storage", func() {
 
 	Context("creating a batch of Grafeas occurrences", func() {
 		var (
-			expectedErrs             []error
-			actualErrs               []error
-			actualOccurrences        []*pb.Occurrence
-			expectedOccurrences      []*pb.Occurrence
-			expectedOccurrencesAlias string
+			expectedErrs        []error
+			actualErrs          []error
+			actualOccurrences   []*pb.Occurrence
+			expectedOccurrences []*pb.Occurrence
 		)
 
 		// BeforeEach configures the happy path for this context
 		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
-			expectedOccurrencesAlias = fmt.Sprintf("%s-%s-%s", aliasPrefix, expectedProjectId, "occurrences")
 			expectedOccurrences = generateTestOccurrences(fake.Number(2, 5))
 			for i := 0; i < len(expectedOccurrences); i++ {
 				expectedErrs = append(expectedErrs, nil)
@@ -989,15 +989,13 @@ var _ = FDescribe("elasticsearch storage", func() {
 
 	Context("deleting a Grafeas occurrence", func() {
 		var (
-			actualErr                error
-			expectedOccurrencesAlias string
-			expectedOccurrenceId     string
-			expectedOccurrenceName   string
+			actualErr              error
+			expectedOccurrenceId   string
+			expectedOccurrenceName string
 		)
 
 		BeforeEach(func() {
 			expectedOccurrenceId = fake.LetterN(10)
-			expectedOccurrencesAlias = fmt.Sprintf("%s-%s-occurrences", aliasPrefix, expectedProjectId)
 			expectedOccurrenceName = fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)
 
 			transport.preparedHttpResponses = []*http.Response{
@@ -1099,18 +1097,16 @@ var _ = FDescribe("elasticsearch storage", func() {
 
 	Context("listing Grafeas occurrences", func() {
 		var (
-			actualErr                error
-			actualOccurrences        []*pb.Occurrence
-			expectedOccurrences      []*pb.Occurrence
-			expectedOccurrencesAlias string
-			expectedFilter           string
-			expectedQuery            *filtering.Query
+			actualErr           error
+			actualOccurrences   []*pb.Occurrence
+			expectedOccurrences []*pb.Occurrence
+			expectedFilter      string
+			expectedQuery       *filtering.Query
 		)
 
 		BeforeEach(func() {
 			expectedQuery = &filtering.Query{}
 			expectedFilter = ""
-			expectedOccurrencesAlias = fmt.Sprintf("%s-%s-occurrences", aliasPrefix, expectedProjectId)
 			expectedOccurrences = generateTestOccurrences(fake.Number(2, 5))
 			transport.preparedHttpResponses = []*http.Response{
 				{
@@ -1251,13 +1247,12 @@ var _ = FDescribe("elasticsearch storage", func() {
 
 	Context("creating a new Grafeas note", func() {
 		var (
-			actualNote         *pb.Note
-			expectedNote       *pb.Note
-			expectedNoteId     string
-			expectedNoteName   string
-			expectedNoteESId   string
-			expectedNotesAlias string
-			actualErr          error
+			actualNote       *pb.Note
+			expectedNote     *pb.Note
+			expectedNoteId   string
+			expectedNoteName string
+			expectedNoteESId string
+			actualErr        error
 		)
 
 		// BeforeEach configures the happy path for this context
@@ -1267,7 +1262,6 @@ var _ = FDescribe("elasticsearch storage", func() {
 			// grafeas requires that the user specify a note's ID (and thus its name) beforehand
 			expectedNoteId = fake.LetterN(10)
 			expectedNoteName = fmt.Sprintf("projects/%s/notes/%s", expectedProjectId, expectedNoteId)
-			expectedNotesAlias = fmt.Sprintf("%s-%s-notes", aliasPrefix, expectedProjectId)
 			expectedNote = generateTestNote(expectedNoteName)
 			expectedNoteESId = fake.LetterN(10)
 
@@ -1433,13 +1427,11 @@ var _ = FDescribe("elasticsearch storage", func() {
 			actualNotes              []*pb.Note
 			expectedNotes            []*pb.Note
 			expectedNotesWithNoteIds map[string]*pb.Note
-			expectedNotesAlias       string
 		)
 
 		// BeforeEach configures the happy path for this context
 		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
-			expectedNotesAlias = fmt.Sprintf("%s-%s-notes", aliasPrefix, expectedProjectId)
 			expectedNotes = generateTestNotes(fake.Number(2, 5), expectedProjectId)
 			expectedNotesWithNoteIds = convertSliceOfNotesToMap(expectedNotes)
 
@@ -1577,16 +1569,14 @@ var _ = FDescribe("elasticsearch storage", func() {
 
 	Context("retrieving a Grafeas note", func() {
 		var (
-			actualErr          error
-			actualNote         *pb.Note
-			expectedNotesAlias string
-			expectedNoteId     string
-			expectedNoteName   string
+			actualErr        error
+			actualNote       *pb.Note
+			expectedNoteId   string
+			expectedNoteName string
 		)
 
 		BeforeEach(func() {
 			expectedNoteId = fake.LetterN(10)
-			expectedNotesAlias = fmt.Sprintf("%s-%s-notes", aliasPrefix, expectedProjectId)
 			expectedNoteName = fmt.Sprintf("projects/%s/notes/%s", expectedProjectId, expectedNoteId)
 			transport.preparedHttpResponses = []*http.Response{
 				{
@@ -1676,18 +1666,16 @@ var _ = FDescribe("elasticsearch storage", func() {
 
 	Context("listing Grafeas notes", func() {
 		var (
-			actualErr          error
-			actualNotes        []*pb.Note
-			expectedNotes      []*pb.Note
-			expectedNotesAlias string
-			expectedFilter     string
-			expectedQuery      *filtering.Query
+			actualErr      error
+			actualNotes    []*pb.Note
+			expectedNotes  []*pb.Note
+			expectedFilter string
+			expectedQuery  *filtering.Query
 		)
 
 		BeforeEach(func() {
 			expectedQuery = &filtering.Query{}
 			expectedFilter = ""
-			expectedNotesAlias = fmt.Sprintf("%s-%s-notes", aliasPrefix, expectedProjectId)
 			expectedNotes = generateTestNotes(fake.Number(2, 5), expectedProjectId)
 			transport.preparedHttpResponses = []*http.Response{
 				{
@@ -1828,15 +1816,13 @@ var _ = FDescribe("elasticsearch storage", func() {
 
 	Context("deleting a Grafeas note", func() {
 		var (
-			actualErr          error
-			expectedNotesAlias string
-			expectedNoteId     string
-			expectedNoteName   string
+			actualErr        error
+			expectedNoteId   string
+			expectedNoteName string
 		)
 
 		BeforeEach(func() {
 			expectedNoteId = fake.LetterN(10)
-			expectedNotesAlias = fmt.Sprintf("%s-%s-notes", aliasPrefix, expectedProjectId)
 			expectedNoteName = fmt.Sprintf("projects/%s/notes/%s", expectedProjectId, expectedNoteId)
 
 			transport.preparedHttpResponses = []*http.Response{

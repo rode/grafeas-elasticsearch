@@ -1,9 +1,25 @@
-package storage
+// Copyright 2021 The Rode Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package migration
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"time"
@@ -130,7 +146,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		Source:      &ReindexFields{Index: migration.Index},
 		Destination: &ReindexFields{Index: newIndexName},
 	}
-	reindexBody, _ := encodeRequest(reindexReq)
+	reindexBody := encodeRequest(reindexReq)
 	log.Info("Starting reindex")
 	res, err = e.client.Reindex(
 		reindexBody,
@@ -152,7 +168,9 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		}
 
 		task := &ESTask{}
-		_ = decodeResponse(res.Body, task)
+		if err := decodeResponse(res.Body, task); err != nil {
+			return err
+		}
 
 		if task.Completed {
 			log.Info("Reindex completed")
@@ -179,7 +197,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		},
 	}
 
-	aliasReqBody, _ := encodeRequest(aliasReq)
+	aliasReqBody := encodeRequest(aliasReq)
 
 	res, err = e.client.Indices.UpdateAliases(
 		aliasReqBody,
@@ -217,7 +235,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	doc := map[string]interface{}{
 		"doc": metadataDoc,
 	}
-	docUpdateReq, _ := encodeRequest(doc)
+	docUpdateReq := encodeRequest(doc)
 	res, err = e.client.Update(metadataIndexName, indicesMetadataDocId, docUpdateReq, e.client.Update.WithContext(ctx))
 
 	return getErrorFromESResponse(res, err)
@@ -292,13 +310,13 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 	}
 
 	if createDoc {
-		docBody, _ := encodeRequest(indexDoc)
+		docBody := encodeRequest(indexDoc)
 		res, err = e.client.Create(metadataIndexName, indicesMetadataDocId, docBody, e.client.Create.WithContext(ctx))
 	} else {
 		doc := map[string]interface{}{
 			"doc": indexDoc,
 		}
-		docUpdateReq, _ := encodeRequest(doc)
+		docUpdateReq := encodeRequest(doc)
 		res, err = e.client.Update(metadataIndexName, indicesMetadataDocId, docUpdateReq, e.client.Update.WithContext(ctx))
 	}
 
@@ -365,4 +383,18 @@ func (m *MigrationOrchestrator) RunMigrations(ctx context.Context) error {
 	// fin
 
 	return nil
+}
+
+func decodeResponse(r io.ReadCloser, i interface{}) error {
+	return json.NewDecoder(r).Decode(i)
+}
+
+func encodeRequest(body interface{}) io.Reader {
+	b, err := json.Marshal(body)
+	if err != nil {
+		// we should know that `body` is a serializable struct before invoking `encodeRequest`
+		panic(err)
+	}
+
+	return bytes.NewReader(b)
 }

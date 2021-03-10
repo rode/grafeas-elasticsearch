@@ -27,6 +27,7 @@ import (
 	"github.com/google/uuid"
 	"github.com/rode/grafeas-elasticsearch/go/config"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration"
 	"go.uber.org/zap"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
@@ -41,28 +42,61 @@ import (
 const (
 	//apiVersion = "v1beta1"
 	//indexPrefix        = "grafeas-" + apiVersion
-	indexPrefix        = "grafeas"
-	aliasPrefix        = "grafeas"
+	//indexPrefix        = "grafeas"
+	//aliasPrefix        = "grafeas"
 	grafeasMaxPageSize = 1000
 	sortField          = "createTime"
 )
 
 type ElasticsearchStorage struct {
-	client       *elasticsearch.Client
-	config       *config.ElasticsearchConfig
-	filterer     filtering.Filterer
-	indexManager IndexManager
-	logger       *zap.Logger
+	client                *elasticsearch.Client
+	config                *config.ElasticsearchConfig
+	filterer              filtering.Filterer
+	indexManager          migration.IndexManager
+	migrationOrchestrator *migration.MigrationOrchestrator
+	logger                *zap.Logger
 }
 
-func NewElasticsearchStorage(logger *zap.Logger, client *elasticsearch.Client, filterer filtering.Filterer, config *config.ElasticsearchConfig, indexManager IndexManager) *ElasticsearchStorage {
+func NewElasticsearchStorage(
+	logger *zap.Logger,
+	client *elasticsearch.Client,
+	filterer filtering.Filterer,
+	config *config.ElasticsearchConfig,
+	indexManager migration.IndexManager,
+	orchestrator *migration.MigrationOrchestrator,
+) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
-		client:       client,
-		config:       config,
-		filterer:     filterer,
-		logger:       logger,
-		indexManager: indexManager,
+		client:                client,
+		config:                config,
+		filterer:              filterer,
+		logger:                logger,
+		indexManager:          indexManager,
+		migrationOrchestrator: orchestrator,
 	}
+}
+
+func (es *ElasticsearchStorage) Initialize(ctx context.Context) error {
+	const mappingsDir = "mappings"
+	if err := es.indexManager.LoadMappings(mappingsDir); err != nil {
+		return err
+	}
+
+	if err := es.indexManager.CreateIndex(ctx, &migration.IndexInfo{
+		Index:        "grafeas-metadata",
+		DocumentKind: "metadata",
+	}, true); err != nil {
+		return err
+	}
+
+	if err := es.indexManager.CreateIndex(ctx, &migration.IndexInfo{
+		DocumentKind: "projects",
+		Index:        es.indexManager.ProjectsIndex(),
+		Alias:        es.indexManager.ProjectsAlias(),
+	}, true); err != nil {
+		return err
+	}
+
+	return es.migrationOrchestrator.RunMigrations(ctx)
 }
 
 // CreateProject creates a project document within the project index, along with two indices that can be used
@@ -96,14 +130,14 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 		return nil, err
 	}
 
-	indexesToCreate := []*IndexInfo{
+	indexesToCreate := []*migration.IndexInfo{
 		{
-			DocumentKind: occurrenceDocumentKind,
+			DocumentKind: migration.OccurrenceDocumentKind,
 			Index:        es.indexManager.OccurrencesIndex(projectId),
 			Alias:        es.indexManager.OccurrencesAlias(projectId),
 		},
 		{
-			DocumentKind: noteDocumentKind,
+			DocumentKind: migration.NoteDocumentKind,
 			Index:        es.indexManager.NotesIndex(projectId),
 			Alias:        es.indexManager.NotesAlias(projectId),
 		},

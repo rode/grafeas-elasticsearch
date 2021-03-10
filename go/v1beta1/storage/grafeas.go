@@ -15,6 +15,7 @@
 package storage
 
 import (
+	"context"
 	"fmt"
 
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
@@ -55,6 +56,10 @@ func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorageFunc, 
 
 		es, err := newES(c)
 		if err != nil {
+			return nil, err
+		}
+
+		if err := es.Initialize(context.Background()); err != nil {
 			return nil, err
 		}
 

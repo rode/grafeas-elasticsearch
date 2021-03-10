@@ -1,4 +1,18 @@
-package storage
+// Copyright 2021 The Rode Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+package migration
 
 import (
 	"context"
@@ -16,10 +30,13 @@ import (
 )
 
 const (
-	projectDocumentKind    = "projects"
-	occurrenceDocumentKind = "occurrences"
-	noteDocumentKind       = "notes"
-	metadataDocumentKind   = "metadata"
+	ProjectDocumentKind    = "projects"
+	OccurrenceDocumentKind = "occurrences"
+	NoteDocumentKind       = "notes"
+	MetadataDocumentKind   = "metadata"
+
+	IndexPrefix = "grafeas"
+	AliasPrefix = "grafeas"
 )
 
 type IndexManager interface {
@@ -96,13 +113,13 @@ func (em *EsIndexManager) LoadMappings(mappingsDir string) error {
 		}
 
 		switch documentKind {
-		case projectDocumentKind:
+		case ProjectDocumentKind:
 			em.projectMapping = &mapping
-		case occurrenceDocumentKind:
+		case OccurrenceDocumentKind:
 			em.occurrenceMapping = &mapping
-		case noteDocumentKind:
+		case NoteDocumentKind:
 			em.noteMapping = &mapping
-		case metadataDocumentKind:
+		case MetadataDocumentKind:
 			em.metadataMapping = &mapping
 		default:
 			em.logger.Info("Unrecognized document kind mapping", zap.String("kind", documentKind))
@@ -123,7 +140,8 @@ func (em *EsIndexManager) CreateIndex(ctx context.Context, info *IndexInfo, chec
 	if checkExists {
 		res, err := em.client.Indices.Exists([]string{info.Index}, em.client.Indices.Exists.WithContext(ctx))
 		if err != nil || (res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound) {
-			return createError(log, fmt.Sprintf("error checking if %s index already exists", info.Index), err)
+			//return storage.createError(log, fmt.Sprintf("error checking if %s index already exists", info.Index), err)
+			return err
 		}
 
 		if !res.IsError() {
@@ -146,7 +164,7 @@ func (em *EsIndexManager) CreateIndex(ctx context.Context, info *IndexInfo, chec
 		}
 	}
 
-	payload, _ := encodeRequest(&createIndexReq)
+	payload := encodeRequest(&createIndexReq)
 	res, err := em.client.Indices.Create(info.Index, em.client.Indices.Create.WithContext(ctx), em.client.Indices.Create.WithBody(payload))
 	if err := getErrorFromESResponse(res, err); err != nil {
 		return err
@@ -159,13 +177,13 @@ func (em *EsIndexManager) CreateIndex(ctx context.Context, info *IndexInfo, chec
 
 func (em *EsIndexManager) getMappingForDocumentKind(documentKind string) (*VersionedMapping, error) {
 	switch documentKind {
-	case projectDocumentKind:
+	case ProjectDocumentKind:
 		return em.projectMapping, nil
-	case occurrenceDocumentKind:
+	case OccurrenceDocumentKind:
 		return em.occurrenceMapping, nil
-	case noteDocumentKind:
+	case NoteDocumentKind:
 		return em.noteMapping, nil
-	case metadataDocumentKind:
+	case MetadataDocumentKind:
 		return em.metadataMapping, nil
 	default:
 		em.logger.Info("Unrecognized document kind mapping", zap.String("kind", documentKind))
@@ -175,38 +193,38 @@ func (em *EsIndexManager) getMappingForDocumentKind(documentKind string) (*Versi
 
 func (em *EsIndexManager) ProjectsIndex() string {
 	indexVersion := em.projectMapping.Version
-	return fmt.Sprintf("%s-%s-projects", indexPrefix, indexVersion)
+	return fmt.Sprintf("%s-%s-projects", IndexPrefix, indexVersion)
 }
 
 func (em *EsIndexManager) ProjectsAlias() string {
-	return fmt.Sprintf("%s-projects", aliasPrefix)
+	return fmt.Sprintf("%s-projects", AliasPrefix)
 }
 
 func (em *EsIndexManager) OccurrencesIndex(projectId string) string {
 	indexVersion := em.occurrenceMapping.Version
-	return fmt.Sprintf("%s-%s-%s-occurrences", indexPrefix, indexVersion, projectId)
+	return fmt.Sprintf("%s-%s-%s-occurrences", IndexPrefix, indexVersion, projectId)
 }
 
 func (em *EsIndexManager) OccurrencesAlias(projectId string) string {
-	return fmt.Sprintf("%s-%s-occurrences", aliasPrefix, projectId)
+	return fmt.Sprintf("%s-%s-occurrences", AliasPrefix, projectId)
 }
 
 func (em *EsIndexManager) NotesIndex(projectId string) string {
 	indexVersion := em.noteMapping.Version
-	return fmt.Sprintf("%s-%s-%s-notes", indexPrefix, indexVersion, projectId)
+	return fmt.Sprintf("%s-%s-%s-notes", IndexPrefix, indexVersion, projectId)
 }
 
 func (em *EsIndexManager) NotesAlias(projectId string) string {
-	return fmt.Sprintf("%s-%s-notes", aliasPrefix, projectId)
+	return fmt.Sprintf("%s-%s-notes", AliasPrefix, projectId)
 }
 
 func (em *EsIndexManager) IncrementIndexVersion(indexName string) string {
 	indexParts := parseIndexName(indexName)
 
 	switch indexParts.DocumentKind {
-	case noteDocumentKind:
+	case NoteDocumentKind:
 		return em.NotesIndex(indexParts.ProjectId)
-	case occurrenceDocumentKind:
+	case OccurrenceDocumentKind:
 		return em.OccurrencesIndex(indexParts.ProjectId)
 	}
 
@@ -216,11 +234,11 @@ func (em *EsIndexManager) IncrementIndexVersion(indexName string) string {
 
 func (em *EsIndexManager) GetLatestVersionForDocumentKind(documentKind string) string {
 	switch documentKind {
-	case noteDocumentKind:
+	case NoteDocumentKind:
 		return em.noteMapping.Version
-	case occurrenceDocumentKind:
+	case OccurrenceDocumentKind:
 		return em.occurrenceMapping.Version
-	case projectDocumentKind:
+	case ProjectDocumentKind:
 		return em.projectMapping.Version
 	}
 
@@ -237,10 +255,10 @@ func parseIndexName(indexName string) *IndexNameParts {
 	switch documentKind {
 	case metadataIndexName:
 		// nothing to do
-	case projectDocumentKind:
+	case ProjectDocumentKind:
 		nameParts.Version = indexParts[1]
-	case noteDocumentKind,
-		occurrenceDocumentKind:
+	case NoteDocumentKind,
+		OccurrenceDocumentKind:
 		nameParts.Version = indexParts[1]
 		nameParts.ProjectId = strings.Join(indexParts[2:len(indexParts)-1], "-")
 	}

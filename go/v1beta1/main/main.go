@@ -15,7 +15,6 @@
 package main
 
 import (
-	"context"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -27,6 +26,7 @@ import (
 	"github.com/rode/grafeas-elasticsearch/go/config"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration"
 	"go.uber.org/zap"
 )
 
@@ -39,45 +39,20 @@ func main() {
 
 	registerStorageTypeProvider := storage.ElasticsearchStorageTypeProviderCreator(func(c *config.ElasticsearchConfig) (*storage.ElasticsearchStorage, error) {
 		esClient, err := createESClient(logger, c.URL, c.Username, c.Password)
-
 		if err != nil {
 			return nil, fmt.Errorf("failed to connect to Elasticsearch")
 		}
-		indexManager := storage.NewIndexManager(logger.Named("IndexManager"), esClient)
-		migrator := storage.NewESMigrator(logger.Named("ESMigrator"), esClient, indexManager)
-		migrationOrchestrator := storage.NewMigrationOrchestrator(logger.Named("MigrationOrchestrator"), migrator)
 
-		const migrationsDir = "mappings"
-		ctx := context.Background()
-		if err := indexManager.LoadMappings(migrationsDir); err != nil {
-			return nil, err
-		}
+		indexManager := migration.NewIndexManager(logger.Named("IndexManager"), esClient)
+		migrator := migration.NewESMigrator(logger.Named("ESMigrator"), esClient, indexManager)
+		migrationOrchestrator := migration.NewMigrationOrchestrator(logger.Named("MigrationOrchestrator"), migrator)
 
-		if err := indexManager.CreateIndex(ctx, &storage.IndexInfo{
-			Index:        "grafeas-metadata",
-			DocumentKind: "metadata",
-		}, true); err != nil {
-			return nil, err
-		}
-
-		if err := indexManager.CreateIndex(ctx, &storage.IndexInfo{
-			DocumentKind: "projects",
-			Index:        indexManager.ProjectsIndex(),
-			Alias:        indexManager.ProjectsAlias(),
-		}, true); err != nil {
-			return nil, err
-		}
-
-		if err := migrationOrchestrator.RunMigrations(ctx); err != nil {
-			return nil, fmt.Errorf("error running migrations: %s", err)
-		}
-
-		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c, indexManager), nil
+		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c, indexManager, migrationOrchestrator), nil
 	}, logger)
 
 	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", registerStorageTypeProvider)
 	if err != nil {
-		logger.Fatal("Error when registering my new storage", zap.NamedError("error", err))
+		logger.Fatal("Error when registering elasticsearch storage", zap.NamedError("error", err))
 	}
 
 	err = server.StartGrafeas()

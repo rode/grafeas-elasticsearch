@@ -1,0 +1,40 @@
+version: "3"
+services:
+  grafeas-current:
+    image: "ghcr.io/rode/grafeas-elasticsearch:v0.4.0"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ../../local/config.yaml:/etc/grafeas/config.yaml
+    command: "--config /etc/grafeas/config.yaml"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+  grafeas-next:
+    build:
+      dockerfile: "./Dockerfile"
+      context: "../../"
+#    ports:
+#      - "8080-8082:8080"
+    volumes:
+      - ../../local/config.yaml:/etc/grafeas/config.yaml
+    command: "--config /etc/grafeas/config.yaml"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+  elasticsearch:
+    build: "../../local/elasticsearch"
+    ports:
+      - "9200:9200"
+      - "9300:9300"
+    environment:
+      - discovery.type=single-node
+      - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
+    mem_limit: 1GB
+    healthcheck:
+      test: ["CMD", "curl", "http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 1m
+      retries: 3
+      start_period: 30s
+

@@ -18,6 +18,7 @@ import (
 	"context"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
 	"time"
 
@@ -37,10 +38,23 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	log := e.logger.Named("Migrate").With(zap.String("indexName", migration.Index))
 	log.Info("Starting migration")
 
+	name, _ := os.Hostname()
+	log.Info("hostname", zap.String("hostname", name))
+	if name == "grafeas-next_2" {
+		log.Info("second instance sleeping")
+		time.Sleep(30 * time.Second)
+	}
+
+	failAfter := os.Getenv("FAIL_AFTER_STEP")
+
 	log.Info("Placing write block on index")
 	res, err := e.client.Indices.AddBlock([]string{migration.Index}, "write", e.client.Indices.AddBlock.WithContext(ctx))
 	if err := getErrorFromESResponse(res, err); err != nil {
 		return err
+	}
+
+	if failAfter == "ADD_WRITE_BLOCK" {
+		return fmt.Errorf("forced failure after %s", failAfter)
 	}
 
 	blockResponse := &ESBlockResponse{}
@@ -63,6 +77,10 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		return err
 	}
 
+	if failAfter == "CREATE_NEW_INDEX" {
+		return fmt.Errorf("forced failure after %s", failAfter)
+	}
+
 	reindexReq := &ESReindex{
 		Conflicts:   "proceed",
 		Source:      &ReindexFields{Index: migration.Index},
@@ -81,6 +99,10 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 
 	_ = decodeResponse(res.Body, taskCreationResponse)
 	log.Info("Reindex started", zap.String("taskId", taskCreationResponse.Task))
+
+	if failAfter == "START_REINDEX" {
+		return fmt.Errorf("forced failure after %s", failAfter)
+	}
 
 	reindexCompleted := false
 	pollingAttempts := 10
@@ -110,6 +132,10 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 
 	if !reindexCompleted {
 		return fmt.Errorf("reindex did not complete after %d polls", pollingAttempts)
+	}
+
+	if failAfter == "END_REINDEX" {
+		return fmt.Errorf("forced failure after %s", failAfter)
 	}
 
 	res, err = e.client.Delete(".tasks", taskCreationResponse.Task, e.client.Delete.WithContext(ctx))
@@ -145,6 +171,10 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		return fmt.Errorf("error updating alias: %s", err)
 	}
 
+	if failAfter == "CUTOVER_ALIAS" {
+		return fmt.Errorf("forced failure after %s", failAfter)
+	}
+
 	log.Info("Deleting old index")
 	res, err = e.client.Indices.Delete(
 		[]string{migration.Index},
@@ -157,6 +187,10 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 
 	if res.IsError() && res.StatusCode != http.StatusNotFound {
 		return fmt.Errorf("error response from elasticsearch when deleting previous index, status: %d", res.StatusCode)
+	}
+
+	if failAfter == "DELETE_OLD_INDEX" {
+		return fmt.Errorf("forced failure after %s", failAfter)
 	}
 
 	log.Info("Migration complete")

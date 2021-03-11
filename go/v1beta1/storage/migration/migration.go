@@ -88,9 +88,12 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	_ = decodeResponse(res.Body, taskCreationResponse)
 	log.Info("Reindex started", zap.String("taskId", taskCreationResponse.Task))
 
-	for i := 0; i < 10; i++ {
+	reindexCompleted := false
+	pollingAttempts := 10
+	for i := 0; i < pollingAttempts; i++ {
 		log.Info("Polling task API", zap.String("taskId", taskCreationResponse.Task))
 		res, err = e.client.Tasks.Get(taskCreationResponse.Task, e.client.Tasks.Get.WithContext(ctx))
+		// TODO: continue on error
 		if err := getErrorFromESResponse(res, err); err != nil {
 			return err
 		}
@@ -101,13 +104,25 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		}
 
 		if task.Completed {
+			reindexCompleted = true
 			log.Info("Reindex completed")
+
 			break
 		}
 
 		log.Info("Task incomplete, waiting before polling again", zap.String("taskId", taskCreationResponse.Task))
 		time.Sleep(time.Second * 10)
 	}
+
+	if !reindexCompleted {
+		return fmt.Errorf("reindex did not complete after %d polls", pollingAttempts)
+	}
+
+	res, err = e.client.Delete(".tasks", taskCreationResponse.Task, e.client.Delete.WithContext(ctx))
+	if err := getErrorFromESResponse(res, err); err != nil {
+		log.Warn("Error deleting task document", zap.Error(err), zap.String("taskId", taskCreationResponse.Task))
+	}
+
 	aliasReq := &ESIndexAliasRequest{
 		Actions: []ESActions{
 			{

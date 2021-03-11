@@ -42,10 +42,6 @@ import (
 )
 
 const (
-	//apiVersion = "v1beta1"
-	//indexPrefix        = "grafeas-" + apiVersion
-	//indexPrefix        = "grafeas"
-	//aliasPrefix        = "grafeas"
 	grafeasMaxPageSize = 1000
 	sortField          = "createTime"
 )
@@ -80,13 +76,6 @@ func NewElasticsearchStorage(
 func (es *ElasticsearchStorage) Initialize(ctx context.Context) error {
 	const mappingsDir = "mappings"
 	if err := es.indexManager.LoadMappings(mappingsDir); err != nil {
-		return err
-	}
-
-	if err := es.indexManager.CreateIndex(ctx, &migration.IndexInfo{
-		Index:        "grafeas-metadata",
-		DocumentKind: "metadata",
-	}, true); err != nil {
 		return err
 	}
 

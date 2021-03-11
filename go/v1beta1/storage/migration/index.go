@@ -33,7 +33,6 @@ const (
 	ProjectDocumentKind    = "projects"
 	OccurrenceDocumentKind = "occurrences"
 	NoteDocumentKind       = "notes"
-	MetadataDocumentKind   = "metadata"
 
 	IndexPrefix = "grafeas"
 	AliasPrefix = "grafeas"
@@ -79,7 +78,6 @@ type EsIndexManager struct {
 	projectMapping    *VersionedMapping
 	occurrenceMapping *VersionedMapping
 	noteMapping       *VersionedMapping
-	metadataMapping   *VersionedMapping
 }
 
 func NewIndexManager(logger *zap.Logger, client *elasticsearch.Client) IndexManager {
@@ -119,8 +117,6 @@ func (em *EsIndexManager) LoadMappings(mappingsDir string) error {
 			em.occurrenceMapping = &mapping
 		case NoteDocumentKind:
 			em.noteMapping = &mapping
-		case MetadataDocumentKind:
-			em.metadataMapping = &mapping
 		default:
 			em.logger.Info("Unrecognized document kind mapping", zap.String("kind", documentKind))
 			return nil
@@ -183,8 +179,6 @@ func (em *EsIndexManager) getMappingForDocumentKind(documentKind string) (*Versi
 		return em.occurrenceMapping, nil
 	case NoteDocumentKind:
 		return em.noteMapping, nil
-	case MetadataDocumentKind:
-		return em.metadataMapping, nil
 	default:
 		em.logger.Info("Unrecognized document kind mapping", zap.String("kind", documentKind))
 		return nil, fmt.Errorf("no mapping found for document kind %s", documentKind)
@@ -226,6 +220,8 @@ func (em *EsIndexManager) IncrementIndexVersion(indexName string) string {
 		return em.NotesIndex(indexParts.ProjectId)
 	case OccurrenceDocumentKind:
 		return em.OccurrencesIndex(indexParts.ProjectId)
+	case ProjectDocumentKind:
+		return em.ProjectsIndex()
 	}
 
 	// unversioned index
@@ -253,8 +249,6 @@ func parseIndexName(indexName string) *IndexNameParts {
 	}
 
 	switch documentKind {
-	case metadataIndexName:
-		// nothing to do
 	case ProjectDocumentKind:
 		nameParts.Version = indexParts[1]
 	case NoteDocumentKind,

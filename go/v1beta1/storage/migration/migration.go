@@ -20,18 +20,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
 	"strings"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"go.uber.org/zap"
-)
-
-const (
-	metadataIndexName    string = "grafeas-metadata"
-	indicesMetadataDocId string = "grafeas-indices-metadata"
 )
 
 type ESMigrator struct {
@@ -88,16 +82,14 @@ type Migration struct {
 }
 
 type ESReindex struct {
+	Conflicts   string         `json:"conflicts"`
 	Source      *ReindexFields `json:"source"`
 	Destination *ReindexFields `json:"dest"`
 }
 
 type ReindexFields struct {
-	Index string `json:"index"`
-}
-
-type indexMetadata struct {
-	MappingsVersion string `json:"mappingsVersion"`
+	Index  string `json:"index"`
+	OpType string `json:"op_type,omitempty"`
 }
 
 type ESDocumentResponse struct {
@@ -143,8 +135,9 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	}
 
 	reindexReq := &ESReindex{
+		Conflicts:   "proceed",
 		Source:      &ReindexFields{Index: migration.Index},
-		Destination: &ReindexFields{Index: newIndexName},
+		Destination: &ReindexFields{Index: newIndexName, OpType: "create"},
 	}
 	reindexBody := encodeRequest(reindexReq)
 	log.Info("Starting reindex")
@@ -211,62 +204,12 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		[]string{migration.Index},
 		e.client.Indices.Delete.WithContext(ctx),
 	)
-	if err := getErrorFromESResponse(res, err); err != nil {
-		return err
-	}
-
-	res, err = e.client.Get(metadataIndexName, indicesMetadataDocId, e.client.Get.WithContext(ctx))
-	if err := getErrorFromESResponse(res, err); err != nil {
-		return err
-	}
-
-	docResponse := ESDocumentResponse{}
-	metadataDoc := map[string]*indexMetadata{}
-	_ = decodeResponse(res.Body, &docResponse)
-	data, _ := docResponse.Source.MarshalJSON()
-	if err := json.Unmarshal(data, &metadataDoc); err != nil {
-		return err
-	}
-
-	indexParts := parseIndexName(newIndexName)
-	// TODO: properly delete old index name from document
-	delete(metadataDoc, migration.Index)
-	metadataDoc[newIndexName] = &indexMetadata{MappingsVersion: indexParts.Version}
-	doc := map[string]interface{}{
-		"doc": metadataDoc,
-	}
-	docUpdateReq := encodeRequest(doc)
-	res, err = e.client.Update(metadataIndexName, indicesMetadataDocId, docUpdateReq, e.client.Update.WithContext(ctx))
 
 	return getErrorFromESResponse(res, err)
 }
 
 func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
-	createDoc := false
-
-	indexDoc := map[string]*indexMetadata{}
-	res, err := e.client.Get(metadataIndexName, indicesMetadataDocId, e.client.Get.WithContext(ctx))
-
-	if err != nil {
-		return nil, err
-	}
-
-	if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound {
-		return nil, fmt.Errorf("unexpected status code from Elasticsearch %d", res.StatusCode)
-	}
-	if res.StatusCode == http.StatusNotFound {
-		createDoc = true
-	} else {
-		docResponse := ESDocumentResponse{}
-		_ = decodeResponse(res.Body, &docResponse)
-
-		data, _ := docResponse.Source.MarshalJSON()
-		if err := json.Unmarshal(data, &indexDoc); err != nil {
-			return nil, err
-		}
-	}
-
-	res, err = e.client.Indices.Get([]string{"_all"}, e.client.Indices.Get.WithContext(ctx))
+	res, err := e.client.Indices.Get([]string{"_all"}, e.client.Indices.Get.WithContext(ctx))
 	if err := getErrorFromESResponse(res, err); err != nil {
 		return nil, err
 	}
@@ -274,8 +217,9 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 	allIndices := map[string]interface{}{}
 
 	_ = decodeResponse(res.Body, &allIndices)
+	var migrations []*Migration
 	for indexName, index := range allIndices {
-		if indexName == metadataIndexName || !strings.HasPrefix(indexName, "grafeas") {
+		if !strings.HasPrefix(indexName, "grafeas") {
 			continue
 		}
 
@@ -285,44 +229,22 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 		metaType := meta["type"].(string)
 
 		if metaType == "grafeas" {
-			if _, ok := indexDoc[indexName]; !ok {
-				indexDoc[indexName] = &indexMetadata{
-					MappingsVersion: "v1beta1",
-				}
-			}
-		}
-	}
-	var migrations []*Migration
-	for indexName, metadata := range indexDoc {
-		res := strings.Split(indexName, "-")
-		docKind := res[len(res)-1]
-		indexParts := parseIndexName(indexName)
-		latestVersion := e.indexManager.GetLatestVersionForDocumentKind(indexParts.DocumentKind)
-		if metadata.MappingsVersion != latestVersion {
+			indexParts := parseIndexName(indexName)
+			latestVersion := e.indexManager.GetLatestVersionForDocumentKind(indexParts.DocumentKind)
+
 			indexData := allIndices[indexName].(map[string]interface{})
 			aliases := indexData["aliases"].(map[string]interface{})
 			alias := ""
 			for key := range aliases {
 				alias = key
 			}
-			migrations = append(migrations, &Migration{Index: indexName, DocumentKind: docKind, Alias: alias})
+
+			if indexParts.Version != latestVersion {
+				migrations = append(migrations, &Migration{Index: indexName, DocumentKind: indexParts.DocumentKind, Alias: alias})
+			}
 		}
 	}
 
-	if createDoc {
-		docBody := encodeRequest(indexDoc)
-		res, err = e.client.Create(metadataIndexName, indicesMetadataDocId, docBody, e.client.Create.WithContext(ctx))
-	} else {
-		doc := map[string]interface{}{
-			"doc": indexDoc,
-		}
-		docUpdateReq := encodeRequest(doc)
-		res, err = e.client.Update(metadataIndexName, indicesMetadataDocId, docUpdateReq, e.client.Update.WithContext(ctx))
-	}
-
-	if err := getErrorFromESResponse(res, err); err != nil {
-		return nil, err
-	}
 	return migrations, nil
 }
 
@@ -373,14 +295,6 @@ func (m *MigrationOrchestrator) RunMigrations(ctx context.Context) error {
 			return err
 		}
 	}
-
-	// try to block writes on metadata index
-	// if it's already locked, bail
-	// m.migrator.GetMigrations()
-	// for each migrations: m.migrator.Migrate() (separate go routine)
-	// wait group for all migrations to settle
-	// unblock metadata index, bump versions
-	// fin
 
 	return nil
 }

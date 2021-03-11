@@ -48,6 +48,20 @@ func (mr *MockIndexManagerMockRecorder) CreateIndex(arg0, arg1, arg2 interface{}
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateIndex", reflect.TypeOf((*MockIndexManager)(nil).CreateIndex), arg0, arg1, arg2)
 }
 
+// GetAliasForIndex mocks base method
+func (m *MockIndexManager) GetAliasForIndex(arg0 string) string {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "GetAliasForIndex", arg0)
+	ret0, _ := ret[0].(string)
+	return ret0
+}
+
+// GetAliasForIndex indicates an expected call of GetAliasForIndex
+func (mr *MockIndexManagerMockRecorder) GetAliasForIndex(arg0 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "GetAliasForIndex", reflect.TypeOf((*MockIndexManager)(nil).GetAliasForIndex), arg0)
+}
+
 // GetLatestVersionForDocumentKind mocks base method
 func (m *MockIndexManager) GetLatestVersionForDocumentKind(arg0 string) string {
 	m.ctrl.T.Helper()

@@ -78,23 +78,41 @@ var _ = Describe("index manager", func() {
 				Expect(indexManager.NotesIndex(projectId)).To(Equal(expectedIndexName))
 			})
 		})
+
+		Describe("IncrementIndexVersion", func() {
+			It("should return Notes Index", func() {
+				IndexName := createIndexOrAliasName(fake.LetterN(5), projectId, "notes")
+				expectedIndexName := createIndexOrAliasName(indexManager.noteMapping.Version, projectId, "notes")
+				Expect(indexManager.IncrementIndexVersion(IndexName)).To(Equal(expectedIndexName))
+			})
+			It("should return Occurrences Index", func() {
+				IndexName := createIndexOrAliasName(fake.LetterN(5), projectId, "occurrences")
+				expectedIndexName := createIndexOrAliasName(indexManager.occurrenceMapping.Version, projectId, "occurrences")
+				Expect(indexManager.IncrementIndexVersion(IndexName)).To(Equal(expectedIndexName))
+			})
+			It("should return Projects Index", func() {
+				IndexName := createIndexOrAliasName(fake.LetterN(5), "projects")
+				expectedIndexName := createIndexOrAliasName(indexManager.projectMapping.Version, "projects")
+				Expect(indexManager.IncrementIndexVersion(IndexName)).To(Equal(expectedIndexName))
+			})
+		})
 	})
 })
 
 func populateIndexMappings(indexManager *EsIndexManager) {
 	indexManager.projectMapping = &VersionedMapping{
 		Mappings: fake.Map(),
-		Version: fake.LetterN(5),
+		Version:  fake.LetterN(5),
 	}
 
 	indexManager.occurrenceMapping = &VersionedMapping{
 		Mappings: fake.Map(),
-		Version: fake.LetterN(5),
+		Version:  fake.LetterN(5),
 	}
 
 	indexManager.noteMapping = &VersionedMapping{
 		Mappings: fake.Map(),
-		Version: fake.LetterN(5),
+		Version:  fake.LetterN(5),
 	}
 }
 

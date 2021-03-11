@@ -38,33 +38,46 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	log := e.logger.Named("Migrate").With(zap.String("indexName", migration.Index))
 	log.Info("Starting migration")
 
-	name, _ := os.Hostname()
-	log.Info("hostname", zap.String("hostname", name))
-	if name == "grafeas-next_2" {
-		log.Info("second instance sleeping")
-		time.Sleep(30 * time.Second)
-	}
-
-	failAfter := os.Getenv("FAIL_AFTER_STEP")
-
-	log.Info("Placing write block on index")
-	res, err := e.client.Indices.AddBlock([]string{migration.Index}, "write", e.client.Indices.AddBlock.WithContext(ctx))
+	res, err := e.client.Indices.GetSettings(e.client.Indices.GetSettings.WithContext(ctx), e.client.Indices.GetSettings.WithIndex(migration.Index))
 	if err := getErrorFromESResponse(res, err); err != nil {
 		return err
 	}
 
-	if failAfter == "ADD_WRITE_BLOCK" {
-		return fmt.Errorf("forced failure after %s", failAfter)
-	}
+	// if failAfter == "ADD_WRITE_BLOCK" {
+	// 	return fmt.Errorf("forced failure after %s", failAfter)
+	// }
 
-	blockResponse := &ESBlockResponse{}
-	if err := decodeResponse(res.Body, blockResponse); err != nil {
+	settingsResponse := map[string]ESSettingsResponse{}
+	if err := decodeResponse(res.Body, &settingsResponse); err != nil {
 		return err
 	}
 
-	if !(blockResponse.Acknowledged && blockResponse.ShardsAcknowledged) {
-		log.Error("Write block unsuccessful", zap.Any("response", blockResponse))
-		return fmt.Errorf("unable to block writes for index: %s", migration.Index)
+	failAfter := os.Getenv("FAIL_AFTER_STEP")
+
+	blocks := settingsResponse[migration.Index].Settings.Index.Blocks
+
+	//fmt.Printf("Settings responded: %v", settingsResponse[migration.Index].Settings.Index.Blocks.Write)
+
+	if !(blocks != nil && blocks.Write == "true") {
+		log.Info("Placing write block on index")
+		res, err = e.client.Indices.AddBlock([]string{migration.Index}, "write", e.client.Indices.AddBlock.WithContext(ctx))
+		if err := getErrorFromESResponse(res, err); err != nil {
+			return err
+		}
+
+		if failAfter == "ADD_WRITE_BLOCK" {
+			return fmt.Errorf("forced failure after %s", failAfter)
+		}
+
+		blockResponse := &ESBlockResponse{}
+		if err := decodeResponse(res.Body, blockResponse); err != nil {
+			return err
+		}
+
+		if !(blockResponse.Acknowledged) {
+			log.Error("Write block unsuccessful", zap.Any("response", blockResponse))
+			return fmt.Errorf("unable to block writes for index: %s", migration.Index)
+		}
 	}
 
 	newIndexName := e.indexManager.IncrementIndexVersion(migration.Index)

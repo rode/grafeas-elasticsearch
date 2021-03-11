@@ -49,6 +49,22 @@ type ESBlockResponse struct {
 	Indices            []ESBlockIndex `json:"indices"`
 }
 
+type ESSettingsResponse struct {
+	Settings *ESSettingsIndex `json:"settings"`
+}
+
+type ESSettingsIndex struct {
+	Index *ESSettingsBlocks `json:"index"`
+}
+
+type ESSettingsBlocks struct {
+	Blocks *ESSettingsWrite `json:"blocks"`
+}
+
+type ESSettingsWrite struct {
+	Write string `json:"write"`
+}
+
 type ESTaskCreationResponse struct {
 	Task string `json:"task"`
 }

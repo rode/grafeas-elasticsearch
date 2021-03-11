@@ -53,6 +53,7 @@ type IndexManager interface {
 
 	IncrementIndexVersion(indexName string) string
 	GetLatestVersionForDocumentKind(documentKind string) string
+	GetAliasForIndex(indexName string) string
 }
 
 type VersionedMapping struct {
@@ -236,6 +237,21 @@ func (em *EsIndexManager) GetLatestVersionForDocumentKind(documentKind string) s
 		return em.occurrenceMapping.Version
 	case ProjectDocumentKind:
 		return em.projectMapping.Version
+	}
+
+	return ""
+}
+
+func (em *EsIndexManager) GetAliasForIndex(indexName string) string {
+	parts := parseIndexName(indexName)
+
+	switch parts.DocumentKind {
+	case NoteDocumentKind:
+		return em.NotesAlias(parts.ProjectId)
+	case OccurrenceDocumentKind:
+		return em.OccurrencesAlias(parts.ProjectId)
+	case ProjectDocumentKind:
+		return em.ProjectsAlias()
 	}
 
 	return ""

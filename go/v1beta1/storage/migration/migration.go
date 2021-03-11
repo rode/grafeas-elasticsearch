@@ -141,21 +141,27 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	}
 
 	aliasReqBody := encodeRequest(aliasReq)
-
+	log.Info("Swapping alias over to new index")
 	res, err = e.client.Indices.UpdateAliases(
 		aliasReqBody,
 		e.client.Indices.UpdateAliases.WithContext(ctx),
 	)
 	if err := getErrorFromESResponse(res, err); err != nil {
-		return err
+		return fmt.Errorf("error updating alias: %s", err)
 	}
 
+	log.Info("Deleting old index")
 	res, err = e.client.Indices.Delete(
 		[]string{migration.Index},
 		e.client.Indices.Delete.WithContext(ctx),
 	)
 
-	return getErrorFromESResponse(res, err)
+	if err := getErrorFromESResponse(res, err); err != nil {
+		return fmt.Errorf("error deleting old index: %s", err)
+	}
+
+	log.Info("Migration complete")
+	return nil
 }
 
 func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
@@ -181,13 +187,7 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 		if metaType == "grafeas" {
 			indexParts := parseIndexName(indexName)
 			latestVersion := e.indexManager.GetLatestVersionForDocumentKind(indexParts.DocumentKind)
-
-			indexData := allIndices[indexName].(map[string]interface{})
-			aliases := indexData["aliases"].(map[string]interface{})
-			alias := ""
-			for key := range aliases {
-				alias = key
-			}
+			alias := e.indexManager.GetAliasForIndex(indexName)
 
 			if indexParts.Version != latestVersion {
 				migrations = append(migrations, &Migration{Index: indexName, DocumentKind: indexParts.DocumentKind, Alias: alias})

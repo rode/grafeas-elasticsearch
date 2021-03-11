@@ -81,3 +81,11 @@ type ReindexFields struct {
 	Index  string `json:"index"`
 	OpType string `json:"op_type,omitempty"`
 }
+
+type ESErrorResponse struct {
+	Error ESError `json:"error"`
+}
+
+type ESError struct {
+	Type string `json:"type"`
+}

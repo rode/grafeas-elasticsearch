@@ -163,8 +163,22 @@ func (em *EsIndexManager) CreateIndex(ctx context.Context, info *IndexInfo, chec
 
 	payload := encodeRequest(&createIndexReq)
 	res, err := em.client.Indices.Create(info.Index, em.client.Indices.Create.WithContext(ctx), em.client.Indices.Create.WithBody(payload))
-	if err := getErrorFromESResponse(res, err); err != nil {
-		return err
+	if err != nil {
+		return fmt.Errorf("error creating index %s: %s", info.Index, err)
+	}
+
+	if res.IsError() {
+		if res.StatusCode == http.StatusBadRequest {
+			errResponse := ESErrorResponse{}
+			_ = decodeResponse(res.Body, &errResponse)
+
+			if errResponse.Error.Type == "resource_already_exists_exception" {
+				log.Info("index already exists")
+				return nil
+			}
+		}
+
+		return fmt.Errorf("error creating index, status: %d", res.StatusCode)
 	}
 
 	log.Info("index created", zap.String("index", info.Index))

@@ -17,6 +17,7 @@ package migration
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"strings"
 	"time"
 
@@ -47,14 +48,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		return err
 	}
 
-	if len(blockResponse.Indices) == 0 { // TODO: already blocked, should poll for migration completion
-		log.Info("Index is already blocked")
-		return fmt.Errorf("unblocked")
-	}
-
-	index := blockResponse.Indices[0] // TODO: length check
-	// TODO: do we need to check acknowledged and shards acknowledged?
-	if !(blockResponse.Acknowledged && blockResponse.ShardsAcknowledged && index.Name == migration.Index && index.Blocked) {
+	if !(blockResponse.Acknowledged && blockResponse.ShardsAcknowledged) {
 		log.Error("Write block unsuccessful", zap.Any("response", blockResponse))
 		return fmt.Errorf("unable to block writes for index: %s", migration.Index)
 	}
@@ -64,7 +58,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		Index:        newIndexName,
 		Alias:        migration.Alias,
 		DocumentKind: migration.DocumentKind,
-	}, false)
+	}, true)
 	if err != nil {
 		return err
 	}
@@ -146,6 +140,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		aliasReqBody,
 		e.client.Indices.UpdateAliases.WithContext(ctx),
 	)
+
 	if err := getErrorFromESResponse(res, err); err != nil {
 		return fmt.Errorf("error updating alias: %s", err)
 	}
@@ -156,8 +151,12 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		e.client.Indices.Delete.WithContext(ctx),
 	)
 
-	if err := getErrorFromESResponse(res, err); err != nil {
-		return fmt.Errorf("error deleting old index: %s", err)
+	if err != nil {
+		return fmt.Errorf("failed to remove previous index: %s", err)
+	}
+
+	if res.IsError() && res.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("error response from elasticsearch when deleting previous index, status: %d", res.StatusCode)
 	}
 
 	log.Info("Migration complete")

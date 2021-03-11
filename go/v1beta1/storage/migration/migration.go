@@ -15,24 +15,14 @@
 package migration
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v7"
-	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"go.uber.org/zap"
 )
-
-type ESMigrator struct {
-	client       *elasticsearch.Client
-	indexManager IndexManager
-	logger       *zap.Logger
-}
 
 func NewESMigrator(logger *zap.Logger, client *elasticsearch.Client, indexManager IndexManager) *ESMigrator {
 	return &ESMigrator{
@@ -42,61 +32,6 @@ func NewESMigrator(logger *zap.Logger, client *elasticsearch.Client, indexManage
 	}
 }
 
-type ESBlockIndex struct {
-	Name    string `json:"name"`
-	Blocked bool   `json:"blocked"`
-}
-
-type ESBlockResponse struct {
-	Acknowledged       bool           `json:"acknowledged"`
-	ShardsAcknowledged bool           `json:"shards_acknowledged"`
-	Indices            []ESBlockIndex `json:"indices"`
-}
-
-type ESTaskCreationResponse struct {
-	Task string `json:"task"`
-}
-
-type ESTask struct {
-	Completed bool `json:"completed"`
-}
-
-type ESActions struct {
-	Add    *ESIndexAlias `json:"add,omitempty"`
-	Remove *ESIndexAlias `json:"remove,omitempty"`
-}
-
-type ESIndexAlias struct {
-	Index string `json:"index"`
-	Alias string `json:"alias"`
-}
-
-type ESIndexAliasRequest struct {
-	Actions []ESActions `json:"actions"`
-}
-
-type Migration struct {
-	DocumentKind string
-	Index        string
-	Alias        string
-}
-
-type ESReindex struct {
-	Conflicts   string         `json:"conflicts"`
-	Source      *ReindexFields `json:"source"`
-	Destination *ReindexFields `json:"dest"`
-}
-
-type ReindexFields struct {
-	Index  string `json:"index"`
-	OpType string `json:"op_type,omitempty"`
-}
-
-type ESDocumentResponse struct {
-	Source json.RawMessage `json:"_source"`
-}
-
-// TODO: fail migration if document kind is not supported
 func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	log := e.logger.Named("Migrate").With(zap.String("indexName", migration.Index))
 	log.Info("Starting migration")
@@ -246,69 +181,4 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 	}
 
 	return migrations, nil
-}
-
-func getErrorFromESResponse(res *esapi.Response, err error) error {
-	if err != nil {
-		return err
-	}
-
-	if res.IsError() {
-		return fmt.Errorf("response error from ES: %d", res.StatusCode)
-	}
-	return nil
-}
-
-type Migrator interface {
-	GetMigrations(ctx context.Context) ([]*Migration, error) // find all migrations that need to run
-	Migrate(ctx context.Context, migration *Migration) error // run a single migration on a single index
-}
-
-type MigrationOrchestrator struct {
-	logger   *zap.Logger
-	migrator Migrator
-}
-
-func NewMigrationOrchestrator(logger *zap.Logger, migrator Migrator) *MigrationOrchestrator {
-	return &MigrationOrchestrator{
-		logger:   logger,
-		migrator: migrator,
-	}
-}
-
-func (m *MigrationOrchestrator) RunMigrations(ctx context.Context) error {
-	log := m.logger.Named("RunMigrations")
-	migrationsToRun, err := m.migrator.GetMigrations(ctx)
-	if err != nil {
-		return err
-	}
-
-	if len(migrationsToRun) == 0 {
-		log.Info("No migrations to run")
-		return nil
-	}
-
-	log.Info(fmt.Sprintf("Discovered %d migrations to run", len(migrationsToRun)))
-
-	for _, migration := range migrationsToRun {
-		if err := m.migrator.Migrate(ctx, migration); err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-func decodeResponse(r io.ReadCloser, i interface{}) error {
-	return json.NewDecoder(r).Decode(i)
-}
-
-func encodeRequest(body interface{}) io.Reader {
-	b, err := json.Marshal(body)
-	if err != nil {
-		// we should know that `body` is a serializable struct before invoking `encodeRequest`
-		panic(err)
-	}
-
-	return bytes.NewReader(b)
 }

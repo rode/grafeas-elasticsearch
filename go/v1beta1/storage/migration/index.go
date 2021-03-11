@@ -81,7 +81,7 @@ type EsIndexManager struct {
 	noteMapping       *VersionedMapping
 }
 
-func NewIndexManager(logger *zap.Logger, client *elasticsearch.Client) IndexManager {
+func NewEsIndexManager(logger *zap.Logger, client *elasticsearch.Client) *EsIndexManager {
 	return &EsIndexManager{
 		client: client,
 		logger: logger,

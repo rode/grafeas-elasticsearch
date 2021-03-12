@@ -25,12 +25,13 @@ import (
 	. "github.com/onsi/gomega"
 	"github.com/rode/grafeas-elasticsearch/go/config"
 	"github.com/rode/grafeas-elasticsearch/go/mocks"
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil"
 )
 
 var _ = Describe("Grafeas integration", func() {
 	var (
 		elasticsearchStorage *ElasticsearchStorage
-		transport            *mockEsTransport
+		transport            *esutil.MockEsTransport
 		mockCtrl             *gomock.Controller
 		filterer             *mocks.MockFilterer
 		indexManager         *mocks.MockIndexManager
@@ -43,7 +44,7 @@ var _ = Describe("Grafeas integration", func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		filterer = mocks.NewMockFilterer(mockCtrl)
 		indexManager = mocks.NewMockIndexManager(mockCtrl)
-		transport = &mockEsTransport{}
+		transport = &esutil.MockEsTransport{}
 		esConfig = &config.ElasticsearchConfig{
 			URL:     fake.URL(),
 			Refresh: config.RefreshTrue,

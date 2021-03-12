@@ -136,9 +136,14 @@ func (em *EsIndexManager) CreateIndex(ctx context.Context, info *IndexInfo, chec
 
 	if checkExists {
 		res, err := em.client.Indices.Exists([]string{info.Index}, em.client.Indices.Exists.WithContext(ctx))
-		if err != nil || (res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound) {
-			//return storage.createError(log, fmt.Sprintf("error checking if %s index already exists", info.Index), err)
-			return err
+		if err != nil {
+			return fmt.Errorf("error checking if index %s exists: %s", info.Index, err)
+		}
+
+		if res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound {
+			log.Error("error checking if index exists", zap.String("response", res.String()), zap.Int("status", res.StatusCode))
+
+			return fmt.Errorf("unexpected status code (%d) when checking if index exists", res.StatusCode)
 		}
 
 		if !res.IsError() {

@@ -15,12 +15,8 @@
 package migration
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"net/http"
 	"strings"
 
@@ -283,10 +279,9 @@ var _ = Describe("index manager", func() {
 						indexInfo.Alias: map[string]interface{}{},
 					},
 				}
-				rawBody, err := ioutil.ReadAll(mockEsTransport.ReceivedHttpRequests[1].Body)
-				Expect(err).To(BeNil())
 				actualPayload := map[string]interface{}{}
-				Expect(json.Unmarshal(rawBody, &actualPayload)).To(BeNil())
+
+				readRequestBody(mockEsTransport.ReceivedHttpRequests[1], &actualPayload)
 
 				Expect(actualPayload).To(Equal(expectedPayload))
 			})
@@ -415,11 +410,4 @@ func randomIndexInfo(projectId string) *IndexInfo {
 		DocumentKind: OccurrenceDocumentKind,
 		Index:        createIndexOrAliasName(fake.LetterN(5), projectId, OccurrenceDocumentKind),
 	}
-}
-
-func createEsBody(value interface{}) io.ReadCloser {
-	responseBody, err := json.Marshal(value)
-	Expect(err).To(BeNil())
-
-	return ioutil.NopCloser(bytes.NewReader(responseBody))
 }

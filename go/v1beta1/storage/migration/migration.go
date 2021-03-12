@@ -17,7 +17,6 @@ package migration
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -43,9 +42,9 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		return err
 	}
 
-	// if failAfter == "ADD_WRITE_BLOCK" {
-	// 	return fmt.Errorf("forced failure after %s", failAfter)
-	// }
+	//if failAfter == "ADD_WRITE_BLOCK" {
+	//	return fmt.Errorf("forced failure after %s", failAfter)
+	//}
 
 	settingsResponse := map[string]ESSettingsResponse{}
 	if err := decodeResponse(res.Body, &settingsResponse); err != nil {
@@ -74,10 +73,10 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 			return err
 		}
 
-		if !(blockResponse.Acknowledged) {
-			log.Error("Write block unsuccessful", zap.Any("response", blockResponse))
-			return fmt.Errorf("unable to block writes for index: %s", migration.Index)
-		}
+		//if !(blockResponse.Acknowledged) {
+		//	log.Error("Write block unsuccessful", zap.Any("response", blockResponse))
+		//	return fmt.Errorf("unable to block writes for index: %s", migration.Index)
+		//}
 	}
 
 	newIndexName := e.indexManager.IncrementIndexVersion(migration.Index)
@@ -89,11 +88,11 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	if err != nil {
 		return err
 	}
-
-	if failAfter == "CREATE_NEW_INDEX" {
-		return fmt.Errorf("forced failure after %s", failAfter)
-	}
-
+	//
+	//if failAfter == "CREATE_NEW_INDEX" {
+	//	return fmt.Errorf("forced failure after %s", failAfter)
+	//}
+	//
 	reindexReq := &ESReindex{
 		Conflicts:   "proceed",
 		Source:      &ReindexFields{Index: migration.Index},
@@ -117,7 +116,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		return fmt.Errorf("forced failure after %s", failAfter)
 	}
 
-	reindexCompleted := false
+	//reindexCompleted := false
 	pollingAttempts := 10
 	for i := 0; i < pollingAttempts; i++ {
 		log.Info("Polling task API", zap.String("taskId", taskCreationResponse.Task))
@@ -133,7 +132,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		}
 
 		if task.Completed {
-			reindexCompleted = true
+			//reindexCompleted = true
 			log.Info("Reindex completed")
 
 			break
@@ -142,15 +141,15 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		log.Info("Task incomplete, waiting before polling again", zap.String("taskId", taskCreationResponse.Task))
 		time.Sleep(time.Second * 10)
 	}
-
-	if !reindexCompleted {
-		return fmt.Errorf("reindex did not complete after %d polls", pollingAttempts)
-	}
-
-	if failAfter == "END_REINDEX" {
-		return fmt.Errorf("forced failure after %s", failAfter)
-	}
-
+	//
+	//if !reindexCompleted {
+	//	return fmt.Errorf("reindex did not complete after %d polls", pollingAttempts)
+	//}
+	//
+	//if failAfter == "END_REINDEX" {
+	//	return fmt.Errorf("forced failure after %s", failAfter)
+	//}
+	//
 	res, err = e.client.Delete(".tasks", taskCreationResponse.Task, e.client.Delete.WithContext(ctx))
 	if err := getErrorFromESResponse(res, err); err != nil {
 		log.Warn("Error deleting task document", zap.Error(err), zap.String("taskId", taskCreationResponse.Task))
@@ -198,9 +197,9 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		return fmt.Errorf("failed to remove previous index: %s", err)
 	}
 
-	if res.IsError() && res.StatusCode != http.StatusNotFound {
-		return fmt.Errorf("error response from elasticsearch when deleting previous index, status: %d", res.StatusCode)
-	}
+	//if res.IsError() && res.StatusCode != http.StatusNotFound {
+	//	return fmt.Errorf("error response from elasticsearch when deleting previous index, status: %d", res.StatusCode)
+	//}
 
 	if failAfter == "DELETE_OLD_INDEX" {
 		return fmt.Errorf("forced failure after %s", failAfter)
@@ -220,24 +219,17 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 
 	_ = decodeResponse(res.Body, &allIndices)
 	var migrations []*Migration
-	for indexName, index := range allIndices {
+	for indexName := range allIndices {
 		if !strings.HasPrefix(indexName, "grafeas") {
 			continue
 		}
 
-		index := index.(map[string]interface{})
-		mappings := index["mappings"].(map[string]interface{})
-		meta := mappings["_meta"].(map[string]interface{})
-		metaType := meta["type"].(string)
+		indexParts := parseIndexName(indexName)
+		latestVersion := e.indexManager.GetLatestVersionForDocumentKind(indexParts.DocumentKind)
+		alias := e.indexManager.GetAliasForIndex(indexName)
 
-		if metaType == "grafeas" {
-			indexParts := parseIndexName(indexName)
-			latestVersion := e.indexManager.GetLatestVersionForDocumentKind(indexParts.DocumentKind)
-			alias := e.indexManager.GetAliasForIndex(indexName)
-
-			if indexParts.Version != latestVersion {
-				migrations = append(migrations, &Migration{Index: indexName, DocumentKind: indexParts.DocumentKind, Alias: alias})
-			}
+		if indexParts.Version != latestVersion {
+			migrations = append(migrations, &Migration{Index: indexName, DocumentKind: indexParts.DocumentKind, Alias: alias})
 		}
 	}
 

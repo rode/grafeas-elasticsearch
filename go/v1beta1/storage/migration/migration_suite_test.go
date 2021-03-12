@@ -15,6 +15,11 @@
 package migration
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
+	"io/ioutil"
+	"net/http"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
@@ -30,4 +35,19 @@ var fake = gofakeit.New(0)
 func TestMigrationPackage(t *testing.T) {
 	RegisterFailHandler(Fail)
 	RunSpecs(t, "Migration Suite")
+}
+
+func createEsBody(value interface{}) io.ReadCloser {
+	responseBody, err := json.Marshal(value)
+	Expect(err).To(BeNil())
+
+	return ioutil.NopCloser(bytes.NewReader(responseBody))
+}
+
+func readRequestBody(request *http.Request, target interface{}) {
+	rawBody, err := ioutil.ReadAll(request.Body)
+	Expect(err).To(BeNil())
+
+
+	Expect(json.Unmarshal(rawBody, target)).To(BeNil())
 }

@@ -16,15 +16,19 @@ package migration
 
 import (
 	"context"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"go.uber.org/zap"
 )
 
+type timeSleep func(duration time.Duration)
+
 type ESMigrator struct {
 	client       *elasticsearch.Client
 	indexManager IndexManager
 	logger       *zap.Logger
+	sleep        timeSleep
 }
 
 type Migration struct {

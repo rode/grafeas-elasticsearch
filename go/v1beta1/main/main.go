@@ -21,6 +21,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/grafeas/grafeas/go/v1beta1/server"
@@ -46,7 +47,7 @@ func main() {
 		}
 
 		indexManager := migration.NewEsIndexManager(logger.Named("IndexManager"), esClient)
-		migrator := migration.NewESMigrator(logger.Named("ESMigrator"), esClient, indexManager)
+		migrator := migration.NewESMigrator(logger.Named("ESMigrator"), esClient, indexManager, time.Sleep)
 		migrationOrchestrator := migration.NewMigrationOrchestrator(logger.Named("MigrationOrchestrator"), migrator)
 
 		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c, indexManager, migrationOrchestrator), nil

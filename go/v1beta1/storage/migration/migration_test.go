@@ -3,7 +3,9 @@ package migration
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
@@ -26,7 +28,7 @@ var _ = Describe("ESMigrator", func() {
 		indexManager = NewEsIndexManager(logger, mockEsClient)
 		populateIndexMappings(indexManager)
 
-		migrator = NewESMigrator(logger, mockEsClient, indexManager)
+		migrator = NewESMigrator(logger, mockEsClient, indexManager, func(duration time.Duration) {})
 	})
 
 	Describe("GetMigrations", func() {
@@ -70,9 +72,9 @@ var _ = Describe("ESMigrator", func() {
 
 	Describe("Migrate", func() {
 		var (
-			taskId    string
-			projectId string
-			migration *Migration
+			taskId       string
+			projectId    string
+			migration    *Migration
 			newIndexName string
 		)
 
@@ -180,7 +182,7 @@ var _ = Describe("ESMigrator", func() {
 				expectedBody := &ESReindex{
 					Conflicts: "proceed",
 					Source: &ReindexFields{
-						Index:  migration.Index,
+						Index: migration.Index,
 					},
 					Destination: &ReindexFields{
 						Index:  newIndexName,
@@ -237,5 +239,215 @@ var _ = Describe("ESMigrator", func() {
 				Expect(mockEsTransport.ReceivedHttpRequests[8].URL.Path).To(Equal("/" + migration.Index))
 			})
 		})
+
+		Describe("migration errors", func() {
+			var actualError error
+
+			JustBeforeEach(func() {
+				actualError = migrator.Migrate(ctx, migration)
+			})
+
+			Describe("error checking if the source index has a write block", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("error checking if write block is enabled on index"))
+				})
+			})
+
+			Describe("error decoding the index settings response", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[0].Body = createInvalidBody()
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("error decoding settings response"))
+				})
+			})
+
+			Describe("error placing write block on the source index", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[1].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("error placing write block on index"))
+				})
+			})
+
+			Describe("error decoding write block response", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[1].Body = createInvalidBody()
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("error decoding write block response"))
+				})
+			})
+
+			Describe("write block isn't acknowledged", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[1].Body = createEsBody(&ESBlockResponse{
+						Acknowledged: false,
+					})
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("unable to block writes for index: " + migration.Index))
+				})
+			})
+
+			Describe("write block isn't acknowledged by shards", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[1].Body = createEsBody(&ESBlockResponse{
+						Acknowledged:       true,
+						ShardsAcknowledged: false,
+					})
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("unable to block writes for index: " + migration.Index))
+				})
+			})
+
+			Describe("creating the index fails", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[3].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("error creating target index"))
+				})
+			})
+
+			Describe("reindex request fails", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[4].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("error initiating reindex"))
+				})
+			})
+
+			Describe("error decoding reindex response", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[4].Body = createInvalidBody()
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("error decoding reindex response"))
+				})
+			})
+
+			Describe("reindexing doesn't complete in time", func() {
+				BeforeEach(func() {
+					responses := make([]*http.Response, 15)
+
+					for i := 0; i < len(responses); i++ {
+						if i >= 5 {
+							responses[i] = &http.Response{
+								StatusCode: http.StatusOK,
+								Body: createEsBody(&ESTask{
+									Completed: false,
+								}),
+							}
+						} else {
+							responses[i] = mockEsTransport.PreparedHttpResponses[i]
+						}
+					}
+
+					mockEsTransport.PreparedHttpResponses = responses
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("reindex did not complete after 10 polls"))
+				})
+			})
+
+			Describe("error in the task response", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[5].StatusCode = http.StatusInternalServerError
+
+					responses := append(mockEsTransport.PreparedHttpResponses[:6], &http.Response{
+						StatusCode: http.StatusOK,
+						Body: createEsBody(&ESTask{
+							Completed: true,
+						}),
+					})
+					mockEsTransport.PreparedHttpResponses = append(responses, mockEsTransport.PreparedHttpResponses[6:]...)
+				})
+
+				It("should continue and not return an error", func() {
+					Expect(actualError).To(BeNil())
+				})
+			})
+
+			Describe("error decoding task response", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[5].Body = createInvalidBody()
+
+					responses := append(mockEsTransport.PreparedHttpResponses[:6], &http.Response{
+						StatusCode: http.StatusOK,
+						Body: createEsBody(&ESTask{
+							Completed: true,
+						}),
+					})
+					mockEsTransport.PreparedHttpResponses = append(responses, mockEsTransport.PreparedHttpResponses[6:]...)
+				})
+
+				It("should continue and not return an error", func() {
+					Expect(actualError).To(BeNil())
+				})
+			})
+
+			Describe("error occurs while deleting the reindex task document", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[6].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should not return an error", func() {
+					Expect(actualError).To(BeNil())
+				})
+			})
+
+			Describe("an error occurs while updating the alias", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[7].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("error occurred while swapping the alias"))
+				})
+			})
+
+			Describe("an error occurs while deleting the source index", func() {
+				BeforeEach(func() {
+					mockEsTransport.PreparedHttpResponses[8].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("failed to remove the previous index"))
+				})
+			})
+		})
 	})
 })
+
+func createInvalidBody() io.ReadCloser {
+	return createEsBody('{')
+}

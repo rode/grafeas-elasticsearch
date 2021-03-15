@@ -17,6 +17,7 @@ package migration
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -25,43 +26,40 @@ import (
 	"go.uber.org/zap"
 )
 
-func NewESMigrator(logger *zap.Logger, client *elasticsearch.Client, indexManager IndexManager) *ESMigrator {
+func NewESMigrator(logger *zap.Logger, client *elasticsearch.Client, indexManager IndexManager, sleep timeSleep) *ESMigrator {
 	return &ESMigrator{
 		client:       client,
 		logger:       logger,
 		indexManager: indexManager,
+		sleep: sleep,
 	}
 }
 
 func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	log := e.logger.Named("Migrate").With(zap.String("indexName", migration.Index))
 	log.Info("Starting migration")
-
+	failAfter := os.Getenv("FAIL_AFTER_STEP")
 	res, err := e.client.Indices.GetSettings(e.client.Indices.GetSettings.WithContext(ctx), e.client.Indices.GetSettings.WithIndex(migration.Index))
 	if err := getErrorFromESResponse(res, err); err != nil {
-		return err
+		return fmt.Errorf("error checking if write block is enabled on index: %s", err)
 	}
 
-	//if failAfter == "ADD_WRITE_BLOCK" {
-	//	return fmt.Errorf("forced failure after %s", failAfter)
-	//}
+	if failAfter == "ADD_WRITE_BLOCK" {
+		return fmt.Errorf("forced failure after %s", failAfter)
+	}
 
 	settingsResponse := map[string]ESSettingsResponse{}
 	if err := decodeResponse(res.Body, &settingsResponse); err != nil {
-		return err
+		return fmt.Errorf("error decoding settings response: %s", err)
 	}
 
-	failAfter := os.Getenv("FAIL_AFTER_STEP")
-
 	blocks := settingsResponse[migration.Index].Settings.Index.Blocks
-
-	//fmt.Printf("Settings responded: %v", settingsResponse[migration.Index].Settings.Index.Blocks.Write)
 
 	if !(blocks != nil && blocks.Write == "true") {
 		log.Info("Placing write block on index")
 		res, err = e.client.Indices.AddBlock([]string{migration.Index}, "write", e.client.Indices.AddBlock.WithContext(ctx))
 		if err := getErrorFromESResponse(res, err); err != nil {
-			return err
+			return fmt.Errorf("error placing write block on index: %s", err)
 		}
 
 		if failAfter == "ADD_WRITE_BLOCK" {
@@ -70,13 +68,13 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 
 		blockResponse := &ESBlockResponse{}
 		if err := decodeResponse(res.Body, blockResponse); err != nil {
-			return err
+			return fmt.Errorf("error decoding write block response: %s", err)
 		}
 
-		//if !(blockResponse.Acknowledged) {
-		//	log.Error("Write block unsuccessful", zap.Any("response", blockResponse))
-		//	return fmt.Errorf("unable to block writes for index: %s", migration.Index)
-		//}
+		if !(blockResponse.Acknowledged && blockResponse.ShardsAcknowledged) {
+			log.Error("Write block unsuccessful", zap.Any("response", blockResponse))
+			return fmt.Errorf("unable to block writes for index: %s", migration.Index)
+		}
 	}
 
 	newIndexName := e.indexManager.IncrementIndexVersion(migration.Index)
@@ -86,13 +84,13 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		DocumentKind: migration.DocumentKind,
 	}, true)
 	if err != nil {
-		return err
+		return fmt.Errorf("error creating target index: %s", err)
 	}
-	//
-	//if failAfter == "CREATE_NEW_INDEX" {
-	//	return fmt.Errorf("forced failure after %s", failAfter)
-	//}
-	//
+
+	if failAfter == "CREATE_NEW_INDEX" {
+		return fmt.Errorf("forced failure after %s", failAfter)
+	}
+
 	reindexReq := &ESReindex{
 		Conflicts:   "proceed",
 		Source:      &ReindexFields{Index: migration.Index},
@@ -105,51 +103,54 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		e.client.Reindex.WithContext(ctx),
 		e.client.Reindex.WithWaitForCompletion(false))
 	if err := getErrorFromESResponse(res, err); err != nil {
-		return err
+		return fmt.Errorf("error initiating reindex: %s", err)
 	}
 	taskCreationResponse := &ESTaskCreationResponse{}
 
-	_ = decodeResponse(res.Body, taskCreationResponse)
+	if err := decodeResponse(res.Body, taskCreationResponse); err != nil {
+		return fmt.Errorf("error decoding reindex response: %s", err)
+	}
 	log.Info("Reindex started", zap.String("taskId", taskCreationResponse.Task))
 
 	if failAfter == "START_REINDEX" {
 		return fmt.Errorf("forced failure after %s", failAfter)
 	}
 
-	//reindexCompleted := false
+	reindexCompleted := false
 	pollingAttempts := 10
 	for i := 0; i < pollingAttempts; i++ {
 		log.Info("Polling task API", zap.String("taskId", taskCreationResponse.Task))
 		res, err = e.client.Tasks.Get(taskCreationResponse.Task, e.client.Tasks.Get.WithContext(ctx))
-		// TODO: continue on error
 		if err := getErrorFromESResponse(res, err); err != nil {
-			return err
+			log.Warn("error getting task status", zap.Error(err))
+			continue
 		}
 
 		task := &ESTask{}
 		if err := decodeResponse(res.Body, task); err != nil {
-			return err
+			log.Warn("error decoding task response", zap.Error(err))
+			continue
 		}
 
 		if task.Completed {
-			//reindexCompleted = true
+			reindexCompleted = true
 			log.Info("Reindex completed")
 
 			break
 		}
 
 		log.Info("Task incomplete, waiting before polling again", zap.String("taskId", taskCreationResponse.Task))
-		time.Sleep(time.Second * 10)
+		e.sleep(time.Second * 10)
 	}
-	//
-	//if !reindexCompleted {
-	//	return fmt.Errorf("reindex did not complete after %d polls", pollingAttempts)
-	//}
-	//
-	//if failAfter == "END_REINDEX" {
-	//	return fmt.Errorf("forced failure after %s", failAfter)
-	//}
-	//
+
+	if !reindexCompleted {
+		return fmt.Errorf("reindex did not complete after %d polls", pollingAttempts)
+	}
+
+	if failAfter == "END_REINDEX" {
+		return fmt.Errorf("forced failure after %s", failAfter)
+	}
+
 	res, err = e.client.Delete(".tasks", taskCreationResponse.Task, e.client.Delete.WithContext(ctx))
 	if err := getErrorFromESResponse(res, err); err != nil {
 		log.Warn("Error deleting task document", zap.Error(err), zap.String("taskId", taskCreationResponse.Task))
@@ -180,7 +181,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	)
 
 	if err := getErrorFromESResponse(res, err); err != nil {
-		return fmt.Errorf("error updating alias: %s", err)
+		return fmt.Errorf("error occurred while swapping the alias: %s", err)
 	}
 
 	if failAfter == "CUTOVER_ALIAS" {
@@ -197,9 +198,9 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		return fmt.Errorf("failed to remove previous index: %s", err)
 	}
 
-	//if res.IsError() && res.StatusCode != http.StatusNotFound {
-	//	return fmt.Errorf("error response from elasticsearch when deleting previous index, status: %d", res.StatusCode)
-	//}
+	if res.IsError() && res.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("failed to remove the previous index, status: %d", res.StatusCode)
+	}
 
 	if failAfter == "DELETE_OLD_INDEX" {
 		return fmt.Errorf("forced failure after %s", failAfter)

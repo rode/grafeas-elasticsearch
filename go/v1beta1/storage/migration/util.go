@@ -19,7 +19,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 )
@@ -44,8 +43,7 @@ func getErrorFromESResponse(res *esapi.Response, err error) error {
 	}
 
 	if res.IsError() {
-		body, _ := ioutil.ReadAll(res.Body)
-		return fmt.Errorf("response error from ES: %d, %s", res.StatusCode, body)
+		return fmt.Errorf("response error from ES: %d", res.StatusCode)
 	}
 	return nil
 }

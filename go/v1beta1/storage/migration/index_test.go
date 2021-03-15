@@ -16,9 +16,12 @@ package migration
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
 	"strings"
+	"time"
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
@@ -42,6 +45,76 @@ var _ = Describe("index manager", func() {
 		indexManager = NewEsIndexManager(logger, mockEsClient)
 
 		populateIndexMappings(indexManager)
+	})
+
+	Describe("LoadMappings", func() {
+		var (
+			actualError error
+			occurrencesMapping *VersionedMapping
+			projectsMapping    *VersionedMapping
+			notesMapping       *VersionedMapping
+		)
+
+		BeforeEach(func() {
+			occurrencesMapping = createVersionedMapping()
+			projectsMapping = createVersionedMapping()
+			notesMapping = createVersionedMapping()
+
+			ioutilReadDir = func(dirName string) ([]os.FileInfo, error) {
+				return []os.FileInfo{
+					&fakeFileInfo{
+						name: "occurrences.json",
+					},
+					&fakeFileInfo{
+						name: "projects.json",
+					},
+					&fakeFileInfo{
+						name: "notes.json",
+					},
+				}, nil
+			}
+
+			ioutilReadFile = func(fileName string) ([]byte, error) {
+				if strings.Contains(fileName, "projects.json") {
+					bytes, _ := json.Marshal(projectsMapping)
+
+					return bytes, nil
+				}
+
+				if strings.Contains(fileName, "occurrences.json") {
+					bytes, _ := json.Marshal(occurrencesMapping)
+
+					return bytes, nil
+				}
+
+				if strings.Contains(fileName, "notes.json") {
+					bytes, _ := json.Marshal(notesMapping)
+
+					return bytes, nil
+				}
+
+				return nil, fmt.Errorf("unexpected file name: %s", fileName)
+			}
+
+			actualError = indexManager.LoadMappings("test")
+		})
+
+		It("should not return an error", func() {
+			Expect(actualError).To(BeNil())
+		})
+
+		It("should populate the project mapping", func() {
+			Expect(indexManager.projectMapping).To(Equal(projectsMapping))
+		})
+
+		It("should populate the occurrence mapping", func() {
+			Expect(indexManager.occurrenceMapping).To(Equal(occurrencesMapping))
+		})
+
+		It("should populate the note mapping", func() {
+			Expect(indexManager.noteMapping).To(Equal(notesMapping))
+		})
+
 	})
 
 	Context("alias name functions", func() {
@@ -376,21 +449,13 @@ var _ = Describe("index manager", func() {
 })
 
 func populateIndexMappings(indexManager *EsIndexManager) {
-	indexManager.projectMapping = &VersionedMapping{
-		Mappings: map[string]interface{}{
-			fake.Word(): fake.Word(),
-		},
-		Version: fake.LetterN(5),
-	}
+	indexManager.projectMapping = createVersionedMapping()
+	indexManager.occurrenceMapping = createVersionedMapping()
+	indexManager.noteMapping = createVersionedMapping()
+}
 
-	indexManager.occurrenceMapping = &VersionedMapping{
-		Mappings: map[string]interface{}{
-			fake.Word(): fake.Word(),
-		},
-		Version: fake.LetterN(5),
-	}
-
-	indexManager.noteMapping = &VersionedMapping{
+func createVersionedMapping() *VersionedMapping {
+	return &VersionedMapping{
 		Mappings: map[string]interface{}{
 			fake.Word(): fake.Word(),
 		},
@@ -410,4 +475,33 @@ func randomIndexInfo(projectId string) *IndexInfo {
 		DocumentKind: OccurrenceDocumentKind,
 		Index:        createIndexOrAliasName(fake.LetterN(5), projectId, OccurrenceDocumentKind),
 	}
+}
+
+type fakeFileInfo struct {
+	name  string
+	isDir bool
+}
+
+func (f *fakeFileInfo) Name() string {
+	return f.name
+}
+
+func (f *fakeFileInfo) Size() int64 {
+	return 0
+}
+
+func (f *fakeFileInfo) Mode() os.FileMode {
+	return os.ModeTemporary
+}
+
+func (f *fakeFileInfo) ModTime() time.Time {
+	return time.Now()
+}
+
+func (f *fakeFileInfo) IsDir() bool {
+	return f.isDir
+}
+
+func (f *fakeFileInfo) Sys() interface{} {
+	return nil
 }

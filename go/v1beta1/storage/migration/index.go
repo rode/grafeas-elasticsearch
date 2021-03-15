@@ -46,20 +46,29 @@ func NewEsIndexManager(logger *zap.Logger, client *elasticsearch.Client) *EsInde
 	}
 }
 
+var (
+	ioutilReadDir = ioutil.ReadDir
+	ioutilReadFile = ioutil.ReadFile
+)
+
 func (em *EsIndexManager) LoadMappings(mappingsDir string) error {
-	if err := filepath.Walk(mappingsDir, func(filePath string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
+	files, err := ioutilReadDir(mappingsDir)
+	if err != nil {
+		return err
+	}
+	currentDir, err := os.Getwd()
+	if err != nil {
+		return err
+	}
+	for _, file := range files {
+		if file.IsDir() {
+			continue
 		}
 
-		if info.IsDir() {
-			return nil
-		}
+		documentKind := strings.TrimSuffix(file.Name(), filepath.Ext(file.Name()))
+		filePath := path.Join(currentDir, mappingsDir, file.Name())
+		versionedMappingJson, err := ioutilReadFile(filePath)
 
-		localPath := strings.TrimPrefix(filePath, mappingsDir+"/")
-		fileName := path.Base(localPath)
-		documentKind := strings.TrimSuffix(fileName, filepath.Ext(fileName))
-		versionedMappingJson, err := ioutil.ReadFile(filePath)
 		if err != nil {
 			return err
 		}
@@ -78,12 +87,7 @@ func (em *EsIndexManager) LoadMappings(mappingsDir string) error {
 			em.noteMapping = &mapping
 		default:
 			em.logger.Info("Unrecognized document kind mapping", zap.String("kind", documentKind))
-			return nil
 		}
-
-		return nil
-	}); err != nil {
-		return err
 	}
 
 	return nil

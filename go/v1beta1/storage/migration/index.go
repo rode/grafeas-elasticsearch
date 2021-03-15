@@ -39,6 +39,32 @@ const (
 	AliasPrefix = "grafeas"
 )
 
+type IndexManager interface {
+	LoadMappings(mappingsDir string) error
+	CreateIndex(ctx context.Context, info *IndexInfo, checkExists bool) error
+
+	ProjectsIndex() string
+	ProjectsAlias() string
+
+	OccurrencesIndex(projectId string) string
+	OccurrencesAlias(projectId string) string
+
+	NotesIndex(projectId string) string
+	NotesAlias(projectId string) string
+
+	IncrementIndexVersion(indexName string) string
+	GetLatestVersionForDocumentKind(documentKind string) string
+	GetAliasForIndex(indexName string) string
+}
+
+type EsIndexManager struct {
+	logger            *zap.Logger
+	client            *elasticsearch.Client
+	projectMapping    *VersionedMapping
+	occurrenceMapping *VersionedMapping
+	noteMapping       *VersionedMapping
+}
+
 func NewEsIndexManager(logger *zap.Logger, client *elasticsearch.Client) *EsIndexManager {
 	return &EsIndexManager{
 		client: client,

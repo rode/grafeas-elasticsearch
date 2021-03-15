@@ -30,6 +30,17 @@ var (
 	timeSleep = time.Sleep
 )
 
+type EsMigrator struct {
+	client       *elasticsearch.Client
+	indexManager IndexManager
+	logger       *zap.Logger
+}
+
+type Migrator interface {
+	GetMigrations(ctx context.Context) ([]*IndexInfo, error)
+	Migrate(ctx context.Context, migration *IndexInfo) error
+}
+
 func NewEsMigrator(logger *zap.Logger, client *elasticsearch.Client, indexManager IndexManager) *EsMigrator {
 	return &EsMigrator{
 		client:       client,

@@ -14,42 +14,6 @@
 
 package migration
 
-import (
-	"context"
-
-	"github.com/elastic/go-elasticsearch/v7"
-	"go.uber.org/zap"
-)
-
-type EsMigrator struct {
-	client       *elasticsearch.Client
-	indexManager IndexManager
-	logger       *zap.Logger
-}
-
-type Migrator interface {
-	GetMigrations(ctx context.Context) ([]*IndexInfo, error)
-	Migrate(ctx context.Context, migration *IndexInfo) error
-}
-
-type IndexManager interface {
-	LoadMappings(mappingsDir string) error
-	CreateIndex(ctx context.Context, info *IndexInfo, checkExists bool) error
-
-	ProjectsIndex() string
-	ProjectsAlias() string
-
-	OccurrencesIndex(projectId string) string
-	OccurrencesAlias(projectId string) string
-
-	NotesIndex(projectId string) string
-	NotesAlias(projectId string) string
-
-	IncrementIndexVersion(indexName string) string
-	GetLatestVersionForDocumentKind(documentKind string) string
-	GetAliasForIndex(indexName string) string
-}
-
 type VersionedMapping struct {
 	Version  string                 `json:"version"`
 	Mappings map[string]interface{} `json:"mappings"`
@@ -65,12 +29,4 @@ type IndexNameParts struct {
 	DocumentKind string
 	Version      string
 	ProjectId    string
-}
-
-type EsIndexManager struct {
-	logger            *zap.Logger
-	client            *elasticsearch.Client
-	projectMapping    *VersionedMapping
-	occurrenceMapping *VersionedMapping
-	noteMapping       *VersionedMapping
 }

@@ -51,7 +51,7 @@ type ElasticsearchStorage struct {
 	config                *config.ElasticsearchConfig
 	filterer              filtering.Filterer
 	indexManager          migration.IndexManager
-	migrationOrchestrator *migration.MigrationOrchestrator
+	migrationOrchestrator migration.Orchestrator
 	logger                *zap.Logger
 }
 
@@ -61,7 +61,7 @@ func NewElasticsearchStorage(
 	filterer filtering.Filterer,
 	config *config.ElasticsearchConfig,
 	indexManager migration.IndexManager,
-	orchestrator *migration.MigrationOrchestrator,
+	orchestrator migration.Orchestrator,
 ) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
 		client:                client,

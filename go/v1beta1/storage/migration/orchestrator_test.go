@@ -24,7 +24,7 @@ import (
 
 var _ = Describe("Orchestrator", func() {
 	var (
-		orchestrator *MigrationOrchestrator
+		orchestrator *EsMigrationOrchestrator
 		migrator     *fakeMigrator
 		ctx          context.Context
 	)

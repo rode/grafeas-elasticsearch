@@ -21,19 +21,23 @@ import (
 	"go.uber.org/zap"
 )
 
-type MigrationOrchestrator struct {
+type Orchestrator interface {
+	RunMigrations(ctx context.Context) error
+}
+
+type EsMigrationOrchestrator struct {
 	logger   *zap.Logger
 	migrator Migrator
 }
 
-func NewMigrationOrchestrator(logger *zap.Logger, migrator Migrator) *MigrationOrchestrator {
-	return &MigrationOrchestrator{
+func NewMigrationOrchestrator(logger *zap.Logger, migrator Migrator) *EsMigrationOrchestrator {
+	return &EsMigrationOrchestrator{
 		logger:   logger,
 		migrator: migrator,
 	}
 }
 
-func (m *MigrationOrchestrator) RunMigrations(ctx context.Context) error {
+func (m *EsMigrationOrchestrator) RunMigrations(ctx context.Context) error {
 	log := m.logger.Named("RunMigrations")
 	migrationsToRun, err := m.migrator.GetMigrations(ctx)
 	if err != nil {

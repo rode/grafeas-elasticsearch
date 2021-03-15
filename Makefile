@@ -1,4 +1,4 @@
-.PHONY: test fmtcheck vet fmt mocks integration
+.PHONY: test fmtcheck vet fmt mocks integration coverage
 GOFMT_FILES?=$$(find . -name '*.go' | grep -v proto)
 
 GO111MODULE=on
@@ -18,6 +18,9 @@ mocks:
 
 test: fmtcheck vet
 	go test -short ./... -coverprofile=coverage.txt -covermode atomic
+
+coverage: test
+	go tool cover -html=coverage.txt
 
 integration:
 	go test -v -count 1 ./test/...

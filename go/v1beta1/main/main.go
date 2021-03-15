@@ -45,8 +45,8 @@ func main() {
 			return nil, fmt.Errorf("failed to connect to Elasticsearch")
 		}
 
-		indexManager := migration.NewEsIndexManager(logger.Named("IndexManager"), esClient)
-		migrator := migration.NewESMigrator(logger.Named("ESMigrator"), esClient, indexManager)
+		indexManager := migration.NewEsIndexManager(logger.Named("EsIndexManager"), esClient)
+		migrator := migration.NewEsMigrator(logger.Named("EsMigrator"), esClient, indexManager)
 		migrationOrchestrator := migration.NewMigrationOrchestrator(logger.Named("MigrationOrchestrator"), migrator)
 
 		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c, indexManager, migrationOrchestrator), nil

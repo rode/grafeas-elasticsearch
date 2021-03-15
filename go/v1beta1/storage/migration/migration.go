@@ -30,15 +30,15 @@ var (
 	timeSleep = time.Sleep
 )
 
-func NewESMigrator(logger *zap.Logger, client *elasticsearch.Client, indexManager IndexManager) *ESMigrator {
-	return &ESMigrator{
+func NewEsMigrator(logger *zap.Logger, client *elasticsearch.Client, indexManager IndexManager) *EsMigrator {
+	return &EsMigrator{
 		client:       client,
 		logger:       logger,
 		indexManager: indexManager,
 	}
 }
 
-func (e *ESMigrator) Migrate(ctx context.Context, indexInfo *IndexInfo) error {
+func (e *EsMigrator) Migrate(ctx context.Context, indexInfo *IndexInfo) error {
 	log := e.logger.Named("Migrate").With(zap.String("indexName", indexInfo.Index))
 	log.Info("Starting migration")
 
@@ -185,7 +185,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, indexInfo *IndexInfo) error {
 	return nil
 }
 
-func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*IndexInfo, error) {
+func (e *EsMigrator) GetMigrations(ctx context.Context) ([]*IndexInfo, error) {
 	res, err := e.client.Indices.Get([]string{"_all"}, e.client.Indices.Get.WithContext(ctx))
 	if err := getErrorFromESResponse(res, err); err != nil {
 		return nil, err

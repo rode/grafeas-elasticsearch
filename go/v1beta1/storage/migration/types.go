@@ -21,7 +21,7 @@ import (
 	"go.uber.org/zap"
 )
 
-type ESMigrator struct {
+type EsMigrator struct {
 	client       *elasticsearch.Client
 	indexManager IndexManager
 	logger       *zap.Logger

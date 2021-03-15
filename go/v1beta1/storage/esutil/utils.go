@@ -27,7 +27,7 @@ func DecodeResponse(r io.ReadCloser, i interface{}) error {
 func EncodeRequest(body interface{}) (io.Reader, string) {
 	b, err := json.Marshal(body)
 	if err != nil {
-		// we should know that `body` is a serializable struct before invoking `encodeRequest`
+		// we should know that `body` is a serializable struct before invoking `EncodeRequest`
 		panic(err)
 	}
 

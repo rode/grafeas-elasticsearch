@@ -45,7 +45,7 @@ type ESSettingsWrite struct {
 	Write string `json:"write"`
 }
 
-// response when for calls where wait_for_completion=false
+// response for calls where wait_for_completion=false
 type ESTaskCreationResponse struct {
 	Task string `json:"task"`
 }

@@ -1,4 +1,4 @@
-// Copyright 2021 Google LLC
+// Copyright 2021 The Rode Authors
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -28,12 +28,12 @@ import (
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil"
 )
 
-var _ = Describe("ESMigrator", func() {
+var _ = Describe("EsMigrator", func() {
 	var (
 		ctx             context.Context
 		mockEsTransport *esutil.MockEsTransport
 		indexManager    *EsIndexManager
-		migrator        *ESMigrator
+		migrator        *EsMigrator
 	)
 	BeforeEach(func() {
 		ctx = context.Background()
@@ -43,7 +43,7 @@ var _ = Describe("ESMigrator", func() {
 		indexManager = NewEsIndexManager(logger, mockEsClient)
 		populateIndexMappings(indexManager)
 
-		migrator = NewESMigrator(logger, mockEsClient, indexManager)
+		migrator = NewEsMigrator(logger, mockEsClient, indexManager)
 	})
 
 	Describe("GetMigrations", func() {

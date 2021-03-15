@@ -47,7 +47,7 @@ func NewEsIndexManager(logger *zap.Logger, client *elasticsearch.Client) *EsInde
 }
 
 var (
-	ioutilReadDir = ioutil.ReadDir
+	ioutilReadDir  = ioutil.ReadDir
 	ioutilReadFile = ioutil.ReadFile
 )
 
@@ -86,7 +86,7 @@ func (em *EsIndexManager) LoadMappings(mappingsDir string) error {
 		case NoteDocumentKind:
 			em.noteMapping = &mapping
 		default:
-			em.logger.Info("Unrecognized document kind mapping", zap.String("kind", documentKind))
+			return fmt.Errorf("unrecognized document kind mapping: %s", documentKind)
 		}
 	}
 

@@ -49,72 +49,145 @@ var _ = Describe("index manager", func() {
 
 	Describe("LoadMappings", func() {
 		var (
-			actualError error
+			actualError        error
 			occurrencesMapping *VersionedMapping
 			projectsMapping    *VersionedMapping
 			notesMapping       *VersionedMapping
 		)
 
-		BeforeEach(func() {
-			occurrencesMapping = createVersionedMapping()
-			projectsMapping = createVersionedMapping()
-			notesMapping = createVersionedMapping()
-
-			ioutilReadDir = func(dirName string) ([]os.FileInfo, error) {
-				return []os.FileInfo{
-					&fakeFileInfo{
-						name: "occurrences.json",
-					},
-					&fakeFileInfo{
-						name: "projects.json",
-					},
-					&fakeFileInfo{
-						name: "notes.json",
-					},
-				}, nil
-			}
-
-			ioutilReadFile = func(fileName string) ([]byte, error) {
-				if strings.Contains(fileName, "projects.json") {
-					bytes, _ := json.Marshal(projectsMapping)
-
-					return bytes, nil
-				}
-
-				if strings.Contains(fileName, "occurrences.json") {
-					bytes, _ := json.Marshal(occurrencesMapping)
-
-					return bytes, nil
-				}
-
-				if strings.Contains(fileName, "notes.json") {
-					bytes, _ := json.Marshal(notesMapping)
-
-					return bytes, nil
-				}
-
-				return nil, fmt.Errorf("unexpected file name: %s", fileName)
-			}
-
+		JustBeforeEach(func() {
 			actualError = indexManager.LoadMappings("test")
 		})
 
-		It("should not return an error", func() {
-			Expect(actualError).To(BeNil())
+		Describe("mappings loaded successfully", func() {
+			BeforeEach(func() {
+				occurrencesMapping = createVersionedMapping()
+				projectsMapping = createVersionedMapping()
+				notesMapping = createVersionedMapping()
+
+				ioutilReadDir = func(dirName string) ([]os.FileInfo, error) {
+					return []os.FileInfo{
+						&fakeFileInfo{
+							name: "occurrences.json",
+						},
+						&fakeFileInfo{
+							name: "projects.json",
+						},
+						&fakeFileInfo{
+							name: "notes.json",
+						},
+						&fakeFileInfo{
+							name:  fake.Word(),
+							isDir: true,
+						},
+					}, nil
+				}
+
+				ioutilReadFile = func(fileName string) ([]byte, error) {
+					if strings.Contains(fileName, "projects.json") {
+						bytes, _ := json.Marshal(projectsMapping)
+
+						return bytes, nil
+					}
+
+					if strings.Contains(fileName, "occurrences.json") {
+						bytes, _ := json.Marshal(occurrencesMapping)
+
+						return bytes, nil
+					}
+
+					if strings.Contains(fileName, "notes.json") {
+						bytes, _ := json.Marshal(notesMapping)
+
+						return bytes, nil
+					}
+
+					return nil, fmt.Errorf("unexpected file name: %s", fileName)
+				}
+			})
+
+			It("should not return an error", func() {
+				Expect(actualError).To(BeNil())
+			})
+
+			It("should populate the project mapping", func() {
+				Expect(indexManager.projectMapping).To(Equal(projectsMapping))
+			})
+
+			It("should populate the occurrence mapping", func() {
+				Expect(indexManager.occurrenceMapping).To(Equal(occurrencesMapping))
+			})
+
+			It("should populate the note mapping", func() {
+				Expect(indexManager.noteMapping).To(Equal(notesMapping))
+			})
 		})
 
-		It("should populate the project mapping", func() {
-			Expect(indexManager.projectMapping).To(Equal(projectsMapping))
-		})
+		Describe("mappings fail to load", func() {
+			var (
+				expectedError error
+				fileInfo      *fakeFileInfo
+			)
 
-		It("should populate the occurrence mapping", func() {
-			Expect(indexManager.occurrenceMapping).To(Equal(occurrencesMapping))
-		})
+			BeforeEach(func() {
+				expectedError = fmt.Errorf(fake.Word())
+				fileInfo = &fakeFileInfo{name: fake.Word()}
+				ioutilReadDir = func(dirname string) ([]os.FileInfo, error) {
+					return []os.FileInfo{fileInfo}, nil
+				}
+			})
 
-		It("should populate the note mapping", func() {
-			Expect(indexManager.noteMapping).To(Equal(notesMapping))
-		})
+			Describe("an error occurs while listing the mappings directory", func() {
+				BeforeEach(func() {
+					expectedError = fmt.Errorf(fake.Word())
+					ioutilReadDir = func(dirname string) ([]os.FileInfo, error) {
+						return nil, expectedError
+					}
+				})
 
+				It("should return the error", func() {
+					Expect(actualError).To(MatchError(expectedError))
+				})
+			})
+
+			Describe("reading a mapping file returns an error", func() {
+				BeforeEach(func() {
+					ioutilReadFile = func(fileName string) ([]byte, error) {
+						return nil, expectedError
+					}
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).To(MatchError(expectedError))
+				})
+			})
+
+			Describe("a mapping file contains invalid json", func() {
+				BeforeEach(func() {
+					ioutilReadFile = func(fileName string) ([]byte, error) {
+						return []byte{'}'}, nil
+					}
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+				})
+			})
+
+			Describe("a mapping file contains an unrecognized document kind", func() {
+				BeforeEach(func() {
+					unrecognizedMapping := createVersionedMapping()
+					ioutilReadFile = func(fileName string) ([]byte, error) {
+						bytes, _ := json.Marshal(unrecognizedMapping)
+						return bytes, nil
+					}
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).To(MatchError("unrecognized document kind mapping: " + fileInfo.name))
+				})
+			})
+		})
 	})
 
 	Context("alias name functions", func() {

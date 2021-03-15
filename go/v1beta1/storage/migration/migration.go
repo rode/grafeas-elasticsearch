@@ -26,12 +26,15 @@ import (
 	"go.uber.org/zap"
 )
 
-func NewESMigrator(logger *zap.Logger, client *elasticsearch.Client, indexManager IndexManager, sleep timeSleep) *ESMigrator {
+var (
+	timeSleep = time.Sleep
+)
+
+func NewESMigrator(logger *zap.Logger, client *elasticsearch.Client, indexManager IndexManager) *ESMigrator {
 	return &ESMigrator{
 		client:       client,
 		logger:       logger,
 		indexManager: indexManager,
-		sleep:        sleep,
 	}
 }
 
@@ -124,7 +127,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		}
 
 		log.Info("Task incomplete, waiting before polling again", zap.String("taskId", taskCreationResponse.Task))
-		e.sleep(time.Second * 10)
+		timeSleep(time.Second * 10)
 	}
 
 	if !reindexCompleted {

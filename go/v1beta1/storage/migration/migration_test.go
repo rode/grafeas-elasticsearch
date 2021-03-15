@@ -23,12 +23,13 @@ var _ = Describe("ESMigrator", func() {
 	)
 	BeforeEach(func() {
 		ctx = context.Background()
+		timeSleep = func(duration time.Duration) {}
 		mockEsTransport = &esutil.MockEsTransport{}
 		mockEsClient := &elasticsearch.Client{Transport: mockEsTransport, API: esapi.New(mockEsTransport)}
 		indexManager = NewEsIndexManager(logger, mockEsClient)
 		populateIndexMappings(indexManager)
 
-		migrator = NewESMigrator(logger, mockEsClient, indexManager, func(duration time.Duration) {})
+		migrator = NewESMigrator(logger, mockEsClient, indexManager)
 	})
 
 	Describe("GetMigrations", func() {

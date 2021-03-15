@@ -59,8 +59,9 @@ var _ = Describe("EsMigrator", func() {
 		})
 
 		It("should return all indices", func() {
-			migrator.GetMigrations(ctx)
+			_, actualErr := migrator.GetMigrations(ctx)
 
+			Expect(actualErr).To(BeNil())
 			Expect(mockEsTransport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 			Expect(mockEsTransport.ReceivedHttpRequests[0].URL.Path).To(Equal("/_all"))
 		})
@@ -395,14 +396,13 @@ var _ = Describe("EsMigrator", func() {
 			Describe("error in the task response", func() {
 				BeforeEach(func() {
 					mockEsTransport.PreparedHttpResponses[5].StatusCode = http.StatusInternalServerError
-
-					responses := append(mockEsTransport.PreparedHttpResponses[:6], &http.Response{
+					taskCompletedResponse := &http.Response{
 						StatusCode: http.StatusOK,
 						Body: createEsBody(&esutil.ESTask{
 							Completed: true,
 						}),
-					})
-					mockEsTransport.PreparedHttpResponses = append(responses, mockEsTransport.PreparedHttpResponses[6:]...)
+					}
+					mockEsTransport.PreparedHttpResponses = insertResponseAt(mockEsTransport.PreparedHttpResponses, taskCompletedResponse, 6)
 				})
 
 				It("should continue and not return an error", func() {
@@ -414,13 +414,13 @@ var _ = Describe("EsMigrator", func() {
 				BeforeEach(func() {
 					mockEsTransport.PreparedHttpResponses[5].Body = createInvalidBody()
 
-					responses := append(mockEsTransport.PreparedHttpResponses[:6], &http.Response{
+					taskCompletedResponse := &http.Response{
 						StatusCode: http.StatusOK,
 						Body: createEsBody(&esutil.ESTask{
 							Completed: true,
 						}),
-					})
-					mockEsTransport.PreparedHttpResponses = append(responses, mockEsTransport.PreparedHttpResponses[6:]...)
+					}
+					mockEsTransport.PreparedHttpResponses = insertResponseAt(mockEsTransport.PreparedHttpResponses, taskCompletedResponse, 6)
 				})
 
 				It("should continue and not return an error", func() {
@@ -465,4 +465,8 @@ var _ = Describe("EsMigrator", func() {
 
 func createInvalidBody() io.ReadCloser {
 	return createEsBody('{')
+}
+
+func insertResponseAt(allResponses []*http.Response, response *http.Response, index int) []*http.Response {
+	return append(append(allResponses[:index], response), allResponses[index:]...)
 }

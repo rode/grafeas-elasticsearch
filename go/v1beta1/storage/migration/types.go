@@ -42,70 +42,45 @@ type Migrator interface {
 	Migrate(ctx context.Context, migration *Migration) error
 }
 
-type ESBlockIndex struct {
-	Name    string `json:"name"`
-	Blocked bool   `json:"blocked"`
+type IndexManager interface {
+	LoadMappings(mappingsDir string) error
+	CreateIndex(ctx context.Context, info *IndexInfo, checkExists bool) error
+
+	ProjectsIndex() string
+	ProjectsAlias() string
+
+	OccurrencesIndex(projectId string) string
+	OccurrencesAlias(projectId string) string
+
+	NotesIndex(projectId string) string
+	NotesAlias(projectId string) string
+
+	IncrementIndexVersion(indexName string) string
+	GetLatestVersionForDocumentKind(documentKind string) string
+	GetAliasForIndex(indexName string) string
 }
 
-type ESBlockResponse struct {
-	Acknowledged       bool           `json:"acknowledged"`
-	ShardsAcknowledged bool           `json:"shards_acknowledged"`
-	Indices            []ESBlockIndex `json:"indices"`
+type VersionedMapping struct {
+	Version  string                 `json:"version"`
+	Mappings map[string]interface{} `json:"mappings"`
 }
 
-type ESSettingsResponse struct {
-	Settings *ESSettingsIndex `json:"settings"`
+type IndexInfo struct {
+	Index        string
+	Alias        string
+	DocumentKind string
 }
 
-type ESSettingsIndex struct {
-	Index *ESSettingsBlocks `json:"index"`
+type IndexNameParts struct {
+	DocumentKind string
+	Version      string
+	ProjectId    string
 }
 
-type ESSettingsBlocks struct {
-	Blocks *ESSettingsWrite `json:"blocks"`
-}
-
-type ESSettingsWrite struct {
-	Write string `json:"write"`
-}
-
-type ESTaskCreationResponse struct {
-	Task string `json:"task"`
-}
-
-type ESTask struct {
-	Completed bool `json:"completed"`
-}
-
-type ESActions struct {
-	Add    *ESIndexAlias `json:"add,omitempty"`
-	Remove *ESIndexAlias `json:"remove,omitempty"`
-}
-
-type ESIndexAlias struct {
-	Index string `json:"index"`
-	Alias string `json:"alias"`
-}
-
-type ESIndexAliasRequest struct {
-	Actions []ESActions `json:"actions"`
-}
-
-type ESReindex struct {
-	Conflicts   string         `json:"conflicts"`
-	Source      *ReindexFields `json:"source"`
-	Destination *ReindexFields `json:"dest"`
-}
-
-type ReindexFields struct {
-	Index  string `json:"index"`
-	OpType string `json:"op_type,omitempty"`
-}
-
-type ESErrorResponse struct {
-	Error ESError `json:"error"`
-}
-
-type ESError struct {
-	Type string `json:"type"`
+type EsIndexManager struct {
+	logger            *zap.Logger
+	client            *elasticsearch.Client
+	projectMapping    *VersionedMapping
+	occurrenceMapping *VersionedMapping
+	noteMapping       *VersionedMapping
 }

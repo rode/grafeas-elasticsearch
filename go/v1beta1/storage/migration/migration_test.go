@@ -93,10 +93,10 @@ var _ = Describe("ESMigrator", func() {
 				{
 					StatusCode: http.StatusOK,
 					Body: createEsBody(map[string]interface{}{
-						migration.Index: ESSettingsResponse{
-							Settings: &ESSettingsIndex{
-								Index: &ESSettingsBlocks{
-									Blocks: &ESSettingsWrite{
+						migration.Index: esutil.ESSettingsResponse{
+							Settings: &esutil.ESSettingsIndex{
+								Index: &esutil.ESSettingsBlocks{
+									Blocks: &esutil.ESSettingsWrite{
 										Write: "false",
 									},
 								},
@@ -107,7 +107,7 @@ var _ = Describe("ESMigrator", func() {
 				// add write block
 				{
 					StatusCode: http.StatusOK,
-					Body: createEsBody(&ESBlockResponse{
+					Body: createEsBody(&esutil.ESBlockResponse{
 						Acknowledged:       true,
 						ShardsAcknowledged: true,
 					}),
@@ -123,14 +123,14 @@ var _ = Describe("ESMigrator", func() {
 				// reindex
 				{
 					StatusCode: http.StatusOK,
-					Body: createEsBody(&ESTaskCreationResponse{
+					Body: createEsBody(&esutil.ESTaskCreationResponse{
 						Task: taskId,
 					}),
 				},
 				// poll task
 				{
 					StatusCode: http.StatusOK,
-					Body: createEsBody(&ESTask{
+					Body: createEsBody(&esutil.ESTask{
 						Completed: true,
 					}),
 				},
@@ -179,17 +179,17 @@ var _ = Describe("ESMigrator", func() {
 			})
 
 			It("should start a reindex on the existing index to the new index", func() {
-				expectedBody := &ESReindex{
+				expectedBody := &esutil.ESReindex{
 					Conflicts: "proceed",
-					Source: &ReindexFields{
+					Source: &esutil.ReindexFields{
 						Index: migration.Index,
 					},
-					Destination: &ReindexFields{
+					Destination: &esutil.ReindexFields{
 						Index:  newIndexName,
 						OpType: "create",
 					},
 				}
-				actualBody := &ESReindex{}
+				actualBody := &esutil.ESReindex{}
 
 				readRequestBody(mockEsTransport.ReceivedHttpRequests[4], actualBody)
 
@@ -210,23 +210,23 @@ var _ = Describe("ESMigrator", func() {
 			})
 
 			It("should point the alias to the new index", func() {
-				expectedBody := &ESIndexAliasRequest{
-					Actions: []ESActions{
+				expectedBody := &esutil.ESIndexAliasRequest{
+					Actions: []esutil.ESActions{
 						{
-							Remove: &ESIndexAlias{
+							Remove: &esutil.ESIndexAlias{
 								Index: migration.Index,
 								Alias: migration.Alias,
 							},
 						},
 						{
-							Add: &ESIndexAlias{
+							Add: &esutil.ESIndexAlias{
 								Index: newIndexName,
 								Alias: migration.Alias,
 							},
 						},
 					},
 				}
-				actualBody := &ESIndexAliasRequest{}
+				actualBody := &esutil.ESIndexAliasRequest{}
 				readRequestBody(mockEsTransport.ReceivedHttpRequests[7], actualBody)
 
 				Expect(mockEsTransport.ReceivedHttpRequests[7].Method).To(Equal(http.MethodPost))
@@ -293,7 +293,7 @@ var _ = Describe("ESMigrator", func() {
 
 			Describe("write block isn't acknowledged", func() {
 				BeforeEach(func() {
-					mockEsTransport.PreparedHttpResponses[1].Body = createEsBody(&ESBlockResponse{
+					mockEsTransport.PreparedHttpResponses[1].Body = createEsBody(&esutil.ESBlockResponse{
 						Acknowledged: false,
 					})
 				})
@@ -306,7 +306,7 @@ var _ = Describe("ESMigrator", func() {
 
 			Describe("write block isn't acknowledged by shards", func() {
 				BeforeEach(func() {
-					mockEsTransport.PreparedHttpResponses[1].Body = createEsBody(&ESBlockResponse{
+					mockEsTransport.PreparedHttpResponses[1].Body = createEsBody(&esutil.ESBlockResponse{
 						Acknowledged:       true,
 						ShardsAcknowledged: false,
 					})
@@ -359,7 +359,7 @@ var _ = Describe("ESMigrator", func() {
 						if i >= 5 {
 							responses[i] = &http.Response{
 								StatusCode: http.StatusOK,
-								Body: createEsBody(&ESTask{
+								Body: createEsBody(&esutil.ESTask{
 									Completed: false,
 								}),
 							}
@@ -383,7 +383,7 @@ var _ = Describe("ESMigrator", func() {
 
 					responses := append(mockEsTransport.PreparedHttpResponses[:6], &http.Response{
 						StatusCode: http.StatusOK,
-						Body: createEsBody(&ESTask{
+						Body: createEsBody(&esutil.ESTask{
 							Completed: true,
 						}),
 					})
@@ -401,7 +401,7 @@ var _ = Describe("ESMigrator", func() {
 
 					responses := append(mockEsTransport.PreparedHttpResponses[:6], &http.Response{
 						StatusCode: http.StatusOK,
-						Body: createEsBody(&ESTask{
+						Body: createEsBody(&esutil.ESTask{
 							Completed: true,
 						}),
 					})

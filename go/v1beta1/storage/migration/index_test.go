@@ -313,11 +313,11 @@ var _ = Describe("index manager", func() {
 			Describe("response error", func() {
 
 				Context("bad request status code", func() {
-					var errorResponse ESErrorResponse
+					var errorResponse esutil.ESErrorResponse
 
 					BeforeEach(func() {
-						errorResponse := ESErrorResponse{
-							Error: ESError{
+						errorResponse := esutil.ESErrorResponse{
+							Error: esutil.ESError{
 								Type: fake.Word(),
 							},
 						}

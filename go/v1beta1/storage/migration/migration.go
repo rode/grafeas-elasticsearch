@@ -22,6 +22,7 @@ import (
 	"time"
 
 	"github.com/elastic/go-elasticsearch/v7"
+	. "github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil"
 	"go.uber.org/zap"
 )
 
@@ -44,7 +45,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	}
 
 	settingsResponse := map[string]ESSettingsResponse{}
-	if err := decodeResponse(res.Body, &settingsResponse); err != nil {
+	if err := DecodeResponse(res.Body, &settingsResponse); err != nil {
 		return fmt.Errorf("error decoding settings response: %s", err)
 	}
 
@@ -58,7 +59,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		}
 
 		blockResponse := &ESBlockResponse{}
-		if err := decodeResponse(res.Body, blockResponse); err != nil {
+		if err := DecodeResponse(res.Body, blockResponse); err != nil {
 			return fmt.Errorf("error decoding write block response: %s", err)
 		}
 
@@ -83,7 +84,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		Source:      &ReindexFields{Index: migration.Index},
 		Destination: &ReindexFields{Index: newIndexName, OpType: "create"},
 	}
-	reindexBody := encodeRequest(reindexReq)
+	reindexBody, _ := EncodeRequest(reindexReq)
 	log.Info("Starting reindex")
 	res, err = e.client.Reindex(
 		reindexBody,
@@ -94,7 +95,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	}
 	taskCreationResponse := &ESTaskCreationResponse{}
 
-	if err := decodeResponse(res.Body, taskCreationResponse); err != nil {
+	if err := DecodeResponse(res.Body, taskCreationResponse); err != nil {
 		return fmt.Errorf("error decoding reindex response: %s", err)
 	}
 	log.Info("Reindex started", zap.String("taskId", taskCreationResponse.Task))
@@ -110,7 +111,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		}
 
 		task := &ESTask{}
-		if err := decodeResponse(res.Body, task); err != nil {
+		if err := DecodeResponse(res.Body, task); err != nil {
 			log.Warn("error decoding task response", zap.Error(err))
 			continue
 		}
@@ -152,7 +153,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		},
 	}
 
-	aliasReqBody := encodeRequest(aliasReq)
+	aliasReqBody, _ := EncodeRequest(aliasReq)
 	log.Info("Swapping alias over to new index")
 	res, err = e.client.Indices.UpdateAliases(
 		aliasReqBody,
@@ -189,7 +190,10 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 
 	allIndices := map[string]interface{}{}
 
-	_ = decodeResponse(res.Body, &allIndices)
+	if err := DecodeResponse(res.Body, &allIndices); err != nil {
+		return nil, err
+	}
+
 	var migrations []*Migration
 	for indexName := range allIndices {
 		if !strings.HasPrefix(indexName, "grafeas") {

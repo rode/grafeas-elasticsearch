@@ -12,21 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package migration
+package esutil
 
 import (
-	"fmt"
-
-	"github.com/elastic/go-elasticsearch/v7/esapi"
+	"bytes"
+	"encoding/json"
+	"io"
 )
 
-func getErrorFromESResponse(res *esapi.Response, err error) error {
+func DecodeResponse(r io.ReadCloser, i interface{}) error {
+	return json.NewDecoder(r).Decode(i)
+}
+
+func EncodeRequest(body interface{}) (io.Reader, string) {
+	b, err := json.Marshal(body)
 	if err != nil {
-		return err
+		// we should know that `body` is a serializable struct before invoking `encodeRequest`
+		panic(err)
 	}
 
-	if res.IsError() {
-		return fmt.Errorf("response error from ES: %d", res.StatusCode)
-	}
-	return nil
+	return bytes.NewReader(b), string(b)
 }

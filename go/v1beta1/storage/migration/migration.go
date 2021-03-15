@@ -38,11 +38,11 @@ func NewESMigrator(logger *zap.Logger, client *elasticsearch.Client, indexManage
 	}
 }
 
-func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
-	log := e.logger.Named("Migrate").With(zap.String("indexName", migration.Index))
+func (e *ESMigrator) Migrate(ctx context.Context, indexInfo *IndexInfo) error {
+	log := e.logger.Named("Migrate").With(zap.String("indexName", indexInfo.Index))
 	log.Info("Starting migration")
 
-	res, err := e.client.Indices.GetSettings(e.client.Indices.GetSettings.WithContext(ctx), e.client.Indices.GetSettings.WithIndex(migration.Index))
+	res, err := e.client.Indices.GetSettings(e.client.Indices.GetSettings.WithContext(ctx), e.client.Indices.GetSettings.WithIndex(indexInfo.Index))
 	if err := getErrorFromESResponse(res, err); err != nil {
 		return fmt.Errorf("error checking if write block is enabled on index: %s", err)
 	}
@@ -52,11 +52,11 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		return fmt.Errorf("error decoding settings response: %s", err)
 	}
 
-	blocks := settingsResponse[migration.Index].Settings.Index.Blocks
+	blocks := settingsResponse[indexInfo.Index].Settings.Index.Blocks
 
 	if !(blocks != nil && blocks.Write == "true") {
 		log.Info("Placing write block on index")
-		res, err = e.client.Indices.AddBlock([]string{migration.Index}, "write", e.client.Indices.AddBlock.WithContext(ctx))
+		res, err = e.client.Indices.AddBlock([]string{indexInfo.Index}, "write", e.client.Indices.AddBlock.WithContext(ctx))
 		if err := getErrorFromESResponse(res, err); err != nil {
 			return fmt.Errorf("error placing write block on index: %s", err)
 		}
@@ -68,15 +68,15 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 
 		if !(blockResponse.Acknowledged && blockResponse.ShardsAcknowledged) {
 			log.Error("Write block unsuccessful", zap.Any("response", blockResponse))
-			return fmt.Errorf("unable to block writes for index: %s", migration.Index)
+			return fmt.Errorf("unable to block writes for index: %s", indexInfo.Index)
 		}
 	}
 
-	newIndexName := e.indexManager.IncrementIndexVersion(migration.Index)
+	newIndexName := e.indexManager.IncrementIndexVersion(indexInfo.Index)
 	err = e.indexManager.CreateIndex(ctx, &IndexInfo{
 		Index:        newIndexName,
-		Alias:        migration.Alias,
-		DocumentKind: migration.DocumentKind,
+		Alias:        indexInfo.Alias,
+		DocumentKind: indexInfo.DocumentKind,
 	}, true)
 	if err != nil {
 		return fmt.Errorf("error creating target index: %s", err)
@@ -84,7 +84,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 
 	reindexReq := &ESReindex{
 		Conflicts:   "proceed",
-		Source:      &ReindexFields{Index: migration.Index},
+		Source:      &ReindexFields{Index: indexInfo.Index},
 		Destination: &ReindexFields{Index: newIndexName, OpType: "create"},
 	}
 	reindexBody, _ := EncodeRequest(reindexReq)
@@ -143,14 +143,14 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 		Actions: []ESActions{
 			{
 				Remove: &ESIndexAlias{
-					Index: migration.Index,
-					Alias: migration.Alias,
+					Index: indexInfo.Index,
+					Alias: indexInfo.Alias,
 				},
 			},
 			{
 				Add: &ESIndexAlias{
 					Index: newIndexName,
-					Alias: migration.Alias,
+					Alias: indexInfo.Alias,
 				},
 			},
 		},
@@ -169,7 +169,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 
 	log.Info("Deleting old index")
 	res, err = e.client.Indices.Delete(
-		[]string{migration.Index},
+		[]string{indexInfo.Index},
 		e.client.Indices.Delete.WithContext(ctx),
 	)
 
@@ -185,7 +185,7 @@ func (e *ESMigrator) Migrate(ctx context.Context, migration *Migration) error {
 	return nil
 }
 
-func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
+func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*IndexInfo, error) {
 	res, err := e.client.Indices.Get([]string{"_all"}, e.client.Indices.Get.WithContext(ctx))
 	if err := getErrorFromESResponse(res, err); err != nil {
 		return nil, err
@@ -197,7 +197,7 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 		return nil, err
 	}
 
-	var migrations []*Migration
+	var indicesToMigrate []*IndexInfo
 	for indexName := range allIndices {
 		if !strings.HasPrefix(indexName, "grafeas") {
 			continue
@@ -208,9 +208,9 @@ func (e *ESMigrator) GetMigrations(ctx context.Context) ([]*Migration, error) {
 		alias := e.indexManager.GetAliasForIndex(indexName)
 
 		if indexParts.Version != latestVersion {
-			migrations = append(migrations, &Migration{Index: indexName, DocumentKind: indexParts.DocumentKind, Alias: alias})
+			indicesToMigrate = append(indicesToMigrate, &IndexInfo{Index: indexName, DocumentKind: indexParts.DocumentKind, Alias: alias})
 		}
 	}
 
-	return migrations, nil
+	return indicesToMigrate, nil
 }

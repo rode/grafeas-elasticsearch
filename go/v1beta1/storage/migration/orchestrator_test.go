@@ -32,8 +32,8 @@ var _ = Describe("Orchestrator", func() {
 	BeforeEach(func() {
 		ctx = context.Background()
 		migrator = &fakeMigrator{
-			migrations:    []*Migration{},
-			migrationsRan: []*Migration{},
+			migrations:    []*IndexInfo{},
+			migrationsRan: []*IndexInfo{},
 		}
 		orchestrator = NewMigrationOrchestrator(logger, migrator)
 	})
@@ -65,10 +65,10 @@ var _ = Describe("Orchestrator", func() {
 
 		Describe("there are migrations to run", func() {
 			BeforeEach(func() {
-				migrator.migrations = []*Migration{
-					createFakeMigration(),
-					createFakeMigration(),
-					createFakeMigration(),
+				migrator.migrations = []*IndexInfo{
+					createFakeIndexInfo(),
+					createFakeIndexInfo(),
+					createFakeIndexInfo(),
 				}
 			})
 
@@ -91,14 +91,14 @@ var _ = Describe("Orchestrator", func() {
 })
 
 type fakeMigrator struct {
-	migrations         []*Migration
+	migrations         []*IndexInfo
 	getMigrationsError error
 	migrateError       error
 
-	migrationsRan []*Migration
+	migrationsRan []*IndexInfo
 }
 
-func (fm *fakeMigrator) GetMigrations(_ context.Context) ([]*Migration, error) {
+func (fm *fakeMigrator) GetMigrations(_ context.Context) ([]*IndexInfo, error) {
 	if fm.getMigrationsError != nil {
 		return nil, fm.getMigrationsError
 	}
@@ -106,7 +106,7 @@ func (fm *fakeMigrator) GetMigrations(_ context.Context) ([]*Migration, error) {
 	return fm.migrations, nil
 }
 
-func (fm *fakeMigrator) Migrate(_ context.Context, migration *Migration) error {
+func (fm *fakeMigrator) Migrate(_ context.Context, migration *IndexInfo) error {
 	fm.migrationsRan = append(fm.migrationsRan, migration)
 
 	if fm.migrateError != nil {
@@ -116,8 +116,8 @@ func (fm *fakeMigrator) Migrate(_ context.Context, migration *Migration) error {
 	return nil
 }
 
-func createFakeMigration() *Migration {
-	return &Migration{
+func createFakeIndexInfo() *IndexInfo {
+	return &IndexInfo{
 		Index:        fake.Word(),
 		Alias:        fake.Word(),
 		DocumentKind: fake.Word(),

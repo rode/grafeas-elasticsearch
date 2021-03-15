@@ -27,15 +27,9 @@ type ESMigrator struct {
 	logger       *zap.Logger
 }
 
-type Migration struct {
-	DocumentKind string
-	Index        string
-	Alias        string
-}
-
 type Migrator interface {
-	GetMigrations(ctx context.Context) ([]*Migration, error)
-	Migrate(ctx context.Context, migration *Migration) error
+	GetMigrations(ctx context.Context) ([]*IndexInfo, error)
+	Migrate(ctx context.Context, migration *IndexInfo) error
 }
 
 type IndexManager interface {

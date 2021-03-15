@@ -75,14 +75,14 @@ var _ = Describe("ESMigrator", func() {
 		var (
 			taskId       string
 			projectId    string
-			migration    *Migration
+			migration    *IndexInfo
 			newIndexName string
 		)
 
 		BeforeEach(func() {
 			taskId = fake.LetterN(10)
 			projectId = fake.LetterN(5)
-			migration = &Migration{
+			migration = &IndexInfo{
 				DocumentKind: OccurrenceDocumentKind,
 				Index:        createIndexOrAliasName(fake.LetterN(5), projectId, OccurrenceDocumentKind),
 				Alias:        createIndexOrAliasName(projectId, OccurrenceDocumentKind),

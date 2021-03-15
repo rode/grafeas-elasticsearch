@@ -48,6 +48,5 @@ func readRequestBody(request *http.Request, target interface{}) {
 	rawBody, err := ioutil.ReadAll(request.Body)
 	Expect(err).To(BeNil())
 
-
 	Expect(json.Unmarshal(rawBody, target)).To(BeNil())
 }

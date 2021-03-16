@@ -92,3 +92,15 @@ type ESErrorResponse struct {
 type ESError struct {
 	Type string `json:"type"`
 }
+
+type ESIndex struct {
+	Mappings *ESMappings `json:"mappings"`
+}
+
+type ESMappings struct {
+	Meta *ESMeta `json:"_meta,omitempty"`
+}
+
+type ESMeta struct {
+	Type string `json:"type,omitempty"`
+}

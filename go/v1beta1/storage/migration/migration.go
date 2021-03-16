@@ -202,15 +202,16 @@ func (e *EsMigrator) GetMigrations(ctx context.Context) ([]*IndexInfo, error) {
 		return nil, err
 	}
 
-	allIndices := map[string]interface{}{}
+	allIndices := map[string]ESIndex{}
 
 	if err := DecodeResponse(res.Body, &allIndices); err != nil {
 		return nil, err
 	}
 
 	var indicesToMigrate []*IndexInfo
-	for indexName := range allIndices {
-		if !strings.HasPrefix(indexName, "grafeas") {
+	for indexName, indexValue := range allIndices {
+		meta := indexValue.Mappings.Meta
+		if !(strings.HasPrefix(indexName, "grafeas") && meta != nil && meta.Type == "grafeas") {
 			continue
 		}
 

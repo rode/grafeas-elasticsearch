@@ -47,42 +47,79 @@ var _ = Describe("EsMigrator", func() {
 	})
 
 	Describe("GetMigrations", func() {
+		var (
+			actualMigrations []*IndexInfo
+			actualError      error
+		)
+
 		BeforeEach(func() {
 			mockEsTransport.PreparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
 					Body: createEsBody(map[string]interface{}{
-						"grafeas-v1beta1-projects": map[string]interface{}{},
+						"grafeas-v1beta1-projects": map[string]interface{}{
+							"mappings": map[string]interface{}{
+								"_meta": map[string]interface{}{
+									"type": "grafeas",
+								},
+							},
+						},
 					}),
 				},
 			}
 		})
 
-		It("should return all indices", func() {
-			_, actualErr := migrator.GetMigrations(ctx)
+		JustBeforeEach(func() {
+			actualMigrations, actualError = migrator.GetMigrations(ctx)
+		})
 
-			Expect(actualErr).To(BeNil())
+		It("should return all indices", func() {
+			Expect(actualError).To(BeNil())
 			Expect(mockEsTransport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 			Expect(mockEsTransport.ReceivedHttpRequests[0].URL.Path).To(Equal("/_all"))
 		})
 
-		It("should return list of 1 migrations", func() {
-			migrationArr, err := migrator.GetMigrations(ctx)
-
-			Expect(err).To(BeNil())
-			Expect(migrationArr).To(HaveLen(1))
-			Expect(migrationArr[0].Index).To(Equal("grafeas-v1beta1-projects"))
-			Expect(migrationArr[0].DocumentKind).To(Equal(ProjectDocumentKind))
-			Expect(migrationArr[0].Alias).To(Equal("grafeas-projects"))
+		It("should return a list of 1 migration", func() {
+			Expect(actualError).To(BeNil())
+			Expect(actualMigrations).To(HaveLen(1))
+			Expect(actualMigrations[0].Index).To(Equal("grafeas-v1beta1-projects"))
+			Expect(actualMigrations[0].DocumentKind).To(Equal(ProjectDocumentKind))
+			Expect(actualMigrations[0].Alias).To(Equal("grafeas-projects"))
 		})
 
-		It("should find no migrations", func() {
-			mockEsTransport.PreparedHttpResponses[0].Body = createEsBody(map[string]interface{}{
-				fake.Word(): map[string]interface{}{},
+		Describe("no index names begin with grafeas", func() {
+			BeforeEach(func() {
+				mockEsTransport.PreparedHttpResponses[0].Body = createEsBody(map[string]interface{}{
+					fake.Word(): map[string]interface{}{
+						"mappings": map[string]interface{}{},
+					},
+				})
 			})
-			migrationArr, err := migrator.GetMigrations(ctx)
-			Expect(err).To(BeNil())
-			Expect(migrationArr).To(BeEmpty())
+
+			It("should find no migrations", func() {
+				Expect(actualError).To(BeNil())
+				Expect(actualMigrations).To(BeEmpty())
+			})
+
+		})
+
+		Describe("index name matches grafeas but meta type does not", func() {
+			BeforeEach(func() {
+				mockEsTransport.PreparedHttpResponses[0].Body = createEsBody(map[string]interface{}{
+					"grafeas-v1beta1-projects": map[string]interface{}{
+						"mappings": map[string]interface{}{
+							"_meta": map[string]interface{}{
+								"type": fake.Word(),
+							},
+						},
+					},
+				})
+			})
+
+			It("should find no migrations", func() {
+				Expect(actualError).To(BeNil())
+				Expect(actualMigrations).To(BeEmpty())
+			})
 		})
 	})
 

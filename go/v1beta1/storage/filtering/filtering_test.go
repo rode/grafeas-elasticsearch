@@ -16,6 +16,7 @@ package filtering
 
 import (
 	"encoding/json"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/ginkgo/extensions/table"
 	. "github.com/onsi/gomega"
@@ -244,6 +245,34 @@ var _ = Describe("Filter", func() {
 				QueryString: &QueryString{
 					DefaultField: "resource.uri",
 					Query:        `*https\:\/\/*`,
+				},
+			}),
+			Entry("basic greater than", `a>b`, &Query{
+				Range: map[string]*Range{
+					"a": {
+						Greater: "b",
+					},
+				},
+			}),
+			Entry("basic less than", `a<b`, &Query{
+				Range: map[string]*Range{
+					"a": {
+						Less: "b",
+					},
+				},
+			}),
+			Entry("basic greater than or equals", `a>=b`, &Query{
+				Range: map[string]*Range{
+					"a": {
+						GreaterEquals: "b",
+					},
+				},
+			}),
+			Entry("basic less than or equals", `a<=b`, &Query{
+				Range: map[string]*Range{
+					"a": {
+						LessEquals: "b",
+					},
 				},
 			}),
 		)

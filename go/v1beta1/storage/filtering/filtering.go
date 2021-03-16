@@ -16,13 +16,14 @@ package filtering
 
 import (
 	"fmt"
+	"regexp"
+
 	"github.com/google/cel-go/common"
 	"github.com/google/cel-go/common/operators"
 	"github.com/google/cel-go/common/overloads"
 	"github.com/google/cel-go/parser"
 	"github.com/hashicorp/go-multierror"
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
-	"regexp"
 )
 
 type Filterer interface {
@@ -138,6 +139,54 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 							leftTerm: rightTerm,
 						},
 					},
+				},
+			},
+		}, nil
+	case operators.Greater:
+		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
+		if err != nil {
+			return nil, err
+		}
+		return &Query{
+			Range: map[string]*Range{
+				leftTerm: {
+					Greater: rightTerm,
+				},
+			},
+		}, nil
+	case operators.GreaterEquals:
+		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
+		if err != nil {
+			return nil, err
+		}
+		return &Query{
+			Range: map[string]*Range{
+				leftTerm: {
+					GreaterEquals: rightTerm,
+				},
+			},
+		}, nil
+	case operators.Less:
+		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
+		if err != nil {
+			return nil, err
+		}
+		return &Query{
+			Range: map[string]*Range{
+				leftTerm: {
+					Less: rightTerm,
+				},
+			},
+		}, nil
+	case operators.LessEquals:
+		leftTerm, rightTerm, err := getSimpleExpressionTerms(leftArg, rightArg)
+		if err != nil {
+			return nil, err
+		}
+		return &Query{
+			Range: map[string]*Range{
+				leftTerm: {
+					LessEquals: rightTerm,
 				},
 			},
 		}, nil

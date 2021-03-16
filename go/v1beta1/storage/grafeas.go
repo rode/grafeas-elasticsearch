@@ -15,12 +15,13 @@
 package storage
 
 import (
+	"context"
 	"fmt"
+
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
 	"github.com/grafeas/grafeas/go/v1beta1/storage"
 	"github.com/rode/grafeas-elasticsearch/go/config"
 	"go.uber.org/zap"
-	"net/http"
 )
 
 type newElasticsearchStorageFunc func(*config.ElasticsearchConfig) (*ElasticsearchStorage, error)
@@ -59,26 +60,8 @@ func ElasticsearchStorageTypeProviderCreator(newES newElasticsearchStorageFunc, 
 			return nil, err
 		}
 
-		res, err := es.client.Indices.Exists([]string{projectsIndex()})
-		if err != nil || (res.StatusCode != http.StatusOK && res.StatusCode != http.StatusNotFound) {
-			return nil, createError(log, "error checking if project index already exists", err)
-		}
-
-		// the response is an error if the index was not found, so we need to create it
-		if res.IsError() {
-			log := log.With(zap.String("index", projectsIndex()))
-			log.Info("initial index for grafeas projects not found, creating...")
-			res, err = es.client.Indices.Create(
-				projectsIndex(),
-				withIndexMetadataAndStringMapping(),
-			)
-			if err != nil {
-				return nil, createError(log, "error sending index creation request to elasticsearch", err)
-			}
-			if res.IsError() {
-				return nil, createError(log, "error creating index in elasticsearch", fmt.Errorf(res.String()))
-			}
-			log.Info("project index created", zap.String("index", projectsIndex()))
+		if err := es.Initialize(context.Background()); err != nil {
+			return nil, err
 		}
 
 		return &storage.Storage{

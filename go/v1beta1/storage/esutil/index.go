@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package storage
+package esutil
 
 import (
 	"context"
@@ -26,7 +26,6 @@ import (
 	"strings"
 
 	"github.com/elastic/go-elasticsearch/v7"
-	. "github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil"
 	"go.uber.org/zap"
 )
 

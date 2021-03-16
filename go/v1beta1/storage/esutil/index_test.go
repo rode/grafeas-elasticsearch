@@ -12,7 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package storage
+package esutil
 
 import (
 	"bytes"
@@ -30,19 +30,18 @@ import (
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil"
 )
 
 var _ = Describe("index manager", func() {
 	var (
 		indexManager    *EsIndexManager
-		mockEsTransport *esutil.MockEsTransport
+		mockEsTransport *MockEsTransport
 		projectId       string
 	)
 
 	BeforeEach(func() {
 		projectId = fake.LetterN(10)
-		mockEsTransport = &esutil.MockEsTransport{}
+		mockEsTransport = &MockEsTransport{}
 		mockEsClient := &elasticsearch.Client{Transport: mockEsTransport, API: esapi.New(mockEsTransport)}
 
 		indexManager = NewEsIndexManager(logger, mockEsClient)
@@ -362,7 +361,7 @@ var _ = Describe("index manager", func() {
 				BeforeEach(func() {
 					expectedError = fmt.Errorf(fake.Sentence(5))
 
-					mockEsTransport.Actions = []esutil.TransportAction{
+					mockEsTransport.Actions = []TransportAction{
 						func(req *http.Request) (*http.Response, error) {
 							return nil, expectedError
 						},
@@ -445,7 +444,7 @@ var _ = Describe("index manager", func() {
 				BeforeEach(func() {
 					expectedError = fmt.Errorf(fake.Sentence(5))
 
-					mockEsTransport.Actions = []esutil.TransportAction{
+					mockEsTransport.Actions = []TransportAction{
 						func(req *http.Request) (*http.Response, error) {
 							return nil, expectedError
 						},
@@ -462,11 +461,11 @@ var _ = Describe("index manager", func() {
 			Describe("response error", func() {
 
 				Context("bad request status code", func() {
-					var errorResponse esutil.ESErrorResponse
+					var errorResponse ESErrorResponse
 
 					BeforeEach(func() {
-						errorResponse := esutil.ESErrorResponse{
-							Error: esutil.ESError{
+						errorResponse := ESErrorResponse{
+							Error: ESError{
 								Type: fake.Word(),
 							},
 						}

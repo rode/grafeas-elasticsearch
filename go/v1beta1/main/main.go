@@ -27,6 +27,7 @@ import (
 	grafeasStorage "github.com/grafeas/grafeas/go/v1beta1/storage"
 	"github.com/rode/grafeas-elasticsearch/go/config"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage"
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"go.uber.org/zap"
 )
@@ -44,7 +45,9 @@ func main() {
 			return nil, fmt.Errorf("failed to connect to Elasticsearch")
 		}
 
-		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c), nil
+		indexManager := esutil.NewEsIndexManager(logger.Named("EsIndexManager"), esClient)
+
+		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c, indexManager), nil
 	}, logger)
 
 	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", registerStorageTypeProvider)

@@ -15,6 +15,7 @@ vet:
 mocks:
 	mockgen -package mocks -destination go/mocks/filtering.go github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering Filterer
 	mockgen -package mocks -destination go/mocks/index.go github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil IndexManager
+	mockgen -package mocks -destination go/mocks/orchestrator.go github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration Orchestrator
 
 test: fmtcheck vet
 	go test -short ./... -coverprofile=coverage.txt -covermode atomic

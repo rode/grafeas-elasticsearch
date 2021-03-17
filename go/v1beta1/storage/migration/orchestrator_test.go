@@ -121,6 +121,6 @@ func createFakeIndexInfo() *esutil.IndexInfo {
 	return &esutil.IndexInfo{
 		Index:        fake.Word(),
 		Alias:        fake.Word(),
-		DocumentKind: fake.Word(),
+		DocumentKind: esutil.DocumentKind(fake.Word()),
 	}
 }

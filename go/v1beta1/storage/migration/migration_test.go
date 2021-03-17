@@ -145,8 +145,8 @@ var _ = Describe("EsMigrator", func() {
 			projectId = fake.LetterN(5)
 			migration = &esutil.IndexInfo{
 				DocumentKind: esutil.OccurrenceDocumentKind,
-				Index:        esutil.CreateIndexOrAliasName(fake.LetterN(5), projectId, esutil.OccurrenceDocumentKind),
-				Alias:        esutil.CreateIndexOrAliasName(projectId, esutil.OccurrenceDocumentKind),
+				Index:        esutil.CreateIndexOrAliasName(fake.LetterN(5), projectId, string(esutil.OccurrenceDocumentKind)),
+				Alias:        esutil.CreateIndexOrAliasName(projectId, string(esutil.OccurrenceDocumentKind)),
 			}
 			newIndexName = fake.LetterN(5)
 			newIndexInfo = &esutil.IndexInfo{

@@ -63,7 +63,7 @@ func (mr *MockIndexManagerMockRecorder) GetAliasForIndex(arg0 interface{}) *gomo
 }
 
 // GetLatestVersionForDocumentKind mocks base method
-func (m *MockIndexManager) GetLatestVersionForDocumentKind(arg0 string) string {
+func (m *MockIndexManager) GetLatestVersionForDocumentKind(arg0 esutil.DocumentKind) string {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "GetLatestVersionForDocumentKind", arg0)
 	ret0, _ := ret[0].(string)

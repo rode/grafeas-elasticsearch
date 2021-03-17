@@ -6,35 +6,34 @@ package mocks
 
 import (
 	context "context"
-	reflect "reflect"
-
 	gomock "github.com/golang/mock/gomock"
+	reflect "reflect"
 )
 
-// MockOrchestrator is a mock of Orchestrator interface.
+// MockOrchestrator is a mock of Orchestrator interface
 type MockOrchestrator struct {
 	ctrl     *gomock.Controller
 	recorder *MockOrchestratorMockRecorder
 }
 
-// MockOrchestratorMockRecorder is the mock recorder for MockOrchestrator.
+// MockOrchestratorMockRecorder is the mock recorder for MockOrchestrator
 type MockOrchestratorMockRecorder struct {
 	mock *MockOrchestrator
 }
 
-// NewMockOrchestrator creates a new mock instance.
+// NewMockOrchestrator creates a new mock instance
 func NewMockOrchestrator(ctrl *gomock.Controller) *MockOrchestrator {
 	mock := &MockOrchestrator{ctrl: ctrl}
 	mock.recorder = &MockOrchestratorMockRecorder{mock}
 	return mock
 }
 
-// EXPECT returns an object that allows the caller to indicate expected use.
+// EXPECT returns an object that allows the caller to indicate expected use
 func (m *MockOrchestrator) EXPECT() *MockOrchestratorMockRecorder {
 	return m.recorder
 }
 
-// RunMigrations mocks base method.
+// RunMigrations mocks base method
 func (m *MockOrchestrator) RunMigrations(arg0 context.Context) error {
 	m.ctrl.T.Helper()
 	ret := m.ctrl.Call(m, "RunMigrations", arg0)
@@ -42,7 +41,7 @@ func (m *MockOrchestrator) RunMigrations(arg0 context.Context) error {
 	return ret0
 }
 
-// RunMigrations indicates an expected call of RunMigrations.
+// RunMigrations indicates an expected call of RunMigrations
 func (mr *MockOrchestratorMockRecorder) RunMigrations(arg0 interface{}) *gomock.Call {
 	mr.mock.ctrl.T.Helper()
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "RunMigrations", reflect.TypeOf((*MockOrchestrator)(nil).RunMigrations), arg0)

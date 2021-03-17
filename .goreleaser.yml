@@ -40,3 +40,4 @@ dockers:
       - "go.mod"
       - "go.sum"
       - "go"
+      - "mappings"

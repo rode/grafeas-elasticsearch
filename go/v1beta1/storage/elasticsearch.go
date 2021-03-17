@@ -19,7 +19,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
@@ -350,7 +349,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	}
 
 	response := &esBulkResponse{}
-	err = decodeResponse(res.Body, response)
+	err = esutil.DecodeResponse(res.Body, response)
 	if err != nil {
 		return nil, []error{
 			createError(log, "error decoding ES response", nil),
@@ -582,7 +581,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	}
 
 	searchResponse := &esMultiSearchResponse{}
-	err = decodeResponse(res.Body, searchResponse)
+	err = esutil.DecodeResponse(res.Body, searchResponse)
 	if err != nil {
 		return nil, []error{
 			createError(log, "error decoding ES response", nil),
@@ -643,7 +642,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	}
 
 	bulkResponse := &esBulkResponse{}
-	err = decodeResponse(res.Body, bulkResponse)
+	err = esutil.DecodeResponse(res.Body, bulkResponse)
 	if err != nil {
 		return nil, append(errs, createError(log, "error decoding ES response", nil))
 	}
@@ -712,7 +711,7 @@ func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.C
 }
 
 func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *esSearch, index string, protoMessage interface{}) (string, error) {
-	encodedBody, requestJson := encodeRequest(search)
+	encodedBody, requestJson := esutil.EncodeRequest(search)
 	log = log.With(zap.String("request", requestJson))
 
 	res, err := es.client.Search(
@@ -728,7 +727,7 @@ func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger,
 	}
 
 	var searchResults esSearchResponse
-	if err := decodeResponse(res.Body, &searchResults); err != nil {
+	if err := esutil.DecodeResponse(res.Body, &searchResults); err != nil {
 		return "", createError(log, "error unmarshalling elasticsearch response", err)
 	}
 
@@ -761,7 +760,7 @@ func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logg
 	}
 
 	esResponse := &esIndexDocResponse{}
-	err = decodeResponse(res.Body, esResponse)
+	err = esutil.DecodeResponse(res.Body, esResponse)
 	if err != nil {
 		return createError(log, "error decoding elasticsearch response", err)
 	}
@@ -793,7 +792,7 @@ func (es *ElasticsearchStorage) genericUpdate(ctx context.Context, log *zap.Logg
 	}
 
 	esResponse := &esIndexDocResponse{}
-	err = decodeResponse(res.Body, esResponse)
+	err = esutil.DecodeResponse(res.Body, esResponse)
 	if err != nil {
 		return createError(log, "error decoding elasticsearch response", err)
 	}
@@ -804,7 +803,7 @@ func (es *ElasticsearchStorage) genericUpdate(ctx context.Context, log *zap.Logg
 }
 
 func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logger, search *esSearch, index string) error {
-	encodedBody, requestJson := encodeRequest(search)
+	encodedBody, requestJson := esutil.EncodeRequest(search)
 	log = log.With(zap.String("request", requestJson))
 
 	res, err := es.client.DeleteByQuery(
@@ -821,7 +820,7 @@ func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logg
 	}
 
 	var deletedResults esDeleteResponse
-	if err = decodeResponse(res.Body, &deletedResults); err != nil {
+	if err = esutil.DecodeResponse(res.Body, &deletedResults); err != nil {
 		return createError(log, "error unmarshalling elasticsearch response", err)
 	}
 
@@ -850,7 +849,7 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 		}
 	}
 
-	encodedBody, requestJson := encodeRequest(body)
+	encodedBody, requestJson := esutil.EncodeRequest(body)
 	log = log.With(zap.String("request", requestJson))
 	log.Debug("performing search")
 
@@ -868,7 +867,7 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 	}
 
 	var searchResults esSearchResponse
-	if err := decodeResponse(res.Body, &searchResults); err != nil {
+	if err := esutil.DecodeResponse(res.Body, &searchResults); err != nil {
 		return nil, createError(log, "error decoding elasticsearch response", err)
 	}
 
@@ -912,20 +911,6 @@ func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
 	_ = json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody)
 
 	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
-}
-
-func decodeResponse(r io.ReadCloser, i interface{}) error {
-	return json.NewDecoder(r).Decode(i)
-}
-
-func encodeRequest(body interface{}) (io.Reader, string) {
-	b, err := json.Marshal(body)
-	if err != nil {
-		// we should know that `body` is a serializable struct before invoking `encodeRequest`
-		panic(err)
-	}
-
-	return bytes.NewReader(b), string(b)
 }
 
 // DeleteByQuery does not support `wait_for` value, although API docs say it is available.

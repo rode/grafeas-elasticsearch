@@ -48,7 +48,7 @@ func main() {
 
 		indexManager := esutil.NewEsIndexManager(logger.Named("EsIndexManager"), esClient)
 		migrator := migration.NewEsMigrator(logger.Named("EsMigrator"), esClient, indexManager)
-		migrationOrchestrator := migration.NewMigrationOrchestrator(logger.Named("EsMigrationOrchestrator"), migrator)
+		migrationOrchestrator := migration.NewEsMigrationOrchestrator(logger.Named("EsMigrationOrchestrator"), migrator)
 
 		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c, indexManager, migrationOrchestrator), nil
 	}, logger)

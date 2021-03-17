@@ -19,10 +19,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration"
 
 	"github.com/elastic/go-elasticsearch/v7"
-	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/google/uuid"
@@ -896,34 +896,6 @@ func createError(log *zap.Logger, message string, err error, fields ...zap.Field
 
 	log.Error(message, append(fields, zap.Error(err))...)
 	return status.Errorf(codes.Internal, "%s: %s", message, err)
-}
-
-// withIndexMetadataAndStringMapping adds an index mapping to add metadata that can be used to help identify an index as
-// a part of the Grafeas storage backend, and a dynamic template to map all strings to keywords.
-func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
-	var indexCreateBuffer bytes.Buffer
-	indexCreateBody := map[string]interface{}{
-		"mappings": map[string]interface{}{
-			"_meta": map[string]string{
-				"type": "grafeas",
-			},
-			"dynamic_templates": []map[string]interface{}{
-				{
-					"strings_as_keywords": map[string]interface{}{
-						"match_mapping_type": "string",
-						"mapping": map[string]interface{}{
-							"type":  "keyword",
-							"norms": false,
-						},
-					},
-				},
-			},
-		},
-	}
-
-	_ = json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody)
-
-	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
 }
 
 // DeleteByQuery does not support `wait_for` value, although API docs say it is available.

@@ -36,7 +36,7 @@ var _ = Describe("Orchestrator", func() {
 			migrations:    []*esutil.IndexInfo{},
 			migrationsRan: []*esutil.IndexInfo{},
 		}
-		orchestrator = NewMigrationOrchestrator(logger, migrator)
+		orchestrator = NewEsMigrationOrchestrator(logger, migrator)
 	})
 
 	Describe("RunMigrations", func() {

@@ -30,7 +30,7 @@ type EsMigrationOrchestrator struct {
 	migrator Migrator
 }
 
-func NewMigrationOrchestrator(logger *zap.Logger, migrator Migrator) *EsMigrationOrchestrator {
+func NewEsMigrationOrchestrator(logger *zap.Logger, migrator Migrator) *EsMigrationOrchestrator {
 	return &EsMigrationOrchestrator{
 		logger:   logger,
 		migrator: migrator,

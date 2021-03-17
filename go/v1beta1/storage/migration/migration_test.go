@@ -214,7 +214,6 @@ var _ = Describe("EsMigrator", func() {
 			var actualError error
 
 			BeforeEach(func() {
-
 				indexManager.EXPECT().CreateIndex(ctx, newIndexInfo, true).Return(nil).Times(1)
 				actualError = migrator.Migrate(ctx, migration)
 			})
@@ -296,10 +295,13 @@ var _ = Describe("EsMigrator", func() {
 		})
 
 		Describe("migration errors", func() {
-			var actualError error
+			var (
+				createIndexError error
+				actualError      error
+			)
 
 			JustBeforeEach(func() {
-				indexManager.EXPECT().CreateIndex(ctx, newIndexInfo, true).Return(nil).Times(1)
+				indexManager.EXPECT().CreateIndex(ctx, newIndexInfo, true).Return(createIndexError).Times(1)
 				actualError = migrator.Migrate(ctx, migration)
 			})
 
@@ -374,16 +376,20 @@ var _ = Describe("EsMigrator", func() {
 				})
 			})
 
-			//Describe("creating the index fails", func() {
-			//	BeforeEach(func() {
-			//		mockEsTransport.PreparedHttpResponses[3].StatusCode = http.StatusInternalServerError
-			//	})
-			//
-			//	It("should return an error", func() {
-			//		Expect(actualError).NotTo(BeNil())
-			//		Expect(actualError.Error()).To(ContainSubstring("error creating target index"))
-			//	})
-			//})
+			Describe("creating the index fails", func() {
+				BeforeEach(func() {
+					createIndexError = fmt.Errorf(fake.Word())
+				})
+
+				AfterEach(func() {
+					createIndexError = nil
+				})
+
+				It("should return an error", func() {
+					Expect(actualError).NotTo(BeNil())
+					Expect(actualError.Error()).To(ContainSubstring("error creating target index"))
+				})
+			})
 
 			Describe("reindex request fails", func() {
 				BeforeEach(func() {

@@ -1,11 +1,11 @@
 package esutil
 
 import (
-	"testing"
+	"github.com/brianvoe/gofakeit/v6"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
-	"github.com/brianvoe/gofakeit/v6"
 	"go.uber.org/zap"
+	"testing"
 )
 
 var logger = zap.NewNop()

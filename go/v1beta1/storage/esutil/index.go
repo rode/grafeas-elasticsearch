@@ -50,10 +50,6 @@ type IndexManager interface {
 
 	NotesIndex(projectId string) string
 	NotesAlias(projectId string) string
-
-	IncrementIndexVersion(indexName string) string
-	GetLatestVersionForDocumentKind(documentKind string) string
-	GetAliasForIndex(indexName string) string
 }
 
 type EsIndexManager struct {
@@ -236,67 +232,4 @@ func (em *EsIndexManager) NotesIndex(projectId string) string {
 
 func (em *EsIndexManager) NotesAlias(projectId string) string {
 	return fmt.Sprintf("%s-%s-notes", AliasPrefix, projectId)
-}
-
-func (em *EsIndexManager) IncrementIndexVersion(indexName string) string {
-	indexParts := parseIndexName(indexName)
-
-	switch indexParts.DocumentKind {
-	case NoteDocumentKind:
-		return em.NotesIndex(indexParts.ProjectId)
-	case OccurrenceDocumentKind:
-		return em.OccurrencesIndex(indexParts.ProjectId)
-	case ProjectDocumentKind:
-		return em.ProjectsIndex()
-	}
-
-	// unversioned index
-	return indexName
-}
-
-func (em *EsIndexManager) GetLatestVersionForDocumentKind(documentKind string) string {
-	switch documentKind {
-	case NoteDocumentKind:
-		return em.noteMapping.Version
-	case OccurrenceDocumentKind:
-		return em.occurrenceMapping.Version
-	case ProjectDocumentKind:
-		return em.projectMapping.Version
-	}
-
-	return ""
-}
-
-func (em *EsIndexManager) GetAliasForIndex(indexName string) string {
-	parts := parseIndexName(indexName)
-
-	switch parts.DocumentKind {
-	case NoteDocumentKind:
-		return em.NotesAlias(parts.ProjectId)
-	case OccurrenceDocumentKind:
-		return em.OccurrencesAlias(parts.ProjectId)
-	case ProjectDocumentKind:
-		return em.ProjectsAlias()
-	}
-
-	return ""
-}
-
-func parseIndexName(indexName string) *IndexNameParts {
-	indexParts := strings.Split(indexName, "-")
-	documentKind := indexParts[len(indexParts)-1]
-	nameParts := &IndexNameParts{
-		DocumentKind: documentKind,
-	}
-
-	switch documentKind {
-	case ProjectDocumentKind:
-		nameParts.Version = indexParts[1]
-	case NoteDocumentKind,
-		OccurrenceDocumentKind:
-		nameParts.Version = indexParts[1]
-		nameParts.ProjectId = strings.Join(indexParts[2:len(indexParts)-1], "-")
-	}
-
-	return nameParts
 }

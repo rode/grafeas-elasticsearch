@@ -42,8 +42,6 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
-const apiVersion = "v1beta1"
-const indexPrefix = "grafeas-" + apiVersion
 const grafeasMaxPageSize = 1000
 const sortField = "createTime"
 

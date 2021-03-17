@@ -29,10 +29,12 @@ import (
 	"go.uber.org/zap"
 )
 
+type DocumentKind string
+
 const (
-	ProjectDocumentKind    = "projects"
-	OccurrenceDocumentKind = "occurrences"
-	NoteDocumentKind       = "notes"
+	ProjectDocumentKind    DocumentKind = "projects"
+	OccurrenceDocumentKind DocumentKind = "occurrences"
+	NoteDocumentKind       DocumentKind = "notes"
 
 	IndexPrefix = "grafeas"
 	AliasPrefix = "grafeas"
@@ -68,7 +70,7 @@ type VersionedMapping struct {
 type IndexInfo struct {
 	Index        string
 	Alias        string
-	DocumentKind string
+	DocumentKind DocumentKind
 }
 
 type IndexNameParts struct {
@@ -103,7 +105,7 @@ func (em *EsIndexManager) LoadMappings(mappingsDir string) error {
 			continue
 		}
 
-		documentKind := strings.TrimSuffix(file.Name(), filepath.Ext(file.Name()))
+		documentKind := DocumentKind(strings.TrimSuffix(file.Name(), filepath.Ext(file.Name())))
 		filePath := path.Join(currentDir, mappingsDir, file.Name())
 		versionedMappingJson, err := ioutilReadFile(filePath)
 
@@ -193,7 +195,7 @@ func (em *EsIndexManager) CreateIndex(ctx context.Context, info *IndexInfo, chec
 	return nil
 }
 
-func (em *EsIndexManager) getMappingForDocumentKind(documentKind string) (*VersionedMapping, error) {
+func (em *EsIndexManager) getMappingForDocumentKind(documentKind DocumentKind) (*VersionedMapping, error) {
 	switch documentKind {
 	case ProjectDocumentKind:
 		return em.projectMapping, nil
@@ -202,7 +204,7 @@ func (em *EsIndexManager) getMappingForDocumentKind(documentKind string) (*Versi
 	case NoteDocumentKind:
 		return em.noteMapping, nil
 	default:
-		em.logger.Info("Unrecognized document kind mapping", zap.String("kind", documentKind))
+		em.logger.Info("Unrecognized document kind mapping", zap.String("kind", string(documentKind)))
 		return nil, fmt.Errorf("no mapping found for document kind %s", documentKind)
 	}
 }

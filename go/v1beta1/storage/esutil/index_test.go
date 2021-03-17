@@ -461,9 +461,9 @@ func createIndexOrAliasName(parts ...string) string {
 
 func randomIndexInfo(projectId string) *IndexInfo {
 	return &IndexInfo{
-		Alias:        createIndexOrAliasName(projectId, OccurrenceDocumentKind),
+		Alias:        createIndexOrAliasName(projectId, string(OccurrenceDocumentKind)),
 		DocumentKind: OccurrenceDocumentKind,
-		Index:        createIndexOrAliasName(fake.LetterN(5), projectId, OccurrenceDocumentKind),
+		Index:        createIndexOrAliasName(fake.LetterN(5), projectId, string(OccurrenceDocumentKind)),
 	}
 }
 

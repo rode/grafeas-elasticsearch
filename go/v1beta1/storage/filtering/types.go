@@ -16,11 +16,11 @@ package filtering
 
 // Query holds a parent query that carries the entire search query
 type Query struct {
-	Bool        *Bool             `json:"bool,omitempty"`
-	Term        *Term             `json:"term,omitempty"`
-	Prefix      *Term             `json:"prefix,omitempty"`
-	QueryString *QueryString      `json:"query_string,omitempty"`
-	Range       map[string]*Range `json:"range,omitempty"`
+	Bool        *Bool                     `json:"bool,omitempty"`
+	Term        *Term                     `json:"term,omitempty"`
+	Prefix      *Term                     `json:"prefix,omitempty"`
+	QueryString *QueryString              `json:"query_string,omitempty"`
+	Range       map[string]*RangeOperator `json:"range,omitempty"`
 }
 
 // Bool holds a general query that carries any number of
@@ -49,7 +49,10 @@ type QueryString struct {
 	Query        string `json:"query"`
 }
 
-type Range struct {
+// Holds an operator that evaluates a range for comparisons
+type Range map[string]*RangeOperator
+
+type RangeOperator struct {
 	Greater       string `json:"gt,omitempty"`
 	GreaterEquals string `json:"gte,omitempty"`
 	Less          string `json:"lt,omitempty"`

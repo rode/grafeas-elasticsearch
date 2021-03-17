@@ -16,8 +16,6 @@ package v1beta1_test
 
 import (
 	"fmt"
-	"testing"
-
 	"github.com/golang/protobuf/ptypes"
 	"github.com/grafeas/grafeas/proto/v1beta1/attestation_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/build_go_proto"
@@ -32,6 +30,9 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
+	"google.golang.org/protobuf/types/known/timestamppb"
+	"testing"
+	"time"
 )
 
 func TestOccurrence(t *testing.T) {
@@ -192,6 +193,8 @@ func TestOccurrence(t *testing.T) {
 		})
 
 		t.Run("filters", func(t *testing.T) {
+			buildCreateTime := buildOccurrence.GetBuild().Provenance.CreateTime.AsTime().Format(time.RFC3339)
+			currentTime := time.Now().Format(time.RFC3339)
 			for _, tc := range []struct {
 				name, filter string
 				expected     []*grafeas_go_proto.Occurrence
@@ -312,6 +315,18 @@ func TestOccurrence(t *testing.T) {
 					expected: batchResponse.Occurrences,
 				},
 				{
+					name:   "match an occurrence with less than or equal to a certain time and greater than or equal to a certain time",
+					filter: fmt.Sprintf(`"build.provenance.createTime" <= "%[1]s" && "build.provenance.createTime" >= "%[1]s"`, buildCreateTime),
+					expected: []*grafeas_go_proto.Occurrence{
+						buildOccurrence,
+					},
+				},
+				{
+					name:   "not match occurrences where create time is greater and also less than the same time",
+					filter: fmt.Sprintf(`"build.provenance.createTime" < "%[1]s" && "build.provenance.createTime" > "%[1]s"`, currentTime),
+					expected: []*grafeas_go_proto.Occurrence{},
+				},
+				{
 					name:        "bad filter",
 					filter:      "lol",
 					expectError: true,
@@ -364,7 +379,8 @@ func createFakeBuildOccurrence(projectName string) *grafeas_go_proto.Occurrence 
 		Details: &grafeas_go_proto.Occurrence_Build{
 			Build: &build_go_proto.Details{
 				Provenance: &provenance_go_proto.BuildProvenance{
-					Id: fake.UUID(),
+					Id:         fake.UUID(),
+					CreateTime: timestamppb.New(fake.Date()),
 				},
 			},
 		},

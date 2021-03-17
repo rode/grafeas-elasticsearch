@@ -148,7 +148,7 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 			return nil, err
 		}
 		return &Query{
-			Range: map[string]*Range{
+			Range: Range{
 				leftTerm: {
 					Greater: rightTerm,
 				},
@@ -160,7 +160,7 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 			return nil, err
 		}
 		return &Query{
-			Range: map[string]*Range{
+			Range: Range{
 				leftTerm: {
 					GreaterEquals: rightTerm,
 				},
@@ -172,7 +172,7 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 			return nil, err
 		}
 		return &Query{
-			Range: map[string]*Range{
+			Range: Range{
 				leftTerm: {
 					Less: rightTerm,
 				},
@@ -184,7 +184,7 @@ func parseExpression(expression *expr.Expr) (*Query, error) {
 			return nil, err
 		}
 		return &Query{
-			Range: map[string]*Range{
+			Range: Range{
 				leftTerm: {
 					LessEquals: rightTerm,
 				},

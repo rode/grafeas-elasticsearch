@@ -38,6 +38,8 @@ const (
 
 	IndexPrefix = "grafeas"
 	AliasPrefix = "grafeas"
+
+	elasticsearchResourceAlreadyExists = "resource_already_exists_exception"
 )
 
 type IndexManager interface {
@@ -148,6 +150,7 @@ func (em *EsIndexManager) CreateIndex(ctx context.Context, info *IndexInfo, chec
 			return fmt.Errorf("unexpected status code (%d) when checking if index exists", res.StatusCode)
 		}
 
+		// if the response was successful, then the index already exists and we can skip creation
 		if !res.IsError() {
 			return nil
 		}
@@ -181,7 +184,9 @@ func (em *EsIndexManager) CreateIndex(ctx context.Context, info *IndexInfo, chec
 				return fmt.Errorf("error decoding Elasticsearch error response: %s", err)
 			}
 
-			if errResponse.Error.Type == "resource_already_exists_exception" {
+			// there's a chance for another instance of grafeas-elasticsearch to try to create the same index (e.g., during migrations or creating the project index)
+			// so handle ignore that error
+			if errResponse.Error.Type == elasticsearchResourceAlreadyExists {
 				log.Info("index already exists")
 				return nil
 			}

@@ -35,6 +35,14 @@ func TestProject(t *testing.T) {
 			_, err = s.Pc.GetProject(s.Ctx, &project_go_proto.GetProjectRequest{Name: p.GetName()})
 			Expect(err).ToNot(HaveOccurred())
 		})
+		t.Run("should fail if the project already exists", func(t *testing.T) {
+			name := util.RandomProjectName()
+
+			_, err := util.CreateProject(s, name)
+			_, err = util.CreateProject(s, name)
+			Expect(err).To(HaveOccurred())
+
+		})
 	})
 
 	t.Run("listing projects", func(t *testing.T) {

@@ -55,24 +55,46 @@ func TestOccurrence(t *testing.T) {
 			_, err = s.Gc.GetOccurrence(s.Ctx, &grafeas_go_proto.GetOccurrenceRequest{Name: o.GetName()})
 			Expect(err).ToNot(HaveOccurred())
 		})
+		t.Run("should return an error if the project doesn't already exist", func(t *testing.T) {
+			invalidProjectName := util.RandomProjectName()
+			_, err := s.Gc.CreateOccurrence(s.Ctx, &grafeas_go_proto.CreateOccurrenceRequest{
+				Parent:     invalidProjectName,
+				Occurrence: createFakeBuildOccurrence(invalidProjectName),
+			})
+			Expect(err).To(HaveOccurred())
+		})
 	})
 
 	t.Run("batch creating occurrences", func(t *testing.T) {
-		bo, err := s.Gc.BatchCreateOccurrences(s.Ctx, &grafeas_go_proto.BatchCreateOccurrencesRequest{
-			Parent: projectName,
-			Occurrences: []*grafeas_go_proto.Occurrence{
-				createFakeBuildOccurrence(projectName),
-				createFakeVulnerabilityOccurrence(projectName),
-			},
-		})
+		t.Run("should be successful", func(t *testing.T) {
+			bo, err := s.Gc.BatchCreateOccurrences(s.Ctx, &grafeas_go_proto.BatchCreateOccurrencesRequest{
+				Parent: projectName,
+				Occurrences: []*grafeas_go_proto.Occurrence{
+					createFakeBuildOccurrence(projectName),
+					createFakeVulnerabilityOccurrence(projectName),
+				},
+			})
 
-		Expect(err).ToNot(HaveOccurred())
-
-		for _, o := range bo.Occurrences {
-			_, err = s.Gc.GetOccurrence(s.Ctx, &grafeas_go_proto.GetOccurrenceRequest{Name: o.GetName()})
 			Expect(err).ToNot(HaveOccurred())
-		}
+
+			for _, o := range bo.Occurrences {
+				_, err = s.Gc.GetOccurrence(s.Ctx, &grafeas_go_proto.GetOccurrenceRequest{Name: o.GetName()})
+				Expect(err).ToNot(HaveOccurred())
+			}
+		})
+		t.Run("should return an error if the project doesn't already exist", func(t *testing.T) {
+			invalidProjectName := util.RandomProjectName()
+			_, err := s.Gc.BatchCreateOccurrences(s.Ctx, &grafeas_go_proto.BatchCreateOccurrencesRequest{
+				Parent:     invalidProjectName,
+				Occurrences: []*grafeas_go_proto.Occurrence{
+					createFakeBuildOccurrence(invalidProjectName),
+					createFakeVulnerabilityOccurrence(invalidProjectName),
+				},
+			})
+			Expect(err).To(HaveOccurred())
+		})
 	})
+
 
 	t.Run("updating an occurrence", func(t *testing.T) {
 		o, err := s.Gc.CreateOccurrence(s.Ctx, &grafeas_go_proto.CreateOccurrenceRequest{

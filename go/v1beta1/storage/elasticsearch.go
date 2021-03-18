@@ -81,23 +81,14 @@ func (es *ElasticsearchStorage) Initialize(ctx context.Context) error {
 func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId string, p *prpb.Project) (*prpb.Project, error) {
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("CreateProject").With(zap.String("project", projectName))
-
-	// check if project already exists
-	search := &esSearch{
-		Query: &filtering.Query{
-			Term: &filtering.Term{
-				"name": projectName,
-			},
-		},
-	}
-	_, err := es.genericGet(ctx, log, search, es.indexManager.ProjectsAlias(), &prpb.Project{})
-	if err == nil { // project exists
-		log.Debug("project already exists")
-		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s already exists", projectName))
-	} else if status.Code(err) != codes.NotFound { // unexpected error (we expect a not found error here)
+	exists, err := es.doesProjectExist(ctx, log, projectId)
+	if err != nil {
 		return nil, err
 	}
-
+	if exists { // project exists
+		log.Debug("project already exists")
+		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s already exists", projectName))
+	}
 	p.Name = projectName
 
 	// create project document
@@ -275,13 +266,21 @@ func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, projectId, 
 // CreateOccurrence adds the specified occurrence to Elasticsearch
 func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId, userID string, o *pb.Occurrence) (*pb.Occurrence, error) {
 	log := es.logger.Named("CreateOccurrence")
+	exists, err := es.doesProjectExist(ctx, log, projectId)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		log.Debug("project does not exist")
+		return nil, status.Error(codes.FailedPrecondition, fmt.Sprintf("project with ID %s does not exist", projectId))
+	}
 
 	if o.CreateTime == nil {
 		o.CreateTime = ptypes.TimestampNow()
 	}
 	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, uuid.New().String())
 
-	err := es.genericCreate(ctx, log, es.indexManager.OccurrencesAlias(projectId), o)
+	err = es.genericCreate(ctx, log, es.indexManager.OccurrencesAlias(projectId), o)
 	if err != nil {
 		return nil, err
 	}
@@ -294,6 +293,14 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId,
 // This method will return all of the occurrences that were successfully created, and all of the errors that were encountered (if any)
 func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, projectId string, uID string, occurrences []*pb.Occurrence) ([]*pb.Occurrence, []error) {
 	log := es.logger.Named("BatchCreateOccurrences")
+	exists, err := es.doesProjectExist(ctx, log, projectId)
+	if err != nil {
+		return nil, []error{err}
+	}
+	if !exists {
+		log.Debug("project does not exist")
+		return nil, []error{status.Error(codes.FailedPrecondition, fmt.Sprintf("project with ID %s does not exist", projectId))}
+	}
 	log.Debug("creating occurrences")
 
 	indexMetadata := &esBulkQueryFragment{
@@ -495,6 +502,14 @@ func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectId, filter
 func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteId, uID string, n *pb.Note) (*pb.Note, error) {
 	noteName := fmt.Sprintf("projects/%s/notes/%s", projectId, noteId)
 	log := es.logger.Named("CreateNote").With(zap.String("note", noteName))
+	exists, err := es.doesProjectExist(ctx, log, projectId)
+	if err != nil {
+		return nil, err
+	}
+	if !exists {
+		log.Debug("project does not exist")
+		return nil, status.Error(codes.FailedPrecondition, fmt.Sprintf("project with ID %s does not exist", projectId))
+	}
 
 	// since note IDs are provided up front by the client, we need to search ES to see if this note already exists before creating it
 	search := &esSearch{
@@ -504,7 +519,7 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 			},
 		},
 	}
-	_, err := es.genericGet(ctx, log, search, es.indexManager.NotesAlias(projectId), &pb.Note{})
+	_, err = es.genericGet(ctx, log, search, es.indexManager.NotesAlias(projectId), &pb.Note{})
 	if err == nil { // note exists
 		log.Debug("note already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("note with name %s already exists", noteName))
@@ -529,6 +544,14 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId, uID string, notesWithNoteIds map[string]*pb.Note) ([]*pb.Note, []error) {
 	log := es.logger.Named("BatchCreateNotes").With(zap.String("projectId", projectId))
 	log.Debug("creating notes")
+	exists, err := es.doesProjectExist(ctx, log, projectId)
+	if err != nil {
+		return nil, []error{err}
+	}
+	if !exists {
+		log.Debug("project does not exist")
+		return nil, []error{status.Error(codes.FailedPrecondition, fmt.Sprintf("project with ID %s does not exist", projectId))}
+	}
 
 	searchMetadata, _ := json.Marshal(&esMultiSearchQueryFragment{
 		Index: es.indexManager.NotesAlias(projectId),
@@ -921,4 +944,24 @@ func withRefreshBool(o config.RefreshOption) bool {
 		return false
 	}
 	return true
+}
+
+func (es *ElasticsearchStorage) doesProjectExist(ctx context.Context, log *zap.Logger, projectId string) (bool, error) {
+	projectName := fmt.Sprintf("projects/%s", projectId)
+	// check if project already exists
+	search := &esSearch{
+		Query: &filtering.Query{
+			Term: &filtering.Term{
+				"name": projectName,
+			},
+		},
+	}
+
+	_, err := es.genericGet(ctx, log, search, es.indexManager.ProjectsAlias(), &prpb.Project{})
+	if err == nil { // project exists
+		return true, nil
+	} else if status.Code(err) != codes.NotFound { // unexpected error (we expect a not found error here)
+		return false, err
+	}
+	return false, nil
 }

@@ -1,8 +1,34 @@
 {
-  "version": "v1beta1",
+  "version": "v1beta2",
   "mappings": {
     "_meta": {
       "type": "grafeas"
+    },
+    "properties": {
+      "build": {
+        "type": "object",
+        "properties": {
+          "provenance": {
+            "type": "object",
+            "properties": {
+              "builtArtifacts": {
+                "type": "nested",
+                "properties": {
+                  "checksum": {
+                    "type": "keyword"
+                  },
+                  "id": {
+                    "type": "keyword"
+                  },
+                  "names": {
+                    "type": "keyword"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     },
     "dynamic_templates": [
       {

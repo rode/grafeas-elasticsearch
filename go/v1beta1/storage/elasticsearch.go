@@ -21,7 +21,6 @@ import (
 	"fmt"
 
 	"github.com/elastic/go-elasticsearch/v7"
-	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/google/uuid"
@@ -43,33 +42,6 @@ import (
 
 const grafeasMaxPageSize = 1000
 const sortField = "createTime"
-
-var occurrenceProperties = map[string]interface{}{
-	"build": map[string]interface{}{
-		"type": "object",
-		"properties": map[string]interface{}{
-			"provenance": map[string]interface{}{
-				"type": "object",
-				"properties": map[string]interface{}{
-					"builtArtifacts": map[string]interface{}{
-						"type": "nested",
-						"properties": map[string]interface{}{
-							"checksum": map[string]interface{}{
-								"type": "keyword",
-							},
-							"id": map[string]interface{}{
-								"type": "keyword",
-							},
-							"names": map[string]interface{}{
-								"type": "keyword",
-							},
-						},
-					},
-				},
-			},
-		},
-	},
-}
 
 type ElasticsearchStorage struct {
 	client       *elasticsearch.Client
@@ -910,35 +882,6 @@ func createError(log *zap.Logger, message string, err error, fields ...zap.Field
 
 	log.Error(message, append(fields, zap.Error(err))...)
 	return status.Errorf(codes.Internal, "%s: %s", message, err)
-}
-
-// withIndexMetadataAndStringMapping adds an index mapping to add metadata that can be used to help identify an index as
-// a part of the Grafeas storage backend, and a dynamic template to map all strings to keywords.
-func withIndexMetadataAndStringMapping(properties map[string]interface{}) func(*esapi.IndicesCreateRequest) {
-	var indexCreateBuffer bytes.Buffer
-	indexCreateBody := map[string]interface{}{
-		"mappings": map[string]interface{}{
-			"_meta": map[string]string{
-				"type": "grafeas",
-			},
-			"dynamic_templates": []map[string]interface{}{
-				{
-					"strings_as_keywords": map[string]interface{}{
-						"match_mapping_type": "string",
-						"mapping": map[string]interface{}{
-							"type":  "keyword",
-							"norms": false,
-						},
-					},
-				},
-			},
-			"properties": properties,
-		},
-	}
-
-	_ = json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody)
-
-	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
 }
 
 // DeleteByQuery does not support `wait_for` value, although API docs say it is available.

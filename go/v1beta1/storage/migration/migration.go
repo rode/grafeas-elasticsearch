@@ -17,10 +17,11 @@ package migration
 import (
 	"context"
 	"fmt"
-	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/elastic/go-elasticsearch/v7/esapi"
 
 	"github.com/elastic/go-elasticsearch/v7"
 	. "github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil"
@@ -29,6 +30,12 @@ import (
 
 var (
 	timeSleep = time.Sleep
+)
+
+const (
+	esAllIndices         = "_all"
+	esTaskIndex          = ".tasks"
+	timeBetweenTaskPolls = time.Second * 10
 )
 
 type EsMigrator struct {
@@ -50,11 +57,85 @@ func NewEsMigrator(logger *zap.Logger, client *elasticsearch.Client, indexManage
 	}
 }
 
+func (e *EsMigrator) GetMigrations(ctx context.Context) ([]*IndexInfo, error) {
+	res, err := e.client.Indices.Get([]string{esAllIndices}, e.client.Indices.Get.WithContext(ctx))
+	if err := getErrorFromESResponse(res, err); err != nil {
+		return nil, err
+	}
+
+	allIndices := map[string]ESIndex{}
+
+	if err := DecodeResponse(res.Body, &allIndices); err != nil {
+		return nil, err
+	}
+
+	var indicesToMigrate []*IndexInfo
+	for indexName, indexValue := range allIndices {
+		meta := indexValue.Mappings.Meta
+		if !(strings.HasPrefix(indexName, IndexPrefix) && meta != nil && meta.Type == IndexPrefix) {
+			continue
+		}
+
+		indexParts := ParseIndexName(indexName)
+		latestVersion := e.indexManager.GetLatestVersionForDocumentKind(indexParts.DocumentKind)
+		alias := e.indexManager.GetAliasForIndex(indexName)
+
+		if indexParts.Version != latestVersion {
+			indicesToMigrate = append(indicesToMigrate, &IndexInfo{Index: indexName, DocumentKind: indexParts.DocumentKind, Alias: alias})
+		}
+	}
+
+	return indicesToMigrate, nil
+}
+
 func (e *EsMigrator) Migrate(ctx context.Context, indexInfo *IndexInfo) error {
 	log := e.logger.Named("Migrate").With(zap.String("indexName", indexInfo.Index))
 	log.Info("Starting migration")
 
-	res, err := e.client.Indices.GetSettings(e.client.Indices.GetSettings.WithContext(ctx), e.client.Indices.GetSettings.WithIndex(indexInfo.Index))
+	if err := e.blockWritesOnIndex(ctx, indexInfo.Index); err != nil {
+		return err
+	}
+
+	newIndexName := e.indexManager.IncrementIndexVersion(indexInfo.Index)
+	err := e.indexManager.CreateIndex(ctx, &IndexInfo{
+		Index:        newIndexName,
+		Alias:        indexInfo.Alias,
+		DocumentKind: indexInfo.DocumentKind,
+	}, true)
+	if err != nil {
+		return fmt.Errorf("error creating target index: %s", err)
+	}
+
+	if err := e.reindex(ctx, indexInfo.Index, newIndexName); err != nil {
+		return err
+	}
+
+	if err := e.swapAlias(ctx, indexInfo, newIndexName); err != nil {
+		return err
+	}
+
+	log.Info("Deleting old index")
+	res, err := e.client.Indices.Delete(
+		[]string{indexInfo.Index},
+		e.client.Indices.Delete.WithContext(ctx),
+	)
+
+	if err != nil {
+		return fmt.Errorf("failed to remove previous index: %s", err)
+	}
+
+	if res.IsError() && res.StatusCode != http.StatusNotFound {
+		return fmt.Errorf("failed to remove the previous index, status: %d", res.StatusCode)
+	}
+
+	log.Info("Migration complete")
+	return nil
+}
+
+func (e *EsMigrator) blockWritesOnIndex(ctx context.Context, indexName string) error {
+	log := e.logger.Named("blockWritesOnIndex").With(zap.String("indexName", indexName))
+
+	res, err := e.client.Indices.GetSettings(e.client.Indices.GetSettings.WithContext(ctx), e.client.Indices.GetSettings.WithIndex(indexName))
 	if err := getErrorFromESResponse(res, err); err != nil {
 		return fmt.Errorf("error checking if write block is enabled on index: %s", err)
 	}
@@ -64,44 +145,42 @@ func (e *EsMigrator) Migrate(ctx context.Context, indexInfo *IndexInfo) error {
 		return fmt.Errorf("error decoding settings response: %s", err)
 	}
 
-	blocks := settingsResponse[indexInfo.Index].Settings.Index.Blocks
+	blocks := settingsResponse[indexName].Settings.Index.Blocks
 
-	if !(blocks != nil && blocks.Write == "true") {
-		log.Info("Placing write block on index")
-		res, err = e.client.Indices.AddBlock([]string{indexInfo.Index}, "write", e.client.Indices.AddBlock.WithContext(ctx))
-		if err := getErrorFromESResponse(res, err); err != nil {
-			return fmt.Errorf("error placing write block on index: %s", err)
-		}
-
-		blockResponse := &ESBlockResponse{}
-		if err := DecodeResponse(res.Body, blockResponse); err != nil {
-			return fmt.Errorf("error decoding write block response: %s", err)
-		}
-
-		if !(blockResponse.Acknowledged && blockResponse.ShardsAcknowledged) {
-			log.Error("Write block unsuccessful", zap.Any("response", blockResponse))
-			return fmt.Errorf("unable to block writes for index: %s", indexInfo.Index)
-		}
+	// index already has a write block in place
+	if blocks != nil && blocks.Write == "true" {
+		return nil
 	}
 
-	newIndexName := e.indexManager.IncrementIndexVersion(indexInfo.Index)
-	err = e.indexManager.CreateIndex(ctx, &IndexInfo{
-		Index:        newIndexName,
-		Alias:        indexInfo.Alias,
-		DocumentKind: indexInfo.DocumentKind,
-	}, true)
-	if err != nil {
-		return fmt.Errorf("error creating target index: %s", err)
+	log.Info("Placing write block on index")
+	res, err = e.client.Indices.AddBlock([]string{indexName}, "write", e.client.Indices.AddBlock.WithContext(ctx))
+	if err := getErrorFromESResponse(res, err); err != nil {
+		return fmt.Errorf("error placing write block on index: %s", err)
 	}
 
+	blockResponse := &ESBlockResponse{}
+	if err := DecodeResponse(res.Body, blockResponse); err != nil {
+		return fmt.Errorf("error decoding write block response: %s", err)
+	}
+
+	if !(blockResponse.Acknowledged && blockResponse.ShardsAcknowledged) {
+		log.Error("Write block unsuccessful", zap.Any("response", blockResponse))
+		return fmt.Errorf("unable to block writes for index: %s", indexName)
+	}
+
+	return nil
+}
+
+func (e *EsMigrator) reindex(ctx context.Context, sourceIndex, targetIndex string) error {
+	log := e.logger.Named("reindex").With(zap.String("sourceIndex", sourceIndex)).With(zap.String("targetIndex", targetIndex))
 	reindexReq := &ESReindex{
 		Conflicts:   "proceed",
-		Source:      &ReindexFields{Index: indexInfo.Index},
-		Destination: &ReindexFields{Index: newIndexName, OpType: "create"},
+		Source:      &ReindexFields{Index: sourceIndex},
+		Destination: &ReindexFields{Index: targetIndex, OpType: "create"},
 	}
 	reindexBody, _ := EncodeRequest(reindexReq)
 	log.Info("Starting reindex")
-	res, err = e.client.Reindex(
+	res, err := e.client.Reindex(
 		reindexBody,
 		e.client.Reindex.WithContext(ctx),
 		e.client.Reindex.WithWaitForCompletion(false))
@@ -139,30 +218,38 @@ func (e *EsMigrator) Migrate(ctx context.Context, indexInfo *IndexInfo) error {
 		}
 
 		log.Info("Task incomplete, waiting before polling again", zap.String("taskId", taskCreationResponse.Task))
-		timeSleep(time.Second * 10)
+		timeSleep(timeBetweenTaskPolls)
 	}
 
 	if !reindexCompleted {
 		return fmt.Errorf("reindex did not complete after %d polls", pollingAttempts)
 	}
 
-	res, err = e.client.Delete(".tasks", taskCreationResponse.Task, e.client.Delete.WithContext(ctx))
+	res, err = e.client.Delete(esTaskIndex, taskCreationResponse.Task, e.client.Delete.WithContext(ctx))
 	if err := getErrorFromESResponse(res, err); err != nil {
 		log.Warn("Error deleting task document", zap.Error(err), zap.String("taskId", taskCreationResponse.Task))
 	}
+
+	return nil
+}
+
+func (e *EsMigrator) swapAlias(ctx context.Context, sourceIndex *IndexInfo, targetIndex string) error {
+	log := e.logger.Named("swapAlias").
+		With(zap.String("sourceIndex", sourceIndex.Index)).
+		With(zap.String("targetIndex", targetIndex))
 
 	aliasReq := &ESIndexAliasRequest{
 		Actions: []ESActions{
 			{
 				Remove: &ESIndexAlias{
-					Index: indexInfo.Index,
-					Alias: indexInfo.Alias,
+					Index: sourceIndex.Index,
+					Alias: sourceIndex.Alias,
 				},
 			},
 			{
 				Add: &ESIndexAlias{
-					Index: newIndexName,
-					Alias: indexInfo.Alias,
+					Index: targetIndex,
+					Alias: sourceIndex.Alias,
 				},
 			},
 		},
@@ -170,7 +257,7 @@ func (e *EsMigrator) Migrate(ctx context.Context, indexInfo *IndexInfo) error {
 
 	aliasReqBody, _ := EncodeRequest(aliasReq)
 	log.Info("Swapping alias over to new index")
-	res, err = e.client.Indices.UpdateAliases(
+	res, err := e.client.Indices.UpdateAliases(
 		aliasReqBody,
 		e.client.Indices.UpdateAliases.WithContext(ctx),
 	)
@@ -179,53 +266,7 @@ func (e *EsMigrator) Migrate(ctx context.Context, indexInfo *IndexInfo) error {
 		return fmt.Errorf("error occurred while swapping the alias: %s", err)
 	}
 
-	log.Info("Deleting old index")
-	res, err = e.client.Indices.Delete(
-		[]string{indexInfo.Index},
-		e.client.Indices.Delete.WithContext(ctx),
-	)
-
-	if err != nil {
-		return fmt.Errorf("failed to remove previous index: %s", err)
-	}
-
-	if res.IsError() && res.StatusCode != http.StatusNotFound {
-		return fmt.Errorf("failed to remove the previous index, status: %d", res.StatusCode)
-	}
-
-	log.Info("Migration complete")
 	return nil
-}
-
-func (e *EsMigrator) GetMigrations(ctx context.Context) ([]*IndexInfo, error) {
-	res, err := e.client.Indices.Get([]string{"_all"}, e.client.Indices.Get.WithContext(ctx))
-	if err := getErrorFromESResponse(res, err); err != nil {
-		return nil, err
-	}
-
-	allIndices := map[string]ESIndex{}
-
-	if err := DecodeResponse(res.Body, &allIndices); err != nil {
-		return nil, err
-	}
-
-	var indicesToMigrate []*IndexInfo
-	for indexName, indexValue := range allIndices {
-		meta := indexValue.Mappings.Meta
-		if !(strings.HasPrefix(indexName, "grafeas") && meta != nil && meta.Type == "grafeas") {
-			continue
-		}
-
-		indexParts := ParseIndexName(indexName)
-		latestVersion := e.indexManager.GetLatestVersionForDocumentKind(indexParts.DocumentKind)
-		alias := e.indexManager.GetAliasForIndex(indexName)
-
-		if indexParts.Version != latestVersion {
-			indicesToMigrate = append(indicesToMigrate, &IndexInfo{Index: indexName, DocumentKind: indexParts.DocumentKind, Alias: alias})
-		}
-	}
-
-	return indicesToMigrate, nil
 }
 
 func getErrorFromESResponse(res *esapi.Response, err error) error {

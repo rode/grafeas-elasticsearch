@@ -322,7 +322,7 @@ func (f *filterer) visitNestedFilterCall(expression *expr.Expr, depth string) (i
 func assertString(value interface{}) (string, error) {
 	stringValue, ok := value.(string)
 	if !ok {
-		return "", fmt.Errorf("not a string")
+		return "", fmt.Errorf("expected %[1]v to have type string but was %[1]T", value)
 	}
 
 	return stringValue, nil

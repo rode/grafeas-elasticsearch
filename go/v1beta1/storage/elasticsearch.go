@@ -20,6 +20,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration"
+
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
@@ -44,20 +46,28 @@ const grafeasMaxPageSize = 1000
 const sortField = "createTime"
 
 type ElasticsearchStorage struct {
-	client       *elasticsearch.Client
-	config       *config.ElasticsearchConfig
-	filterer     filtering.Filterer
-	indexManager esutil.IndexManager
-	logger       *zap.Logger
+	client                *elasticsearch.Client
+	config                *config.ElasticsearchConfig
+	filterer              filtering.Filterer
+	indexManager          esutil.IndexManager
+	logger                *zap.Logger
+	migrationOrchestrator migration.Orchestrator
 }
 
-func NewElasticsearchStorage(logger *zap.Logger, client *elasticsearch.Client, filterer filtering.Filterer, config *config.ElasticsearchConfig, indexManager esutil.IndexManager) *ElasticsearchStorage {
+func NewElasticsearchStorage(
+	logger *zap.Logger,
+	client *elasticsearch.Client,
+	filterer filtering.Filterer,
+	config *config.ElasticsearchConfig,
+	indexManager esutil.IndexManager,
+	migrationOrchestrator migration.Orchestrator) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
 		client,
 		config,
 		filterer,
 		indexManager,
 		logger,
+		migrationOrchestrator,
 	}
 }
 
@@ -67,11 +77,15 @@ func (es *ElasticsearchStorage) Initialize(ctx context.Context) error {
 		return err
 	}
 
-	return es.indexManager.CreateIndex(ctx, &esutil.IndexInfo{
-		DocumentKind: "projects",
+	if err := es.indexManager.CreateIndex(ctx, &esutil.IndexInfo{
+		DocumentKind: esutil.ProjectDocumentKind,
 		Index:        es.indexManager.ProjectsIndex(),
 		Alias:        es.indexManager.ProjectsAlias(),
-	}, true)
+	}, true); err != nil {
+		return err
+	}
+
+	return es.migrationOrchestrator.RunMigrations(ctx)
 }
 
 // CreateProject creates a project document within the project index, along with two indices that can be used

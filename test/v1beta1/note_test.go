@@ -61,9 +61,9 @@ func TestNote(t *testing.T) {
 		t.Run("should return an error if the project doesn't already exist", func(t *testing.T) {
 			invalidProjectName := util.RandomProjectName()
 			_, err := s.Gc.CreateNote(s.Ctx, &grafeas_go_proto.CreateNoteRequest{
-				Parent:     invalidProjectName,
+				Parent: invalidProjectName,
 				NoteId: noteId,
-				Note: createFakeBuildNote(),
+				Note:   createFakeBuildNote(),
 			})
 			Expect(err).To(HaveOccurred())
 		})
@@ -112,7 +112,7 @@ func TestNote(t *testing.T) {
 		t.Run("should return an error if the project doesn't already exist", func(t *testing.T) {
 			invalidProjectName := util.RandomProjectName()
 			_, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
-				Parent:     invalidProjectName,
+				Parent: invalidProjectName,
 				Notes: map[string]*grafeas_go_proto.Note{
 					noteId1: createFakeBuildNote(),
 				}})
@@ -265,7 +265,6 @@ func TestNote(t *testing.T) {
 		Expect(status.Code(err)).To(Equal(codes.NotFound))
 	})
 }
-
 
 func createFakeBuildNote() *grafeas_go_proto.Note {
 	return &grafeas_go_proto.Note{

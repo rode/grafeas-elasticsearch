@@ -85,7 +85,7 @@ func TestOccurrence(t *testing.T) {
 		t.Run("should return an error if the project doesn't already exist", func(t *testing.T) {
 			invalidProjectName := util.RandomProjectName()
 			_, err := s.Gc.BatchCreateOccurrences(s.Ctx, &grafeas_go_proto.BatchCreateOccurrencesRequest{
-				Parent:     invalidProjectName,
+				Parent: invalidProjectName,
 				Occurrences: []*grafeas_go_proto.Occurrence{
 					createFakeBuildOccurrence(invalidProjectName),
 					createFakeVulnerabilityOccurrence(invalidProjectName),
@@ -94,7 +94,6 @@ func TestOccurrence(t *testing.T) {
 			Expect(err).To(HaveOccurred())
 		})
 	})
-
 
 	t.Run("updating an occurrence", func(t *testing.T) {
 		o, err := s.Gc.CreateOccurrence(s.Ctx, &grafeas_go_proto.CreateOccurrenceRequest{

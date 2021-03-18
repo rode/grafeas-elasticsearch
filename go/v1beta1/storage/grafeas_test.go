@@ -36,6 +36,7 @@ var _ = Describe("Grafeas integration", func() {
 		indexManager            *mocks.MockIndexManager
 		esConfig                *config.ElasticsearchConfig
 		newElasticsearchStorage newElasticsearchStorageFunc
+		orchestrator            *mocks.MockOrchestrator
 	)
 
 	BeforeEach(func() {
@@ -49,10 +50,11 @@ var _ = Describe("Grafeas integration", func() {
 	})
 
 	JustBeforeEach(func() {
+		orchestrator = mocks.NewMockOrchestrator(mockCtrl)
 		transport := &esutil.MockEsTransport{}
 		mockEsClient := &elasticsearch.Client{Transport: transport, API: esapi.New(transport)}
 
-		elasticsearchStorage = NewElasticsearchStorage(logger, mockEsClient, filterer, esConfig, indexManager)
+		elasticsearchStorage = NewElasticsearchStorage(logger, mockEsClient, filterer, esConfig, indexManager, orchestrator)
 	})
 
 	AfterEach(func() {

@@ -20,8 +20,9 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration"
+
 	"github.com/elastic/go-elasticsearch/v7"
-	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/google/uuid"
@@ -45,20 +46,28 @@ const grafeasMaxPageSize = 1000
 const sortField = "createTime"
 
 type ElasticsearchStorage struct {
-	client       *elasticsearch.Client
-	config       *config.ElasticsearchConfig
-	filterer     filtering.Filterer
-	indexManager esutil.IndexManager
-	logger       *zap.Logger
+	client                *elasticsearch.Client
+	config                *config.ElasticsearchConfig
+	filterer              filtering.Filterer
+	indexManager          esutil.IndexManager
+	logger                *zap.Logger
+	migrationOrchestrator migration.Orchestrator
 }
 
-func NewElasticsearchStorage(logger *zap.Logger, client *elasticsearch.Client, filterer filtering.Filterer, config *config.ElasticsearchConfig, indexManager esutil.IndexManager) *ElasticsearchStorage {
+func NewElasticsearchStorage(
+	logger *zap.Logger,
+	client *elasticsearch.Client,
+	filterer filtering.Filterer,
+	config *config.ElasticsearchConfig,
+	indexManager esutil.IndexManager,
+	migrationOrchestrator migration.Orchestrator) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
 		client,
 		config,
 		filterer,
 		indexManager,
 		logger,
+		migrationOrchestrator,
 	}
 }
 
@@ -68,11 +77,15 @@ func (es *ElasticsearchStorage) Initialize(ctx context.Context) error {
 		return err
 	}
 
-	return es.indexManager.CreateIndex(ctx, &esutil.IndexInfo{
-		DocumentKind: "projects",
+	if err := es.indexManager.CreateIndex(ctx, &esutil.IndexInfo{
+		DocumentKind: esutil.ProjectDocumentKind,
 		Index:        es.indexManager.ProjectsIndex(),
 		Alias:        es.indexManager.ProjectsAlias(),
-	}, true)
+	}, true); err != nil {
+		return err
+	}
+
+	return es.migrationOrchestrator.RunMigrations(ctx)
 }
 
 // CreateProject creates a project document within the project index, along with two indices that can be used
@@ -883,34 +896,6 @@ func createError(log *zap.Logger, message string, err error, fields ...zap.Field
 
 	log.Error(message, append(fields, zap.Error(err))...)
 	return status.Errorf(codes.Internal, "%s: %s", message, err)
-}
-
-// withIndexMetadataAndStringMapping adds an index mapping to add metadata that can be used to help identify an index as
-// a part of the Grafeas storage backend, and a dynamic template to map all strings to keywords.
-func withIndexMetadataAndStringMapping() func(*esapi.IndicesCreateRequest) {
-	var indexCreateBuffer bytes.Buffer
-	indexCreateBody := map[string]interface{}{
-		"mappings": map[string]interface{}{
-			"_meta": map[string]string{
-				"type": "grafeas",
-			},
-			"dynamic_templates": []map[string]interface{}{
-				{
-					"strings_as_keywords": map[string]interface{}{
-						"match_mapping_type": "string",
-						"mapping": map[string]interface{}{
-							"type":  "keyword",
-							"norms": false,
-						},
-					},
-				},
-			},
-		},
-	}
-
-	_ = json.NewEncoder(&indexCreateBuffer).Encode(indexCreateBody)
-
-	return esapi.Indices{}.Create.WithBody(&indexCreateBuffer)
 }
 
 // DeleteByQuery does not support `wait_for` value, although API docs say it is available.

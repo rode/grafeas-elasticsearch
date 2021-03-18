@@ -18,6 +18,7 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration"
 	"log"
 	"net/http"
 	"os"
@@ -46,8 +47,10 @@ func main() {
 		}
 
 		indexManager := esutil.NewEsIndexManager(logger.Named("EsIndexManager"), esClient)
+		migrator := migration.NewEsMigrator(logger.Named("EsMigrator"), esClient, indexManager)
+		migrationOrchestrator := migration.NewEsMigrationOrchestrator(logger.Named("EsMigrationOrchestrator"), migrator)
 
-		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c, indexManager), nil
+		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c, indexManager, migrationOrchestrator), nil
 	}, logger)
 
 	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", registerStorageTypeProvider)

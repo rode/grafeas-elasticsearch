@@ -69,6 +69,7 @@ var _ = Describe("elasticsearch storage", func() {
 		filterer     *mocks.MockFilterer
 		indexManager *mocks.MockIndexManager
 		esConfig     *config.ElasticsearchConfig
+		orchestrator *mocks.MockOrchestrator
 	)
 
 	BeforeEach(func() {
@@ -84,7 +85,7 @@ var _ = Describe("elasticsearch storage", func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		filterer = mocks.NewMockFilterer(mockCtrl)
 		indexManager = mocks.NewMockIndexManager(mockCtrl)
-
+		orchestrator = mocks.NewMockOrchestrator(mockCtrl)
 		transport = &esutil.MockEsTransport{}
 		esConfig = &config.ElasticsearchConfig{
 			URL:     fake.URL(),
@@ -101,11 +102,80 @@ var _ = Describe("elasticsearch storage", func() {
 	JustBeforeEach(func() {
 		mockEsClient := &elasticsearch.Client{Transport: transport, API: esapi.New(transport)}
 
-		elasticsearchStorage = NewElasticsearchStorage(logger, mockEsClient, filterer, esConfig, indexManager)
+		elasticsearchStorage = NewElasticsearchStorage(logger, mockEsClient, filterer, esConfig, indexManager, orchestrator)
 	})
 
 	AfterEach(func() {
 		mockCtrl.Finish()
+	})
+
+	Context("Initialize", func() {
+		var (
+			expectedProjectsIndex string
+			expectedError         error
+			actualError           error
+		)
+
+		BeforeEach(func() {
+			expectedProjectsIndex = fake.LetterN(10)
+			indexManager.EXPECT().ProjectsIndex().Return(expectedProjectsIndex).AnyTimes()
+			expectedError = fmt.Errorf(fake.Word())
+		})
+
+		JustBeforeEach(func() {
+			actualError = elasticsearchStorage.Initialize(ctx)
+		})
+
+		Describe("successful initialization", func() {
+			BeforeEach(func() {
+				indexManager.EXPECT().LoadMappings("mappings").Times(1)
+				indexManager.EXPECT().CreateIndex(ctx, &esutil.IndexInfo{
+					DocumentKind: "projects",
+					Index:        expectedProjectsIndex,
+					Alias:        expectedProjectAlias,
+				}, true).Times(1)
+
+				orchestrator.EXPECT().RunMigrations(ctx).Times(1)
+			})
+
+			It("should not return an error", func() {
+				Expect(actualError).To(BeNil())
+			})
+		})
+
+		Describe("an error occurs while loading mappings", func() {
+			BeforeEach(func() {
+				indexManager.EXPECT().LoadMappings(gomock.Any()).Return(expectedError)
+			})
+
+			It("should return the error", func() {
+				Expect(actualError).To(MatchError(expectedError))
+			})
+		})
+
+		Describe("an error occurs while creating the projects index", func() {
+			BeforeEach(func() {
+				indexManager.EXPECT().LoadMappings(gomock.Any()).AnyTimes()
+				indexManager.EXPECT().CreateIndex(gomock.Any(), gomock.Any(), gomock.Any()).Return(expectedError)
+			})
+
+			It("should return the error", func() {
+				Expect(actualError).To(MatchError(expectedError))
+			})
+		})
+
+		Describe("an error occurs while running migrations", func() {
+			BeforeEach(func() {
+				indexManager.EXPECT().LoadMappings(gomock.Any()).AnyTimes()
+				indexManager.EXPECT().CreateIndex(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
+
+				orchestrator.EXPECT().RunMigrations(gomock.Any()).Return(expectedError)
+			})
+
+			It("should return the error", func() {
+				Expect(actualError).To(MatchError(expectedError))
+			})
+		})
 	})
 
 	Context("creating a new Grafeas project", func() {

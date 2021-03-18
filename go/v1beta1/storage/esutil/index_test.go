@@ -15,12 +15,9 @@
 package esutil
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"net/http"
 	"os"
 	"strings"
@@ -195,19 +192,19 @@ var _ = Describe("index manager", func() {
 	Context("alias name functions", func() {
 		Describe("ProjectsAlias", func() {
 			It("should return the project alias", func() {
-				Expect(indexManager.ProjectsAlias()).To(Equal(createIndexOrAliasName("projects")))
+				Expect(indexManager.ProjectsAlias()).To(Equal(CreateIndexOrAliasName("projects")))
 			})
 		})
 
 		Describe("OccurrencesAlias", func() {
 			It("should construct the alias for the given project's occurrences index", func() {
-				Expect(indexManager.OccurrencesAlias(projectId)).To(Equal(createIndexOrAliasName(projectId, "occurrences")))
+				Expect(indexManager.OccurrencesAlias(projectId)).To(Equal(CreateIndexOrAliasName(projectId, "occurrences")))
 			})
 		})
 
 		Describe("NotesAlias", func() {
 			It("should construct the alias for the given project's notes index", func() {
-				Expect(indexManager.NotesAlias(projectId)).To(Equal(createIndexOrAliasName(projectId, "notes")))
+				Expect(indexManager.NotesAlias(projectId)).To(Equal(CreateIndexOrAliasName(projectId, "notes")))
 			})
 		})
 	})
@@ -215,7 +212,7 @@ var _ = Describe("index manager", func() {
 	Context("index name functions", func() {
 		Describe("ProjectsIndex", func() {
 			It("should return the versioned projects index", func() {
-				expectedIndexName := createIndexOrAliasName(indexManager.projectMapping.Version, "projects")
+				expectedIndexName := CreateIndexOrAliasName(indexManager.projectMapping.Version, "projects")
 
 				Expect(indexManager.ProjectsIndex()).To(Equal(expectedIndexName))
 			})
@@ -223,7 +220,7 @@ var _ = Describe("index manager", func() {
 
 		Describe("OccurrencesIndex", func() {
 			It("should return the versioned occurrences index", func() {
-				expectedIndexName := createIndexOrAliasName(indexManager.occurrenceMapping.Version, projectId, "occurrences")
+				expectedIndexName := CreateIndexOrAliasName(indexManager.occurrenceMapping.Version, projectId, "occurrences")
 
 				Expect(indexManager.OccurrencesIndex(projectId)).To(Equal(expectedIndexName))
 			})
@@ -231,10 +228,95 @@ var _ = Describe("index manager", func() {
 
 		Describe("NotesIndex", func() {
 			It("should return the versioned notes index", func() {
-				expectedIndexName := createIndexOrAliasName(indexManager.noteMapping.Version, projectId, "notes")
+				expectedIndexName := CreateIndexOrAliasName(indexManager.noteMapping.Version, projectId, "notes")
 
 				Expect(indexManager.NotesIndex(projectId)).To(Equal(expectedIndexName))
 			})
+		})
+	})
+
+	Describe("IncrementIndexVersion", func() {
+		It("should return the projects index at the newest version", func() {
+			expectedIndexName := CreateIndexOrAliasName(indexManager.projectMapping.Version, "projects")
+			indexName := CreateIndexOrAliasName(fake.LetterN(5), "projects")
+
+			Expect(indexManager.IncrementIndexVersion(indexName)).To(Equal(expectedIndexName))
+		})
+
+		It("should return the occurrences index at the newest version", func() {
+			expectedIndexName := CreateIndexOrAliasName(indexManager.occurrenceMapping.Version, projectId, "occurrences")
+			indexName := CreateIndexOrAliasName(fake.LetterN(5), projectId, "occurrences")
+
+			Expect(indexManager.IncrementIndexVersion(indexName)).To(Equal(expectedIndexName))
+		})
+
+		It("should return the notes index at the newest version", func() {
+			expectedIndexName := CreateIndexOrAliasName(indexManager.noteMapping.Version, projectId, "notes")
+			indexName := CreateIndexOrAliasName(fake.LetterN(5), projectId, "notes")
+
+			Expect(indexManager.IncrementIndexVersion(indexName)).To(Equal(expectedIndexName))
+		})
+
+		It("should return the index for unrecognized document kinds", func() {
+			indexName := fake.LetterN(10)
+
+			Expect(indexManager.IncrementIndexVersion(indexName)).To(Equal(indexName))
+		})
+	})
+
+	Describe("GetLatestVersionForDocumentKind", func() {
+		It("should return the version from the project mapping for the projects document kind", func() {
+			expectedVersion := indexManager.projectMapping.Version
+			actualVersion := indexManager.GetLatestVersionForDocumentKind(ProjectDocumentKind)
+
+			Expect(actualVersion).To(Equal(expectedVersion))
+		})
+
+		It("should return the version from the occurrences mapping for the occurrences document kind", func() {
+			expectedVersion := indexManager.occurrenceMapping.Version
+			actualVersion := indexManager.GetLatestVersionForDocumentKind(OccurrenceDocumentKind)
+
+			Expect(actualVersion).To(Equal(expectedVersion))
+		})
+
+		It("should return the version from the notes mapping for the notes document kind", func() {
+			expectedVersion := indexManager.noteMapping.Version
+			actualVersion := indexManager.GetLatestVersionForDocumentKind(NoteDocumentKind)
+
+			Expect(actualVersion).To(Equal(expectedVersion))
+		})
+
+		It("should return an empty string for unrecognized document kinds", func() {
+			Expect(indexManager.GetLatestVersionForDocumentKind(DocumentKind(fake.Word()))).To(BeEmpty())
+		})
+	})
+
+	Describe("GetAliasForIndex", func() {
+		It("should return the projects alias given a project index", func() {
+			projectIndex := CreateIndexOrAliasName(fake.LetterN(5), "projects")
+			expectedAlias := CreateIndexOrAliasName("projects")
+
+			Expect(indexManager.GetAliasForIndex(projectIndex)).To(Equal(expectedAlias))
+		})
+
+		It("should return the occurrences alias given an occurrence index", func() {
+			occurrencesIndex := CreateIndexOrAliasName(fake.LetterN(5), projectId, "occurrences")
+			expectedAlias := CreateIndexOrAliasName(projectId, "occurrences")
+
+			Expect(indexManager.GetAliasForIndex(occurrencesIndex)).To(Equal(expectedAlias))
+		})
+
+		It("should return the notes alias given an notes index", func() {
+			notesIndex := CreateIndexOrAliasName(fake.LetterN(5), projectId, "notes")
+			expectedAlias := CreateIndexOrAliasName(projectId, "notes")
+
+			Expect(indexManager.GetAliasForIndex(notesIndex)).To(Equal(expectedAlias))
+		})
+
+		It("should return an empty string for an unrecognized document kind", func() {
+			indexName := CreateIndexOrAliasName(fake.LetterN(5))
+
+			Expect(indexManager.GetAliasForIndex(indexName)).To(BeEmpty())
 		})
 	})
 
@@ -344,7 +426,7 @@ var _ = Describe("index manager", func() {
 				}
 				actualPayload := map[string]interface{}{}
 
-				readRequestBody(mockEsTransport.ReceivedHttpRequests[1], &actualPayload)
+				ReadRequestBody(mockEsTransport.ReceivedHttpRequests[1], &actualPayload)
 
 				Expect(actualPayload).To(Equal(expectedPayload))
 			})
@@ -391,14 +473,14 @@ var _ = Describe("index manager", func() {
 							},
 						}
 
-						mockEsTransport.PreparedHttpResponses[0].Body = createEsBody(&errorResponse)
+						mockEsTransport.PreparedHttpResponses[0].Body = CreateESBody(&errorResponse)
 					})
 
 					Describe("index already exists", func() {
 						BeforeEach(func() {
 							errorResponse.Error.Type = "resource_already_exists_exception"
 
-							mockEsTransport.PreparedHttpResponses[0].Body = createEsBody(&errorResponse)
+							mockEsTransport.PreparedHttpResponses[0].Body = CreateESBody(&errorResponse)
 						})
 
 						It("should not return an error", func() {
@@ -453,17 +535,11 @@ func createVersionedMapping() *VersionedMapping {
 	}
 }
 
-func createIndexOrAliasName(parts ...string) string {
-	withPrefix := append([]string{"grafeas"}, parts...)
-
-	return strings.Join(withPrefix, "-")
-}
-
 func randomIndexInfo(projectId string) *IndexInfo {
 	return &IndexInfo{
-		Alias:        createIndexOrAliasName(projectId, string(OccurrenceDocumentKind)),
+		Alias:        CreateIndexOrAliasName(projectId, string(OccurrenceDocumentKind)),
 		DocumentKind: OccurrenceDocumentKind,
-		Index:        createIndexOrAliasName(fake.LetterN(5), projectId, string(OccurrenceDocumentKind)),
+		Index:        CreateIndexOrAliasName(fake.LetterN(5), projectId, string(OccurrenceDocumentKind)),
 	}
 }
 
@@ -494,18 +570,4 @@ func (f *fakeFileInfo) IsDir() bool {
 
 func (f *fakeFileInfo) Sys() interface{} {
 	return nil
-}
-
-func createEsBody(value interface{}) io.ReadCloser {
-	responseBody, err := json.Marshal(value)
-	Expect(err).To(BeNil())
-
-	return ioutil.NopCloser(bytes.NewReader(responseBody))
-}
-
-func readRequestBody(request *http.Request, target interface{}) {
-	rawBody, err := ioutil.ReadAll(request.Body)
-	Expect(err).To(BeNil())
-
-	Expect(json.Unmarshal(rawBody, target)).To(BeNil())
 }

@@ -31,6 +31,7 @@ import (
 	"github.com/rode/grafeas-elasticsearch/test/util"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
 func TestOccurrence(t *testing.T) {
@@ -71,6 +72,36 @@ func TestOccurrence(t *testing.T) {
 			_, err = s.Gc.GetOccurrence(s.Ctx, &grafeas_go_proto.GetOccurrenceRequest{Name: o.GetName()})
 			Expect(err).ToNot(HaveOccurred())
 		}
+	})
+
+	t.Run("updating an occurrence", func(t *testing.T) {
+		o, err := s.Gc.CreateOccurrence(s.Ctx, &grafeas_go_proto.CreateOccurrenceRequest{
+			Parent:     projectName,
+			Occurrence: createFakeBuildOccurrence(projectName),
+		})
+		Expect(err).ToNot(HaveOccurred())
+
+		fakeUrl := fake.URL()
+
+		patchOccurrenceData := &grafeas_go_proto.Occurrence{
+			Resource: &grafeas_go_proto.Resource{
+				Uri: fakeUrl,
+			},
+			NoteName: o.GetNoteName(),
+		}
+
+		_, _ = s.Gc.UpdateOccurrence(s.Ctx, &grafeas_go_proto.UpdateOccurrenceRequest{
+			Name:       o.GetName(),
+			Occurrence: patchOccurrenceData,
+			UpdateMask: &fieldmaskpb.FieldMask{
+				Paths: []string{"Resource.Uri"},
+			},
+		})
+
+		newlyUpdatedOccurrence, err := s.Gc.GetOccurrence(s.Ctx, &grafeas_go_proto.GetOccurrenceRequest{Name: o.GetName()})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(newlyUpdatedOccurrence.Resource.Uri).To(Equal(fakeUrl))
+		Expect(newlyUpdatedOccurrence.UpdateTime).ToNot(Equal(o.UpdateTime))
 	})
 
 	t.Run("deleting an occurrence", func(t *testing.T) {

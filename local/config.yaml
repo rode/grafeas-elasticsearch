@@ -11,3 +11,4 @@ grafeas:
     username: "grafeas"
     password: "grafeas"
     refresh: "true"
+    insecureSkipVerify: true

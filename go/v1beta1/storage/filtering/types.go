@@ -20,6 +20,7 @@ type Query struct {
 	Term        *Term        `json:"term,omitempty"`
 	Prefix      *Term        `json:"prefix,omitempty"`
 	QueryString *QueryString `json:"query_string,omitempty"`
+	Nested      *Nested      `json:"nested,omitempty"`
 }
 
 // Bool holds a general query that carries any number of
@@ -46,4 +47,9 @@ type Term map[string]string
 type QueryString struct {
 	DefaultField string `json:"default_field"`
 	Query        string `json:"query"`
+}
+
+type Nested struct {
+	Path  string `json:"path"`
+	Query *Query `json:"query,omitempty"`
 }

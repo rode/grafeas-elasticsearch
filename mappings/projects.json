@@ -1,5 +1,5 @@
 {
-  "version": "v1beta1",
+  "version": "v1beta2",
   "mappings": {
     "_meta": {
       "type": "grafeas"

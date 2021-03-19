@@ -17,7 +17,6 @@ package storage
 import (
 	"context"
 	"fmt"
-
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
 	"github.com/grafeas/grafeas/go/v1beta1/storage"
 	"github.com/rode/grafeas-elasticsearch/go/config"

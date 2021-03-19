@@ -185,7 +185,7 @@ func TestNote(t *testing.T) {
 			}{
 				{
 					name:   "match build type",
-					filter: `"kind"=="BUILD"`,
+					filter: `kind=="BUILD"`,
 					expected: []*grafeas_go_proto.Note{
 						buildNote,
 						secondBuildNote,
@@ -193,7 +193,7 @@ func TestNote(t *testing.T) {
 				},
 				{
 					name:   "match vuln type",
-					filter: `"kind"=="VULNERABILITY"`,
+					filter: `kind=="VULNERABILITY"`,
 					expected: []*grafeas_go_proto.Note{
 						vulnerabilityNote,
 						secondVulnerabilityNote,
@@ -201,14 +201,14 @@ func TestNote(t *testing.T) {
 				},
 				{
 					name:   "match attestation type",
-					filter: `"kind"=="ATTESTATION"`,
+					filter: `kind=="ATTESTATION"`,
 					expected: []*grafeas_go_proto.Note{
 						attestationNote,
 					},
 				},
 				{
 					name:   "match one vuln note",
-					filter: fmt.Sprintf(`"kind"=="VULNERABILITY" && "shortDescription" != "%s"`, vulnerabilityNote.ShortDescription),
+					filter: fmt.Sprintf(`kind=="VULNERABILITY" && shortDescription != "%s"`, vulnerabilityNote.ShortDescription),
 					expected: []*grafeas_go_proto.Note{
 						secondVulnerabilityNote,
 					},

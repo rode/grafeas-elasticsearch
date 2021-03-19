@@ -220,7 +220,7 @@ func TestOccurrence(t *testing.T) {
 			}{
 				{
 					name:   "match resource uri",
-					filter: fmt.Sprintf(`"resource.uri"=="%s"`, buildOccurrence.Resource.Uri),
+					filter: fmt.Sprintf(`resource.uri=="%s"`, buildOccurrence.Resource.Uri),
 					expected: []*grafeas_go_proto.Occurrence{
 						buildOccurrence,
 						vulnerabilityOccurrence,
@@ -228,7 +228,7 @@ func TestOccurrence(t *testing.T) {
 				},
 				{
 					name:   "match note name",
-					filter: fmt.Sprintf(`"noteName"=="%s"`, vulnerabilityOccurrence.NoteName),
+					filter: fmt.Sprintf(`noteName=="%s"`, vulnerabilityOccurrence.NoteName),
 					expected: []*grafeas_go_proto.Occurrence{
 						vulnerabilityOccurrence,
 						attestationOccurrence,
@@ -236,7 +236,7 @@ func TestOccurrence(t *testing.T) {
 				},
 				{
 					name:   "match all occurrence types via OR",
-					filter: `"kind"=="VULNERABILITY" || "kind"=="ATTESTATION" || "kind"=="BUILD" || "kind"=="DEPLOYMENT"`,
+					filter: `kind=="VULNERABILITY" || kind=="ATTESTATION" || kind=="BUILD" || kind=="DEPLOYMENT"`,
 					expected: []*grafeas_go_proto.Occurrence{
 						vulnerabilityOccurrence,
 						attestationOccurrence,
@@ -250,7 +250,7 @@ func TestOccurrence(t *testing.T) {
 				},
 				{
 					name:   "match all occurrence types via OR and !=",
-					filter: fmt.Sprintf(`"kind"!="VULNERABILITY" || "resource.uri"=="%s"`, vulnerabilityOccurrence.Resource.Uri),
+					filter: fmt.Sprintf(`kind!="VULNERABILITY" || resource.uri=="%s"`, vulnerabilityOccurrence.Resource.Uri),
 					expected: []*grafeas_go_proto.Occurrence{
 						vulnerabilityOccurrence,
 						attestationOccurrence,
@@ -261,12 +261,12 @@ func TestOccurrence(t *testing.T) {
 				},
 				{
 					name:     "match nothing",
-					filter:   fmt.Sprintf(`"kind"=="VULNERABILITY" && "resource.uri" == "%s"`, attestationOccurrence.Resource.Uri),
+					filter:   fmt.Sprintf(`kind=="VULNERABILITY" && resource.uri == "%s"`, attestationOccurrence.Resource.Uri),
 					expected: []*grafeas_go_proto.Occurrence{},
 				},
 				{
 					name:   "match non vulnerability occurrences via !=",
-					filter: `"kind"!="VULNERABILITY"`,
+					filter: `kind!="VULNERABILITY"`,
 					expected: []*grafeas_go_proto.Occurrence{
 						buildOccurrence,
 						attestationOccurrence,
@@ -276,21 +276,21 @@ func TestOccurrence(t *testing.T) {
 				},
 				{
 					name:   "match second vuln occurrence via && and !=",
-					filter: fmt.Sprintf(`"resource.uri" == "%s" && ("kind" != "BUILD" && "kind" != "DEPLOYMENT")`, deploymentOccurrence.Resource.Uri),
+					filter: fmt.Sprintf(`resource.uri == "%s" && (kind != "BUILD" && kind != "DEPLOYMENT")`, deploymentOccurrence.Resource.Uri),
 					expected: []*grafeas_go_proto.Occurrence{
 						secondVulnerabilityOccurrence,
 					},
 				},
 				{
 					name:   "match resourceUri startsWith exactly",
-					filter: fmt.Sprintf(`"resource.uri".startsWith("%s")`, attestationOccurrence.Resource.Uri),
+					filter: fmt.Sprintf(`resource.uri.startsWith("%s")`, attestationOccurrence.Resource.Uri),
 					expected: []*grafeas_go_proto.Occurrence{
 						attestationOccurrence,
 					},
 				},
 				{
 					name:   "match kind startsWith partially",
-					filter: `"kind".startsWith("VULN")`,
+					filter: `kind.startsWith("VULN")`,
 					expected: []*grafeas_go_proto.Occurrence{
 						vulnerabilityOccurrence,
 						secondVulnerabilityOccurrence,
@@ -300,7 +300,7 @@ func TestOccurrence(t *testing.T) {
 				},
 				{
 					name:   "match resource.uri startsWith partially",
-					filter: `"resource.uri".startsWith("https://docker.io/library/alpine")`,
+					filter: `resource.uri.startsWith("https://docker.io/library/alpine")`,
 					expected: []*grafeas_go_proto.Occurrence{
 						alpineVulnerabilityOccurrence,
 						secondAlpineVulnerabilityOccurrence,
@@ -308,12 +308,12 @@ func TestOccurrence(t *testing.T) {
 				},
 				{
 					name:     "match nothing via startsWith",
-					filter:   `"kind".startsWith("FOOBAR")`,
+					filter:   `kind.startsWith("FOOBAR")`,
 					expected: []*grafeas_go_proto.Occurrence{},
 				},
 				{
 					name:   "match resource via basic contains",
-					filter: `"resource.uri".contains("alpine")`,
+					filter: `resource.uri.contains("alpine")`,
 					expected: []*grafeas_go_proto.Occurrence{
 						alpineVulnerabilityOccurrence,
 						secondAlpineVulnerabilityOccurrence,
@@ -321,7 +321,7 @@ func TestOccurrence(t *testing.T) {
 				},
 				{
 					name:   "match resource via contains with special characters",
-					filter: `"resource.uri".contains("https://docker.io/library/alpine")`,
+					filter: `resource.uri.contains("https://docker.io/library/alpine")`,
 					expected: []*grafeas_go_proto.Occurrence{
 						alpineVulnerabilityOccurrence,
 						secondAlpineVulnerabilityOccurrence,
@@ -329,8 +329,40 @@ func TestOccurrence(t *testing.T) {
 				},
 				{
 					name:     "match all resources via contains special characters only",
-					filter:   `"resource.uri".contains("://")`,
+					filter:   `resource.uri.contains("://")`,
 					expected: batchResponse.Occurrences,
+				},
+				{
+					name:   "nestedFilter",
+					filter: fmt.Sprintf(`build.provenance.builtArtifacts.nestedFilter(names == "%s")`, buildOccurrence.GetBuild().Provenance.BuiltArtifacts[0].Names[0]),
+					expected: []*grafeas_go_proto.Occurrence{
+						buildOccurrence,
+					},
+				},
+				{
+					name:   "nestedFilter startsWith",
+					filter: fmt.Sprintf(`build.provenance.builtArtifacts.nestedFilter(names.startsWith("%s"))`, buildOccurrence.GetBuild().Provenance.BuiltArtifacts[0].Names[0]),
+					expected: []*grafeas_go_proto.Occurrence{
+						buildOccurrence,
+					},
+				},
+				{
+					name:     "nestedFilter empty results",
+					filter:   fmt.Sprintf(`build.provenance.builtArtifacts.nestedFilter(checksum == "%s")`, fake.UUID()),
+					expected: []*grafeas_go_proto.Occurrence{},
+				},
+				{
+					name:        "nestedFilter not on array",
+					filter:      `build.provenance.id.nestedFilter(foo == "bar")`,
+					expectError: true,
+				},
+				{
+					name:   "match resource uri field literal",
+					filter: fmt.Sprintf(`"resource.uri"=="%s"`, buildOccurrence.Resource.Uri),
+					expected: []*grafeas_go_proto.Occurrence{
+						buildOccurrence,
+						vulnerabilityOccurrence,
+					},
 				},
 				{
 					name:        "bad filter",
@@ -364,7 +396,7 @@ func TestOccurrence(t *testing.T) {
 			expectedResourceUri := buildOccurrence.Resource.Uri
 			res, err := s.Gc.ListOccurrences(s.Ctx, &grafeas_go_proto.ListOccurrencesRequest{
 				Parent: listProjectName,
-				Filter: fmt.Sprintf(`"resource.uri"=="%s"`, expectedResourceUri),
+				Filter: fmt.Sprintf(`resource.uri=="%s"`, expectedResourceUri),
 			})
 			Expect(err).ToNot(HaveOccurred())
 
@@ -386,6 +418,14 @@ func createFakeBuildOccurrence(projectName string) *grafeas_go_proto.Occurrence 
 			Build: &build_go_proto.Details{
 				Provenance: &provenance_go_proto.BuildProvenance{
 					Id: fake.UUID(),
+					BuiltArtifacts: []*provenance_go_proto.Artifact{
+						{
+							Names: []string{
+								fake.UUID(),
+								fake.UUID(),
+							},
+						},
+					},
 				},
 			},
 		},

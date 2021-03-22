@@ -12,21 +12,22 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package storage
+package migration
 
 import (
 	"testing"
 
-	"github.com/brianvoe/gofakeit/v6"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+
+	"github.com/brianvoe/gofakeit/v6"
 	"go.uber.org/zap"
 )
 
 var logger = zap.NewNop()
 var fake = gofakeit.New(0)
 
-func TestStoragePackage(t *testing.T) {
+func TestMigrationPackage(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Storage Suite")
+	RunSpecs(t, "Migration Suite")
 }

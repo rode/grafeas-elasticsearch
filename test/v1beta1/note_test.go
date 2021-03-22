@@ -58,6 +58,15 @@ func TestNote(t *testing.T) {
 
 			Expect(actualNote).To(Equal(expectedNote))
 		})
+		t.Run("should return an error if the project doesn't already exist", func(t *testing.T) {
+			invalidProjectName := util.RandomProjectName()
+			_, err := s.Gc.CreateNote(s.Ctx, &grafeas_go_proto.CreateNoteRequest{
+				Parent: invalidProjectName,
+				NoteId: noteId,
+				Note:   createFakeBuildNote(),
+			})
+			Expect(err).To(HaveOccurred())
+		})
 	})
 
 	t.Run("batch creating notes", func(t *testing.T) {
@@ -98,6 +107,16 @@ func TestNote(t *testing.T) {
 				Name: fmt.Sprintf("%s/notes/%s", projectName, noteId3),
 			})
 			Expect(err).ToNot(HaveOccurred())
+		})
+
+		t.Run("should return an error if the project doesn't already exist", func(t *testing.T) {
+			invalidProjectName := util.RandomProjectName()
+			_, err := s.Gc.BatchCreateNotes(s.Ctx, &grafeas_go_proto.BatchCreateNotesRequest{
+				Parent: invalidProjectName,
+				Notes: map[string]*grafeas_go_proto.Note{
+					noteId1: createFakeBuildNote(),
+				}})
+			Expect(err).To(HaveOccurred())
 		})
 	})
 
@@ -166,7 +185,7 @@ func TestNote(t *testing.T) {
 			}{
 				{
 					name:   "match build type",
-					filter: `"kind"=="BUILD"`,
+					filter: `kind=="BUILD"`,
 					expected: []*grafeas_go_proto.Note{
 						buildNote,
 						secondBuildNote,
@@ -174,7 +193,7 @@ func TestNote(t *testing.T) {
 				},
 				{
 					name:   "match vuln type",
-					filter: `"kind"=="VULNERABILITY"`,
+					filter: `kind=="VULNERABILITY"`,
 					expected: []*grafeas_go_proto.Note{
 						vulnerabilityNote,
 						secondVulnerabilityNote,
@@ -182,14 +201,14 @@ func TestNote(t *testing.T) {
 				},
 				{
 					name:   "match attestation type",
-					filter: `"kind"=="ATTESTATION"`,
+					filter: `kind=="ATTESTATION"`,
 					expected: []*grafeas_go_proto.Note{
 						attestationNote,
 					},
 				},
 				{
 					name:   "match one vuln note",
-					filter: fmt.Sprintf(`"kind"=="VULNERABILITY" && "shortDescription" != "%s"`, vulnerabilityNote.ShortDescription),
+					filter: fmt.Sprintf(`kind=="VULNERABILITY" && shortDescription != "%s"`, vulnerabilityNote.ShortDescription),
 					expected: []*grafeas_go_proto.Note{
 						secondVulnerabilityNote,
 					},
@@ -245,10 +264,6 @@ func TestNote(t *testing.T) {
 		Expect(err).To(HaveOccurred())
 		Expect(status.Code(err)).To(Equal(codes.NotFound))
 	})
-}
-
-func formatNoteName(projectName, noteId string) string {
-	return fmt.Sprintf("%s/notes/%s", projectName, noteId)
 }
 
 func createFakeBuildNote() *grafeas_go_proto.Note {

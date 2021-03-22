@@ -12,21 +12,24 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-package storage
+package esutil
 
 import (
-	"testing"
-
-	"github.com/brianvoe/gofakeit/v6"
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-	"go.uber.org/zap"
+	"bytes"
+	"encoding/json"
+	"io"
 )
 
-var logger = zap.NewNop()
-var fake = gofakeit.New(0)
+func DecodeResponse(r io.ReadCloser, i interface{}) error {
+	return json.NewDecoder(r).Decode(i)
+}
 
-func TestStoragePackage(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecs(t, "Storage Suite")
+func EncodeRequest(body interface{}) (io.Reader, string) {
+	b, err := json.Marshal(body)
+	if err != nil {
+		// we should know that `body` is a serializable struct before invoking `EncodeRequest`
+		panic(err)
+	}
+
+	return bytes.NewReader(b), string(b)
 }

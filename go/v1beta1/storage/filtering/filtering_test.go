@@ -295,6 +295,74 @@ var _ = Describe("Filter", func() {
 					},
 				},
 			}),
+			Entry("select expression", `a.b.c.d.e == "foo"`, &Query{
+				Term: &Term{
+					"a.b.c.d.e": "foo",
+				},
+			}),
+			Entry("select right-hand side", `a == b.c.d.e`, &Query{
+				Term: &Term{
+					"a": "b.c.d.e",
+				},
+			}),
+			Entry("select expression function call", `a.b.c.d.startsWith("e")`, &Query{
+				Prefix: &Term{
+					"a.b.c.d": "e",
+				},
+			}),
+			Entry("contains on select expression", `a.b.c.contains("d")`, &Query{
+				QueryString: &QueryString{
+					DefaultField: "a.b.c",
+					Query:        "*d*",
+				},
+			}),
+			Entry("nestedFilter on select expression", `a.b.c.nestedFilter(d == "a")`, &Query{
+				Nested: &Nested{
+					Path: "a.b.c",
+					Query: &Query{
+						Term: &Term{
+							"a.b.c.d": "a",
+						},
+					},
+				},
+			}),
+			Entry("nestedFilter with complex expression", `a.nestedFilter(d != "abc" || d.e == "def")`, &Query{
+				Nested: &Nested{
+					Path: "a",
+					Query: &Query{
+						Bool: &Bool{
+							Should: &Should{
+								&Query{
+									Bool: &Bool{
+										MustNot: &MustNot{
+											&Bool{
+												Term: &Term{
+													"a.d": "abc",
+												},
+											},
+										},
+									},
+								},
+								&Query{
+									Term: &Term{
+										"a.d.e": "def",
+									},
+								},
+							},
+						},
+					},
+				},
+			}),
+			Entry("nestedFilter with startsWith", `a.nestedFilter(b.startsWith("c"))`, &Query{
+				Nested: &Nested{
+					Path: "a",
+					Query: &Query{
+						Prefix: &Term{
+							"a.b": "c",
+						},
+					},
+				},
+			}),
 		)
 
 		DescribeTable("error handling", func(filter string) {
@@ -314,6 +382,7 @@ var _ = Describe("Filter", func() {
 			Entry("or comparison with rhs value containing unknown operator without quotes", `a==b||c/d`),
 			Entry("and comparison with lhs value containing unknown operator without quotes", `a/b&&c==d`),
 			Entry("and comparison with rhs value containing unknown operator without quotes", `a==b&&c/d`),
+			Entry("nestedFilter with no expression arg", `a.nestedFilter()`),
 		)
 	})
 })

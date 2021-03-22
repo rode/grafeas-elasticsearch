@@ -137,6 +137,10 @@ func (f *filterer) visitCall(expression *expr.Expr, depth string) (interface{}, 
 	case operators.LogicalAnd,
 		operators.LogicalOr,
 		operators.Equals,
+		operators.Greater,
+		operators.GreaterEquals,
+		operators.Less,
+		operators.LessEquals,
 		operators.NotEquals:
 		return f.visitBinaryOperator(expression, depth)
 	case overloads.Contains,

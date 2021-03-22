@@ -338,6 +338,9 @@ func TestOccurrence(t *testing.T) {
 				{
 					name:   "match an occurrence with less than or equal to a certain time and greater than or equal to a certain time",
 					filter: fmt.Sprintf(`"build.provenance.createTime" <= "%[1]s" && "build.provenance.createTime" >= "%[1]s"`, buildCreateTime),
+					expected: []*grafeas_go_proto.Occurrence{
+						buildOccurrence,
+					},
 				},
 				{
 					name:     "not match occurrences where create time is greater and also less than the same time",

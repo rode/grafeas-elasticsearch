@@ -241,7 +241,7 @@ func (f *filterer) visitBinaryOperator(expression *expr.Expr, depth string) (int
 			return nil, err
 		}
 		return &Query{
-			Range: Range{
+			Range: &Range{
 				leftTerm: {
 					Greater: rightTerm,
 				},
@@ -258,7 +258,7 @@ func (f *filterer) visitBinaryOperator(expression *expr.Expr, depth string) (int
 			return nil, err
 		}
 		return &Query{
-			Range: Range{
+			Range: &Range{
 				leftTerm: {
 					GreaterEquals: rightTerm,
 				},
@@ -276,7 +276,7 @@ func (f *filterer) visitBinaryOperator(expression *expr.Expr, depth string) (int
 		}
 
 		return &Query{
-			Range: Range{
+			Range: &Range{
 				leftTerm: {
 					Less: rightTerm,
 				},
@@ -294,7 +294,7 @@ func (f *filterer) visitBinaryOperator(expression *expr.Expr, depth string) (int
 		}
 
 		return &Query{
-			Range: Range{
+			Range: &Range{
 				leftTerm: {
 					LessEquals: rightTerm,
 				},

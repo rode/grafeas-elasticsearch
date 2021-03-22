@@ -16,12 +16,12 @@ package filtering
 
 // Query holds a parent query that carries the entire search query
 type Query struct {
-	Bool        *Bool                     `json:"bool,omitempty"`
-	Term        *Term                     `json:"term,omitempty"`
-	Prefix      *Term                     `json:"prefix,omitempty"`
-	QueryString *QueryString              `json:"query_string,omitempty"`
-	Nested      *Nested                   `json:"nested,omitempty"`
-	Range       map[string]*RangeOperator `json:"range,omitempty"`
+	Bool        *Bool        `json:"bool,omitempty"`
+	Term        *Term        `json:"term,omitempty"`
+	Prefix      *Term        `json:"prefix,omitempty"`
+	QueryString *QueryString `json:"query_string,omitempty"`
+	Nested      *Nested      `json:"nested,omitempty"`
+	Range       *Range       `json:"range,omitempty"`
 }
 
 // Bool holds a general query that carries any number of

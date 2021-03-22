@@ -248,28 +248,28 @@ var _ = Describe("Filter", func() {
 				},
 			}),
 			Entry("basic greater than", `a>b`, &Query{
-				Range: Range{
+				Range: &Range{
 					"a": {
 						Greater: "b",
 					},
 				},
 			}),
 			Entry("basic less than", `a<b`, &Query{
-				Range: Range{
+				Range: &Range{
 					"a": {
 						Less: "b",
 					},
 				},
 			}),
 			Entry("basic greater than or equals", `a>=b`, &Query{
-				Range: Range{
+				Range: &Range{
 					"a": {
 						GreaterEquals: "b",
 					},
 				},
 			}),
 			Entry("basic less than or equals", `a<=b`, &Query{
-				Range: Range{
+				Range: &Range{
 					"a": {
 						LessEquals: "b",
 					},
@@ -279,14 +279,14 @@ var _ = Describe("Filter", func() {
 				Bool: &Bool{
 					Must: &Must{
 						&Query{
-							Range: Range{
+							Range: &Range{
 								"a": {
 									Less: "b",
 								},
 							},
 						},
 						&Query{
-							Range: Range{
+							Range: &Range{
 								"a": {
 									Greater: "c",
 								},

@@ -17,6 +17,7 @@ package filtering
 import (
 	"fmt"
 	"regexp"
+
 	"strings"
 
 	"github.com/google/cel-go/cel"
@@ -136,6 +137,10 @@ func (f *filterer) visitCall(expression *expr.Expr, depth string) (interface{}, 
 	case operators.LogicalAnd,
 		operators.LogicalOr,
 		operators.Equals,
+		operators.Greater,
+		operators.GreaterEquals,
+		operators.Less,
+		operators.LessEquals,
 		operators.NotEquals:
 		return f.visitBinaryOperator(expression, depth)
 	case overloads.Contains,
@@ -222,6 +227,76 @@ func (f *filterer) visitBinaryOperator(expression *expr.Expr, depth string) (int
 							leftTerm: rightTerm,
 						},
 					},
+				},
+			},
+		}, nil
+	case operators.Greater:
+		leftTerm, err := assertString(lhs)
+		if err != nil {
+			return nil, err
+		}
+
+		rightTerm, err := assertString(rhs)
+		if err != nil {
+			return nil, err
+		}
+		return &Query{
+			Range: &Range{
+				leftTerm: {
+					Greater: rightTerm,
+				},
+			},
+		}, nil
+	case operators.GreaterEquals:
+		leftTerm, err := assertString(lhs)
+		if err != nil {
+			return nil, err
+		}
+
+		rightTerm, err := assertString(rhs)
+		if err != nil {
+			return nil, err
+		}
+		return &Query{
+			Range: &Range{
+				leftTerm: {
+					GreaterEquals: rightTerm,
+				},
+			},
+		}, nil
+	case operators.Less:
+		leftTerm, err := assertString(lhs)
+		if err != nil {
+			return nil, err
+		}
+
+		rightTerm, err := assertString(rhs)
+		if err != nil {
+			return nil, err
+		}
+
+		return &Query{
+			Range: &Range{
+				leftTerm: {
+					Less: rightTerm,
+				},
+			},
+		}, nil
+	case operators.LessEquals:
+		leftTerm, err := assertString(lhs)
+		if err != nil {
+			return nil, err
+		}
+
+		rightTerm, err := assertString(rhs)
+		if err != nil {
+			return nil, err
+		}
+
+		return &Query{
+			Range: &Range{
+				leftTerm: {
+					LessEquals: rightTerm,
 				},
 			},
 		}, nil

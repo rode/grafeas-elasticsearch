@@ -247,6 +247,54 @@ var _ = Describe("Filter", func() {
 					Query:        `*https\:\/\/*`,
 				},
 			}),
+			Entry("basic greater than", `a>b`, &Query{
+				Range: &Range{
+					"a": {
+						Greater: "b",
+					},
+				},
+			}),
+			Entry("basic less than", `a<b`, &Query{
+				Range: &Range{
+					"a": {
+						Less: "b",
+					},
+				},
+			}),
+			Entry("basic greater than or equals", `a>=b`, &Query{
+				Range: &Range{
+					"a": {
+						GreaterEquals: "b",
+					},
+				},
+			}),
+			Entry("basic less than or equals", `a<=b`, &Query{
+				Range: &Range{
+					"a": {
+						LessEquals: "b",
+					},
+				},
+			}),
+			Entry("complex range of greater and less than", `a<b&&a>c`, &Query{
+				Bool: &Bool{
+					Must: &Must{
+						&Query{
+							Range: &Range{
+								"a": {
+									Less: "b",
+								},
+							},
+						},
+						&Query{
+							Range: &Range{
+								"a": {
+									Greater: "c",
+								},
+							},
+						},
+					},
+				},
+			}),
 			Entry("select expression", `a.b.c.d.e == "foo"`, &Query{
 				Term: &Term{
 					"a.b.c.d.e": "foo",

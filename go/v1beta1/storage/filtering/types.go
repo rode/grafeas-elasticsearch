@@ -21,6 +21,7 @@ type Query struct {
 	Prefix      *Term        `json:"prefix,omitempty"`
 	QueryString *QueryString `json:"query_string,omitempty"`
 	Nested      *Nested      `json:"nested,omitempty"`
+	Range       *Range       `json:"range,omitempty"`
 }
 
 // Bool holds a general query that carries any number of
@@ -52,4 +53,14 @@ type QueryString struct {
 type Nested struct {
 	Path  string `json:"path"`
 	Query *Query `json:"query,omitempty"`
+}
+
+// Holds an operator that evaluates a range for comparisons
+type Range map[string]*RangeOperator
+
+type RangeOperator struct {
+	Greater       string `json:"gt,omitempty"`
+	GreaterEquals string `json:"gte,omitempty"`
+	Less          string `json:"lt,omitempty"`
+	LessEquals    string `json:"lte,omitempty"`
 }

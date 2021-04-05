@@ -19,7 +19,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration"
 
 	"github.com/elastic/go-elasticsearch/v7"
@@ -140,7 +139,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectId string
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("GetProject").With(zap.String("project", projectName))
 
-	search := &esSearch{
+	search := &esutil.EsSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": projectName,
@@ -193,7 +192,7 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 	log := es.logger.Named("DeleteProject").With(zap.String("project", projectName))
 	log.Debug("deleting project")
 
-	search := &esSearch{
+	search := &esutil.EsSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": projectName,
@@ -229,7 +228,7 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectId, oc
 	occurrenceName := fmt.Sprintf("projects/%s/occurrences/%s", projectId, occurrenceId)
 	log := es.logger.Named("GetOccurrence").With(zap.String("occurrence", occurrenceName))
 
-	search := &esSearch{
+	search := &esutil.EsSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": occurrenceName,
@@ -316,8 +315,8 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	}
 	log.Debug("creating occurrences")
 
-	indexMetadata := &esBulkQueryFragment{
-		Index: &esBulkQueryIndexFragment{
+	indexMetadata := &esutil.EsBulkQueryFragment{
+		Index: &esutil.EsBulkQueryIndexFragment{
 			Index: es.indexManager.OccurrencesAlias(projectId),
 		},
 	}
@@ -368,7 +367,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 		}
 	}
 
-	response := &esBulkResponse{}
+	response := &esutil.EsBulkResponse{}
 	err = esutil.DecodeResponse(res.Body, response)
 	if err != nil {
 		return nil, []error{
@@ -408,7 +407,7 @@ func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, projectId,
 	occurrenceName := fmt.Sprintf("projects/%s/occurrences/%s", projectId, occurrenceId)
 	log := es.logger.Named("Update Occurrence").With(zap.String("occurrence", occurrenceName))
 
-	search := &esSearch{
+	search := &esutil.EsSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": occurrenceName,
@@ -448,7 +447,7 @@ func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, projectId,
 
 	log.Debug("deleting occurrence")
 
-	search := &esSearch{
+	search := &esutil.EsSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": occurrenceName,
@@ -464,7 +463,7 @@ func (es *ElasticsearchStorage) GetNote(ctx context.Context, projectId, noteId s
 	noteName := fmt.Sprintf("projects/%s/notes/%s", projectId, noteId)
 	log := es.logger.Named("GetNote").With(zap.String("note", noteName))
 
-	search := &esSearch{
+	search := &esutil.EsSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": noteName,
@@ -525,7 +524,7 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 	}
 
 	// since note IDs are provided up front by the client, we need to search ES to see if this note already exists before creating it
-	search := &esSearch{
+	search := &esutil.EsSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": noteName,
@@ -566,7 +565,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		return nil, []error{status.Error(codes.FailedPrecondition, fmt.Sprintf("project with ID %s does not exist", projectId))}
 	}
 
-	searchMetadata, _ := json.Marshal(&esMultiSearchQueryFragment{
+	searchMetadata, _ := json.Marshal(&esutil.EsMultiSearchQueryFragment{
 		Index: es.indexManager.NotesAlias(projectId),
 	})
 	searchMetadata = append(searchMetadata, "\n"...)
@@ -583,7 +582,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 
 		notes = append(notes, note)
 
-		searchBody := &esSearch{
+		searchBody := &esutil.EsSearch{
 			Query: &filtering.Query{
 				Term: &filtering.Term{
 					"name": note.Name,
@@ -616,7 +615,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		}
 	}
 
-	searchResponse := &esMultiSearchResponse{}
+	searchResponse := &esutil.EsMultiSearchResponse{}
 	err = esutil.DecodeResponse(res.Body, searchResponse)
 	if err != nil {
 		return nil, []error{
@@ -641,8 +640,8 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		return nil, errs
 	}
 
-	indexMetadata, _ := json.Marshal(&esBulkQueryFragment{
-		Index: &esBulkQueryIndexFragment{
+	indexMetadata, _ := json.Marshal(&esutil.EsBulkQueryFragment{
+		Index: &esutil.EsBulkQueryIndexFragment{
 			Index: es.indexManager.NotesAlias(projectId),
 		},
 	})
@@ -677,7 +676,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		return nil, append(errs, createError(log, "unexpected response from ES", nil, zap.Any("response", res.String()), zap.Int("status", res.StatusCode)))
 	}
 
-	bulkResponse := &esBulkResponse{}
+	bulkResponse := &esutil.EsBulkResponse{}
 	err = esutil.DecodeResponse(res.Body, bulkResponse)
 	if err != nil {
 		return nil, append(errs, createError(log, "error decoding ES response", nil))
@@ -720,7 +719,7 @@ func (es *ElasticsearchStorage) DeleteNote(ctx context.Context, projectId, noteI
 
 	log.Debug("deleting note")
 
-	search := &esSearch{
+	search := &esutil.EsSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": noteName,
@@ -746,7 +745,7 @@ func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.C
 	return &pb.VulnerabilityOccurrencesSummary{}, nil
 }
 
-func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *esSearch, index string, protoMessage interface{}) (string, error) {
+func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *esutil.EsSearch, index string, protoMessage interface{}) (string, error) {
 	encodedBody, requestJson := esutil.EncodeRequest(search)
 	log = log.With(zap.String("request", requestJson))
 
@@ -762,7 +761,7 @@ func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger,
 		return "", createError(log, "error searching elasticsearch for document", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
 	}
 
-	var searchResults esSearchResponse
+	var searchResults esutil.EsSearchResponse
 	if err := esutil.DecodeResponse(res.Body, &searchResults); err != nil {
 		return "", createError(log, "error unmarshalling elasticsearch response", err)
 	}
@@ -795,7 +794,7 @@ func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logg
 		return createError(log, "error indexing document in elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
 	}
 
-	esResponse := &esIndexDocResponse{}
+	esResponse := &esutil.EsIndexDocResponse{}
 	err = esutil.DecodeResponse(res.Body, esResponse)
 	if err != nil {
 		return createError(log, "error decoding elasticsearch response", err)
@@ -827,7 +826,7 @@ func (es *ElasticsearchStorage) genericUpdate(ctx context.Context, log *zap.Logg
 		return createError(log, "error indexing document in elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
 	}
 
-	esResponse := &esIndexDocResponse{}
+	esResponse := &esutil.EsIndexDocResponse{}
 	err = esutil.DecodeResponse(res.Body, esResponse)
 	if err != nil {
 		return createError(log, "error decoding elasticsearch response", err)
@@ -838,7 +837,7 @@ func (es *ElasticsearchStorage) genericUpdate(ctx context.Context, log *zap.Logg
 	return nil
 }
 
-func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logger, search *esSearch, index string) error {
+func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logger, search *esutil.EsSearch, index string) error {
 	encodedBody, requestJson := esutil.EncodeRequest(search)
 	log = log.With(zap.String("request", requestJson))
 
@@ -855,7 +854,7 @@ func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logg
 		return createError(log, "received unexpected response from elasticsearch", nil)
 	}
 
-	var deletedResults esDeleteResponse
+	var deletedResults esutil.EsDeleteResponse
 	if err = esutil.DecodeResponse(res.Body, &deletedResults); err != nil {
 		return createError(log, "error unmarshalling elasticsearch response", err)
 	}
@@ -867,8 +866,8 @@ func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logg
 	return nil
 }
 
-func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger, index, filter string, sort bool) (*esSearchResponseHits, error) {
-	body := &esSearch{}
+func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger, index, filter string, sort bool) (*esutil.EsSearchResponseHits, error) {
+	body := &esutil.EsSearch{}
 	if filter != "" {
 		log = log.With(zap.String("filter", filter))
 		filterQuery, err := es.filterer.ParseExpression(filter)
@@ -880,8 +879,8 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 	}
 
 	if sort {
-		body.Sort = map[string]esSortOrder{
-			sortField: esSortOrderDecending,
+		body.Sort = map[string]esutil.EsSortOrder{
+			sortField: esutil.EsSortOrderDecending,
 		}
 	}
 
@@ -902,7 +901,7 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 		return nil, createError(log, "unexpected response from elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
 	}
 
-	var searchResults esSearchResponse
+	var searchResults esutil.EsSearchResponse
 	if err := esutil.DecodeResponse(res.Body, &searchResults); err != nil {
 		return nil, createError(log, "error decoding elasticsearch response", err)
 	}
@@ -934,7 +933,7 @@ func withRefreshBool(o config.RefreshOption) bool {
 func (es *ElasticsearchStorage) doesProjectExist(ctx context.Context, log *zap.Logger, projectId string) (bool, error) {
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	// check if project already exists
-	search := &esSearch{
+	search := &esutil.EsSearch{
 		Query: &filtering.Query{
 			Term: &filtering.Term{
 				"name": projectName,

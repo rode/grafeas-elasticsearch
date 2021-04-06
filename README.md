@@ -63,7 +63,7 @@ currently implemented features, along with the features that have not been imple
   - [x] `GetProject`
   - [x] `ListProjects`
   - [x] `DeleteProject`
-- [ ] Occurrence Methods
+- [x] Occurrence Methods
   - [x] `CreateOccurrence`
   - [x] `BatchCreateOccurrences`
   - [x] `GetOccurrence`
@@ -86,12 +86,13 @@ currently implemented features, along with the features that have not been imple
   - [x] `!=` operator
   - [x] `&&` operator
   - [x] `||` operator
-  - [ ] `<` operator
-  - [ ] `>` operator
-  - [ ] `<=` operator
-  - [ ] `>=` operator
+  - [x] `<` operator
+  - [x] `>` operator
+  - [x] `<=` operator
+  - [x] `>=` operator
   - [ ] array indexing (ex: `vulnerability.details[0].cpeUri`)
   - [ ] wildcard array indexing (ex: `vulnerability.details[*].cpeUri`)
+  - [x] `nestedFilter` function  
   - [x] `.startsWith` function (ex: `"resource.uri".startsWith("gcr.io")`)
   - [x] `.contains` function (ex: `"resource.uri".contains("alpine")`)
   - [ ] `.endsWith` function

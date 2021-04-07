@@ -22,8 +22,9 @@ import (
 // Elasticsearch /_search response
 
 type EsSearchResponse struct {
-	Took int                   `json:"took"`
-	Hits *EsSearchResponseHits `json:"hits"`
+	Took  int                   `json:"took"`
+	Hits  *EsSearchResponseHits `json:"hits"`
+	PitId string                `json:"pit_id"`
 }
 
 type EsSearchResponseHits struct {
@@ -47,7 +48,8 @@ type EsSearchResponseHit struct {
 type EsSearch struct {
 	Query    *filtering.Query       `json:"query,omitempty"`
 	Sort     map[string]EsSortOrder `json:"sort,omitempty"`
-	Collapse *EsCollapse            `json:"collapse,omitempty"`
+	Collapse *EsSearchCollapse      `json:"collapse,omitempty"`
+	Pit      *EsSearchPit           `json:"pit,omitempty"`
 }
 
 type EsSortOrder string
@@ -57,8 +59,13 @@ const (
 	EsSortOrderDecending EsSortOrder = "desc"
 )
 
-type EsCollapse struct {
+type EsSearchCollapse struct {
 	Field string `json:"field,omitempty"`
+}
+
+type EsSearchPit struct {
+	Id        string `json:"id"`
+	KeepAlive string `json:"keep_alive"`
 }
 
 // Elasticsearch /_doc response
@@ -195,6 +202,12 @@ type ESReindex struct {
 type ReindexFields struct {
 	Index  string `json:"index"`
 	OpType string `json:"op_type,omitempty"`
+}
+
+// Elasticsearch /$INDEX/_pit response
+
+type ESPitResponse struct {
+	Id string `json:"id"`
 }
 
 // Elasticsearch 400 error response

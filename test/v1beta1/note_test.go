@@ -168,6 +168,8 @@ func TestNote(t *testing.T) {
 				secondVulnerabilityNote = note
 			case "att1":
 				attestationNote = note
+			case "att2":
+				secondAttestationNote = note
 			}
 		}
 
@@ -176,7 +178,7 @@ func TestNote(t *testing.T) {
 				Parent: listProjectName,
 			})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(res.Notes).To(HaveLen(5))
+			Expect(res.Notes).To(HaveLen(6))
 		})
 
 		t.Run("filters", func(t *testing.T) {
@@ -206,6 +208,7 @@ func TestNote(t *testing.T) {
 					filter: `kind=="ATTESTATION"`,
 					expected: []*grafeas_go_proto.Note{
 						attestationNote,
+						secondAttestationNote,
 					},
 				},
 				{
@@ -256,7 +259,7 @@ func TestNote(t *testing.T) {
 				Expect(res.Notes).To(HaveLen(pageSize))
 				Expect(res.NextPageToken).ToNot(BeEmpty())
 
-				// ensure we have not received these projects already
+				// ensure we have not received these notes already
 				for _, o := range res.Notes {
 					Expect(o).ToNot(BeElementOf(foundNotes))
 				}

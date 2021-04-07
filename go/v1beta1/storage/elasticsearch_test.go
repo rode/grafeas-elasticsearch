@@ -1669,9 +1669,24 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 
-		When("an invalid page token is specified", func() {
+		When("an invalid page token is specified (bad format)", func() {
 			BeforeEach(func() {
 				expectedPageToken = fake.LetterN(50)
+			})
+
+			It("should not query elasticsearch", func() {
+				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+				Expect(actualNextPageToken).To(BeEmpty())
+			})
+		})
+
+		When("an invalid page token is specified (bad from)", func() {
+			BeforeEach(func() {
+				expectedPageToken = fmt.Sprintf("%sfoo", esutil.CreatePageToken(expectedPitId, expectedFrom))
 			})
 
 			It("should not query elasticsearch", func() {

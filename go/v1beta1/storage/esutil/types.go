@@ -16,6 +16,7 @@ package esutil
 
 import (
 	"encoding/json"
+
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 )
 
@@ -79,7 +80,17 @@ type EsIndexDocError struct {
 // Elasticsearch /_delete_by_query response
 
 type EsDeleteResponse struct {
-	Deleted int `json:"deleted"`
+	Took                 int           `json:"took"`
+	TimedOut             bool          `json:"timed_out"`
+	Total                int           `json:"total"`
+	Deleted              int           `json:"deleted"`
+	Batches              int           `json:"batches"`
+	VersionConflicts     int           `json:"version_conflicts"`
+	Noops                int           `json:"noops"`
+	ThrottledMillis      int           `json:"throttled_millis"`
+	RequestsPerSecond    float64       `json:"requests_per_second"`
+	ThrottledUntilMillis int           `json:"throttled_until_millis"`
+	Failures             []interface{} `json:"failures"`
 }
 
 // Elasticsearch /_bulk query fragments
@@ -217,4 +228,24 @@ type ESMappings struct {
 
 type ESMeta struct {
 	Type string `json:"type,omitempty"`
+}
+
+type EsMultiGetRequest struct {
+	IDs []string `json:"ids"`
+}
+
+type EsMultiGetDocument struct {
+	ID    string `json:"_id"`
+	Found bool   `json:"found"`
+}
+
+type EsMultiGetResponse struct {
+	Docs []*EsMultiGetDocument `json:"docs"`
+}
+
+// response for index creation
+type EsIndexResponse struct {
+	Acknowledged       bool   `json:"acknowledged"`
+	ShardsAcknowledged bool   `json:"shards_acknowledged"`
+	Index              string `json:"index"`
 }

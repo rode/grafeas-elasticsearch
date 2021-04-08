@@ -19,6 +19,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration"
 
 	"github.com/elastic/go-elasticsearch/v7"
@@ -43,6 +44,7 @@ import (
 
 const grafeasMaxPageSize = 1000
 const sortField = "createTime"
+const pitKeepAlive = "1m"
 
 type ElasticsearchStorage struct {
 	client                *elasticsearch.Client
@@ -162,7 +164,7 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 	var projects []*prpb.Project
 	log := es.logger.Named("ListProjects")
 
-	res, err := es.genericList(ctx, log, es.indexManager.ProjectsAlias(), filter, false)
+	res, nextPageToken, err := es.genericList(ctx, log, es.indexManager.ProjectsAlias(), filter, false, pageToken, int32(pageSize))
 	if err != nil {
 		return nil, "", err
 	}
@@ -182,7 +184,7 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 		projects = append(projects, project)
 	}
 
-	return projects, "", nil
+	return projects, nextPageToken, nil
 }
 
 // DeleteProject deletes the project with the given projectId from Elasticsearch
@@ -251,7 +253,7 @@ func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, projectId, 
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("ListOccurrences").With(zap.String("project", projectName))
 
-	res, err := es.genericList(ctx, log, es.indexManager.OccurrencesAlias(projectId), filter, true)
+	res, nextPageToken, err := es.genericList(ctx, log, es.indexManager.OccurrencesAlias(projectId), filter, true, pageToken, pageSize)
 	if err != nil {
 		return nil, "", err
 	}
@@ -272,7 +274,7 @@ func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, projectId, 
 		occurrences = append(occurrences, occurrence)
 	}
 
-	return occurrences, "", nil
+	return occurrences, nextPageToken, nil
 }
 
 // CreateOccurrence adds the specified occurrence to Elasticsearch
@@ -486,7 +488,7 @@ func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectId, filter
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("ListNotes").With(zap.String("project", projectName))
 
-	res, err := es.genericList(ctx, log, es.indexManager.NotesAlias(projectId), filter, true)
+	res, nextPageToken, err := es.genericList(ctx, log, es.indexManager.NotesAlias(projectId), filter, true, pageToken, pageSize)
 	if err != nil {
 		return nil, "", err
 	}
@@ -507,7 +509,7 @@ func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectId, filter
 		notes = append(notes, note)
 	}
 
-	return notes, "", nil
+	return notes, nextPageToken, nil
 }
 
 // CreateNote adds the specified note
@@ -866,13 +868,13 @@ func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logg
 	return nil
 }
 
-func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger, index, filter string, sort bool) (*esutil.EsSearchResponseHits, error) {
+func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger, index, filter string, sort bool, pageToken string, pageSize int32) (*esutil.EsSearchResponseHits, string, error) {
 	body := &esutil.EsSearch{}
 	if filter != "" {
 		log = log.With(zap.String("filter", filter))
 		filterQuery, err := es.filterer.ParseExpression(filter)
 		if err != nil {
-			return nil, createError(log, "error while parsing filter expression", err)
+			return nil, "", createError(log, "error while parsing filter expression", err)
 		}
 
 		body.Query = filterQuery
@@ -884,29 +886,95 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 		}
 	}
 
+	searchOptions := []func(*esapi.SearchRequest){
+		es.client.Search.WithContext(ctx),
+	}
+
+	var nextPageToken string
+	if pageToken != "" || pageSize != 0 { // handle pagination
+		next, extraSearchOptions, err := es.handlePagination(ctx, log, body, index, pageToken, pageSize)
+		if err != nil {
+			return nil, "", createError(log, "error while handling pagination", err)
+		}
+
+		nextPageToken = next
+		searchOptions = append(searchOptions, extraSearchOptions...)
+	} else {
+		searchOptions = append(searchOptions,
+			es.client.Search.WithIndex(index),
+			es.client.Search.WithSize(grafeasMaxPageSize),
+		)
+	}
+
 	encodedBody, requestJson := esutil.EncodeRequest(body)
 	log = log.With(zap.String("request", requestJson))
 	log.Debug("performing search")
 
 	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(index),
-		es.client.Search.WithBody(encodedBody),
-		es.client.Search.WithSize(grafeasMaxPageSize),
+		append(searchOptions, es.client.Search.WithBody(encodedBody))...,
 	)
 	if err != nil {
-		return nil, createError(log, "error sending request to elasticsearch", err)
+		return nil, "", createError(log, "error sending request to elasticsearch", err)
 	}
 	if res.IsError() {
-		return nil, createError(log, "unexpected response from elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
+		return nil, "", createError(log, "unexpected response from elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
 	}
 
 	var searchResults esutil.EsSearchResponse
 	if err := esutil.DecodeResponse(res.Body, &searchResults); err != nil {
-		return nil, createError(log, "error decoding elasticsearch response", err)
+		return nil, "", createError(log, "error decoding elasticsearch response", err)
 	}
 
-	return searchResults.Hits, nil
+	return searchResults.Hits, nextPageToken, nil
+}
+
+func (es *ElasticsearchStorage) handlePagination(ctx context.Context, log *zap.Logger, body *esutil.EsSearch, index, pageToken string, pageSize int32) (string, []func(*esapi.SearchRequest), error) {
+	log = log.With(zap.String("pageToken", pageToken), zap.Int32("pageSize", pageSize))
+
+	var (
+		pit  string
+		from int
+		err  error
+	)
+
+	// if no pageToken is specified, we need to create a new PIT
+	if pageToken == "" {
+		res, err := es.client.OpenPointInTime(
+			es.client.OpenPointInTime.WithContext(ctx),
+			es.client.OpenPointInTime.WithIndex(index),
+			es.client.OpenPointInTime.WithKeepAlive(pitKeepAlive),
+		)
+		if err != nil {
+			return "", nil, createError(log, "error sending request to elasticsearch", err)
+		}
+		if res.IsError() {
+			return "", nil, createError(log, "unexpected response from elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
+		}
+
+		var pitResponse esutil.ESPitResponse
+		if err = esutil.DecodeResponse(res.Body, &pitResponse); err != nil {
+			return "", nil, createError(log, "error decoding elasticsearch response", err)
+		}
+
+		pit = pitResponse.Id
+		from = 0
+	} else {
+		// get the PIT from the provided pageToken
+		pit, from, err = esutil.ParsePageToken(pageToken)
+		if err != nil {
+			return "", nil, createError(log, "error parsing page token", err)
+		}
+	}
+
+	body.Pit = &esutil.EsSearchPit{
+		Id:        pit,
+		KeepAlive: pitKeepAlive,
+	}
+
+	return esutil.CreatePageToken(pit, from+int(pageSize)), []func(*esapi.SearchRequest){
+		es.client.Search.WithSize(int(pageSize)),
+		es.client.Search.WithFrom(from),
+	}, err
 }
 
 // createError is a helper function that allows you to easily log an error and return a gRPC formatted error.

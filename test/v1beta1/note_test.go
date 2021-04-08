@@ -134,6 +134,7 @@ func TestNote(t *testing.T) {
 
 		secondBuildNote := createFakeBuildNote()
 		secondVulnerabilityNote := createFakeVulnerabilityNote()
+		secondAttestationNote := createFakeAttestationNote()
 
 		// ensure notes have something in common to filter against
 		buildNote.ShortDescription = vulnerabilityNote.ShortDescription
@@ -148,6 +149,7 @@ func TestNote(t *testing.T) {
 				"vuln1":  vulnerabilityNote,
 				"vuln2":  secondVulnerabilityNote,
 				"att1":   attestationNote,
+				"att2":   secondAttestationNote,
 			},
 		})
 		Expect(err).ToNot(HaveOccurred())
@@ -166,6 +168,8 @@ func TestNote(t *testing.T) {
 				secondVulnerabilityNote = note
 			case "att1":
 				attestationNote = note
+			case "att2":
+				secondAttestationNote = note
 			}
 		}
 
@@ -174,7 +178,7 @@ func TestNote(t *testing.T) {
 				Parent: listProjectName,
 			})
 			Expect(err).ToNot(HaveOccurred())
-			Expect(res.Notes).To(HaveLen(5))
+			Expect(res.Notes).To(HaveLen(6))
 		})
 
 		t.Run("filters", func(t *testing.T) {
@@ -204,6 +208,7 @@ func TestNote(t *testing.T) {
 					filter: `kind=="ATTESTATION"`,
 					expected: []*grafeas_go_proto.Note{
 						attestationNote,
+						secondAttestationNote,
 					},
 				},
 				{
@@ -232,6 +237,36 @@ func TestNote(t *testing.T) {
 						Expect(tc.expected).To(ConsistOf(res.Notes))
 					}
 				})
+			}
+		})
+
+		t.Run("should use pagination", func(t *testing.T) {
+			var (
+				foundNotes []*grafeas_go_proto.Note
+				pageToken  string // start as empty by default, will be updated with each request
+			)
+
+			// we'll use pagination to list notes three times
+			for i := 0; i < 3; i++ {
+				pageSize := fake.Number(1, 2)
+				res, err := s.Gc.ListNotes(s.Ctx, &grafeas_go_proto.ListNotesRequest{
+					Parent:    listProjectName,
+					PageSize:  int32(pageSize),
+					PageToken: pageToken,
+				})
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(res.Notes).To(HaveLen(pageSize))
+				Expect(res.NextPageToken).ToNot(BeEmpty())
+
+				// ensure we have not received these notes already
+				for _, o := range res.Notes {
+					Expect(o).ToNot(BeElementOf(foundNotes))
+				}
+
+				// setup for next run
+				pageToken = res.NextPageToken
+				foundNotes = append(foundNotes, res.Notes...)
 			}
 		})
 	})

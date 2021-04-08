@@ -106,6 +106,35 @@ func TestProject(t *testing.T) {
 			}
 		})
 
+		t.Run("should use pagination", func(t *testing.T) {
+			var (
+				foundProjects []*project_go_proto.Project
+				pageToken     string // start as empty by default, will be updated with each request
+			)
+
+			// we'll use pagination to list projects three times
+			for i := 0; i < 3; i++ {
+				pageSize := 1
+				res, err := s.Pc.ListProjects(s.Ctx, &project_go_proto.ListProjectsRequest{
+					PageSize:  int32(pageSize),
+					PageToken: pageToken,
+				})
+
+				Expect(err).ToNot(HaveOccurred())
+				Expect(res.Projects).To(HaveLen(pageSize))
+				Expect(res.NextPageToken).ToNot(BeEmpty())
+
+				// ensure we have not received these projects already
+				for _, o := range res.Projects {
+					Expect(o).ToNot(BeElementOf(foundProjects))
+				}
+
+				// setup for next run
+				pageToken = res.NextPageToken
+				foundProjects = append(foundProjects, res.Projects...)
+			}
+		})
+
 		for _, n := range names {
 			_, err := s.Pc.DeleteProject(s.Ctx, &project_go_proto.DeleteProjectRequest{Name: n})
 			Expect(err).To(HaveOccurred())

@@ -492,6 +492,162 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
+	Context("listing Grafeas projects with pagination", func() {
+		var (
+			actualErr           error
+			actualProjects      []*prpb.Project
+			actualNextPageToken string
+			expectedProjects    []*prpb.Project
+			expectedPageToken   string
+			expectedPageSize    int
+			expectedPitId       string
+			expectedFrom        int
+		)
+
+		BeforeEach(func() {
+			expectedProjects = generateTestProjects(fake.Number(2, 5))
+			expectedPageSize = fake.Number(10, 100)
+			expectedFrom = fake.Number(10, 100)
+			expectedPitId = fake.LetterN(20)
+			transport.PreparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body: createProjectEsSearchResponse(
+						expectedProjects...,
+					),
+				},
+			}
+		})
+
+		JustBeforeEach(func() {
+			actualProjects, actualNextPageToken, actualErr = elasticsearchStorage.ListProjects(ctx, "", expectedPageSize, expectedPageToken)
+		})
+
+		When("a page token is not specified", func() {
+			BeforeEach(func() {
+				transport.PreparedHttpResponses = append([]*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body: structToJsonBody(&esutil.ESPitResponse{
+							Id: expectedPitId,
+						}),
+					},
+				}, transport.PreparedHttpResponses...)
+			})
+
+			It("should create a PIT in elasticsearch", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_pit", expectedProjectAlias)))
+				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodPost))
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("keep_alive")).To(Equal(pitKeepAlive))
+			})
+
+			It("should query elasticsearch for projects using the PIT id", func() {
+				Expect(transport.ReceivedHttpRequests[1].URL.Path).To(Equal("/_search"))
+				Expect(transport.ReceivedHttpRequests[1].Method).To(Equal(http.MethodGet))
+				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("size")).To(Equal(strconv.Itoa(expectedPageSize)))
+				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("from")).To(Equal(strconv.Itoa(0)))
+
+				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[1].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				searchBody := &esutil.EsSearch{}
+				err = json.Unmarshal(requestBody, searchBody)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(searchBody.Query).To(BeNil())
+				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
+				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
+				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
+			})
+
+			It("should return the Grafeas project(s) and the new page token", func() {
+				Expect(actualProjects).ToNot(BeNil())
+				Expect(actualProjects).To(Equal(expectedProjects))
+				Expect(actualErr).ToNot(HaveOccurred())
+
+				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(pitId).To(Equal(expectedPitId))
+				Expect(from).To(BeEquivalentTo(expectedPageSize))
+			})
+
+			When("creating a PIT in elasticsearch fails", func() {
+				BeforeEach(func() {
+					transport.PreparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should return an error", func() {
+					assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+					Expect(actualNextPageToken).To(BeEmpty())
+				})
+			})
+		})
+
+		When("a valid page token is specified", func() {
+			BeforeEach(func() {
+				expectedPageToken = esutil.CreatePageToken(expectedPitId, expectedFrom)
+			})
+
+			It("should query elasticsearch for projects using the PIT id", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal("/_search"))
+				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(expectedPageSize)))
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("from")).To(Equal(strconv.Itoa(expectedFrom)))
+
+				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				searchBody := &esutil.EsSearch{}
+				err = json.Unmarshal(requestBody, searchBody)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(searchBody.Query).To(BeNil())
+				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
+				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
+				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
+			})
+
+			It("should return the Grafeas project(s) and the new page token", func() {
+				Expect(actualProjects).ToNot(BeNil())
+				Expect(actualProjects).To(Equal(expectedProjects))
+				Expect(actualErr).ToNot(HaveOccurred())
+
+				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(pitId).To(Equal(expectedPitId))
+				Expect(from).To(BeEquivalentTo(expectedPageSize + expectedFrom))
+			})
+		})
+
+		When("an invalid page token is specified (bad format)", func() {
+			BeforeEach(func() {
+				expectedPageToken = fake.LetterN(50)
+			})
+
+			It("should not query elasticsearch", func() {
+				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+				Expect(actualNextPageToken).To(BeEmpty())
+			})
+		})
+
+		When("an invalid page token is specified (bad from)", func() {
+			BeforeEach(func() {
+				expectedPageToken = fmt.Sprintf("%sfoo", esutil.CreatePageToken(expectedPitId, expectedFrom))
+			})
+
+			It("should not query elasticsearch", func() {
+				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+				Expect(actualNextPageToken).To(BeEmpty())
+			})
+		})
+	})
+
 	Context("retrieving a Grafeas project", func() {
 		var (
 			actualErr     error
@@ -1542,6 +1698,164 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
+	Context("listing Grafeas occurrences with pagination", func() {
+		var (
+			actualErr           error
+			actualOccurrences   []*pb.Occurrence
+			actualNextPageToken string
+			expectedOccurrences []*pb.Occurrence
+			expectedPageToken   string
+			expectedPageSize    int32
+			expectedPitId       string
+			expectedFrom        int
+		)
+
+		BeforeEach(func() {
+			expectedOccurrences = generateTestOccurrences(fake.Number(2, 5))
+			expectedPageSize = int32(fake.Number(10, 100))
+			expectedFrom = fake.Number(10, 100)
+			expectedPitId = fake.LetterN(20)
+			transport.PreparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body: createOccurrenceEsSearchResponse(
+						expectedOccurrences...,
+					),
+				},
+			}
+		})
+
+		JustBeforeEach(func() {
+			actualOccurrences, actualNextPageToken, actualErr = elasticsearchStorage.ListOccurrences(ctx, expectedProjectId, "", expectedPageToken, expectedPageSize)
+		})
+
+		When("a page token is not specified", func() {
+			BeforeEach(func() {
+				transport.PreparedHttpResponses = append([]*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body: structToJsonBody(&esutil.ESPitResponse{
+							Id: expectedPitId,
+						}),
+					},
+				}, transport.PreparedHttpResponses...)
+			})
+
+			It("should create a PIT in elasticsearch", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_pit", expectedOccurrencesAlias)))
+				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodPost))
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("keep_alive")).To(Equal(pitKeepAlive))
+			})
+
+			It("should query elasticsearch for occurrences using the PIT id", func() {
+				Expect(transport.ReceivedHttpRequests[1].URL.Path).To(Equal("/_search"))
+				Expect(transport.ReceivedHttpRequests[1].Method).To(Equal(http.MethodGet))
+				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("size")).To(Equal(strconv.Itoa(int(expectedPageSize))))
+				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("from")).To(Equal(strconv.Itoa(0)))
+
+				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[1].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				searchBody := &esutil.EsSearch{}
+				err = json.Unmarshal(requestBody, searchBody)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(searchBody.Query).To(BeNil())
+				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDecending))
+				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
+				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
+				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
+			})
+
+			It("should return the Grafeas occurrence(s) and the new page token", func() {
+				Expect(actualOccurrences).ToNot(BeNil())
+				Expect(actualOccurrences).To(Equal(expectedOccurrences))
+				Expect(actualErr).ToNot(HaveOccurred())
+
+				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(pitId).To(Equal(expectedPitId))
+				Expect(from).To(BeEquivalentTo(expectedPageSize))
+			})
+
+			When("creating a PIT in elasticsearch fails", func() {
+				BeforeEach(func() {
+					transport.PreparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should return an error", func() {
+					assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+					Expect(actualNextPageToken).To(BeEmpty())
+				})
+			})
+		})
+
+		When("a valid page token is specified", func() {
+			BeforeEach(func() {
+				expectedPageToken = esutil.CreatePageToken(expectedPitId, expectedFrom)
+			})
+
+			It("should query elasticsearch for occurrences using the PIT id", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal("/_search"))
+				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(int(expectedPageSize))))
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("from")).To(Equal(strconv.Itoa(expectedFrom)))
+
+				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				searchBody := &esutil.EsSearch{}
+				err = json.Unmarshal(requestBody, searchBody)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(searchBody.Query).To(BeNil())
+				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDecending))
+				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
+				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
+				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
+			})
+
+			It("should return the Grafeas occurrence(s) and the new page token", func() {
+				Expect(actualOccurrences).ToNot(BeNil())
+				Expect(actualOccurrences).To(Equal(expectedOccurrences))
+				Expect(actualErr).ToNot(HaveOccurred())
+
+				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(pitId).To(Equal(expectedPitId))
+				Expect(from).To(BeEquivalentTo(int(expectedPageSize) + expectedFrom))
+			})
+		})
+
+		When("an invalid page token is specified (bad format)", func() {
+			BeforeEach(func() {
+				expectedPageToken = fake.LetterN(50)
+			})
+
+			It("should not query elasticsearch", func() {
+				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+				Expect(actualNextPageToken).To(BeEmpty())
+			})
+		})
+
+		When("an invalid page token is specified (bad from)", func() {
+			BeforeEach(func() {
+				expectedPageToken = fmt.Sprintf("%sfoo", esutil.CreatePageToken(expectedPitId, expectedFrom))
+			})
+
+			It("should not query elasticsearch", func() {
+				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+				Expect(actualNextPageToken).To(BeEmpty())
+			})
+		})
+	})
+
 	Context("creating a new Grafeas note", func() {
 		var (
 			actualNote       *pb.Note
@@ -2171,6 +2485,164 @@ var _ = Describe("elasticsearch storage", func() {
 
 			It("should return an error", func() {
 				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+			})
+		})
+	})
+
+	Context("listing Grafeas notes with pagination", func() {
+		var (
+			actualErr           error
+			actualNotes         []*pb.Note
+			actualNextPageToken string
+			expectedNotes       []*pb.Note
+			expectedPageToken   string
+			expectedPageSize    int32
+			expectedPitId       string
+			expectedFrom        int
+		)
+
+		BeforeEach(func() {
+			expectedNotes = generateTestNotes(fake.Number(2, 5), expectedProjectId)
+			expectedPageSize = int32(fake.Number(10, 100))
+			expectedFrom = fake.Number(10, 100)
+			expectedPitId = fake.LetterN(20)
+			transport.PreparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body: createNoteEsSearchResponse(
+						expectedNotes...,
+					),
+				},
+			}
+		})
+
+		JustBeforeEach(func() {
+			actualNotes, actualNextPageToken, actualErr = elasticsearchStorage.ListNotes(ctx, expectedProjectId, "", expectedPageToken, expectedPageSize)
+		})
+
+		When("a page token is not specified", func() {
+			BeforeEach(func() {
+				transport.PreparedHttpResponses = append([]*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body: structToJsonBody(&esutil.ESPitResponse{
+							Id: expectedPitId,
+						}),
+					},
+				}, transport.PreparedHttpResponses...)
+			})
+
+			It("should create a PIT in elasticsearch", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_pit", expectedNotesAlias)))
+				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodPost))
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("keep_alive")).To(Equal(pitKeepAlive))
+			})
+
+			It("should query elasticsearch for notes using the PIT id", func() {
+				Expect(transport.ReceivedHttpRequests[1].URL.Path).To(Equal("/_search"))
+				Expect(transport.ReceivedHttpRequests[1].Method).To(Equal(http.MethodGet))
+				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("size")).To(Equal(strconv.Itoa(int(expectedPageSize))))
+				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("from")).To(Equal(strconv.Itoa(0)))
+
+				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[1].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				searchBody := &esutil.EsSearch{}
+				err = json.Unmarshal(requestBody, searchBody)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(searchBody.Query).To(BeNil())
+				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDecending))
+				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
+				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
+				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
+			})
+
+			It("should return the Grafeas note(s) and the new page token", func() {
+				Expect(actualNotes).ToNot(BeNil())
+				Expect(actualNotes).To(Equal(expectedNotes))
+				Expect(actualErr).ToNot(HaveOccurred())
+
+				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(pitId).To(Equal(expectedPitId))
+				Expect(from).To(BeEquivalentTo(expectedPageSize))
+			})
+
+			When("creating a PIT in elasticsearch fails", func() {
+				BeforeEach(func() {
+					transport.PreparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+				})
+
+				It("should return an error", func() {
+					assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+					Expect(actualNextPageToken).To(BeEmpty())
+				})
+			})
+		})
+
+		When("a valid page token is specified", func() {
+			BeforeEach(func() {
+				expectedPageToken = esutil.CreatePageToken(expectedPitId, expectedFrom)
+			})
+
+			It("should query elasticsearch for notes using the PIT id", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal("/_search"))
+				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(int(expectedPageSize))))
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("from")).To(Equal(strconv.Itoa(expectedFrom)))
+
+				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				searchBody := &esutil.EsSearch{}
+				err = json.Unmarshal(requestBody, searchBody)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(searchBody.Query).To(BeNil())
+				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDecending))
+				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
+				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
+				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
+			})
+
+			It("should return the Grafeas note(s) and the new page token", func() {
+				Expect(actualNotes).ToNot(BeNil())
+				Expect(actualNotes).To(Equal(expectedNotes))
+				Expect(actualErr).ToNot(HaveOccurred())
+
+				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
+				Expect(err).ToNot(HaveOccurred())
+				Expect(pitId).To(Equal(expectedPitId))
+				Expect(from).To(BeEquivalentTo(int(expectedPageSize) + expectedFrom))
+			})
+		})
+
+		When("an invalid page token is specified (bad format)", func() {
+			BeforeEach(func() {
+				expectedPageToken = fake.LetterN(50)
+			})
+
+			It("should not query elasticsearch", func() {
+				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+				Expect(actualNextPageToken).To(BeEmpty())
+			})
+		})
+
+		When("an invalid page token is specified (bad from)", func() {
+			BeforeEach(func() {
+				expectedPageToken = fmt.Sprintf("%sfoo", esutil.CreatePageToken(expectedPitId, expectedFrom))
+			})
+
+			It("should not query elasticsearch", func() {
+				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
+			})
+
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+				Expect(actualNextPageToken).To(BeEmpty())
 			})
 		})
 	})

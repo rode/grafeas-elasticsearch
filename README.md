@@ -96,7 +96,7 @@ currently implemented features, along with the features that have not been imple
   - [x] `.startsWith` function (ex: `"resource.uri".startsWith("gcr.io")`)
   - [x] `.contains` function (ex: `"resource.uri".contains("alpine")`)
   - [ ] `.endsWith` function
-- [ ] Pagination
+- [x] Pagination
 - [ ] Elasticsearch config
   - [x] URL
   - [x] Index refresh behavior

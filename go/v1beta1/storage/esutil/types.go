@@ -96,11 +96,16 @@ type EsDeleteResponse struct {
 // Elasticsearch /_bulk query fragments
 
 type EsBulkQueryFragment struct {
-	Index *EsBulkQueryIndexFragment `json:"index"`
+	Index  *EsBulkQueryIndexFragment  `json:"index"`
+	Create *EsBulkQueryCreateFragment `json:"create"`
 }
 
 type EsBulkQueryIndexFragment struct {
 	Index string `json:"_index"`
+}
+
+type EsBulkQueryCreateFragment struct {
+	Id string `json:"_id"`
 }
 
 // Elasticsearch /_bulk response
@@ -111,7 +116,8 @@ type EsBulkResponse struct {
 }
 
 type EsBulkResponseItem struct {
-	Index *EsIndexDocResponse `json:"index,omitempty"`
+	Index  *EsIndexDocResponse `json:"index,omitempty"`
+	Create *EsIndexDocResponse `json:"create,omitempty"`
 }
 
 // Elasticsearch /_msearch query fragments

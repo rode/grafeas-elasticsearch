@@ -1587,7 +1587,7 @@ var _ = Describe("elasticsearch storage", func() {
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(searchBody.Query).To(BeNil())
-			Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDecending))
+			Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
 		})
 
 		When("a valid filter is specified", func() {
@@ -1760,7 +1760,7 @@ var _ = Describe("elasticsearch storage", func() {
 				err = json.Unmarshal(requestBody, searchBody)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(searchBody.Query).To(BeNil())
-				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDecending))
+				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
 				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
@@ -1807,7 +1807,7 @@ var _ = Describe("elasticsearch storage", func() {
 				err = json.Unmarshal(requestBody, searchBody)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(searchBody.Query).To(BeNil())
-				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDecending))
+				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
 				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
@@ -2378,7 +2378,7 @@ var _ = Describe("elasticsearch storage", func() {
 			err = json.Unmarshal(requestBody, searchBody)
 			Expect(err).ToNot(HaveOccurred())
 			Expect(searchBody.Query).To(BeNil())
-			Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDecending))
+			Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
 		})
 
 		When("a valid filter is specified", func() {
@@ -2551,7 +2551,7 @@ var _ = Describe("elasticsearch storage", func() {
 				err = json.Unmarshal(requestBody, searchBody)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(searchBody.Query).To(BeNil())
-				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDecending))
+				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
 				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
@@ -2598,7 +2598,7 @@ var _ = Describe("elasticsearch storage", func() {
 				err = json.Unmarshal(requestBody, searchBody)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(searchBody.Query).To(BeNil())
-				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDecending))
+				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
 				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))

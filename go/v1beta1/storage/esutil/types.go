@@ -56,8 +56,8 @@ type EsSearch struct {
 type EsSortOrder string
 
 const (
-	EsSortOrderAscending EsSortOrder = "asc"
-	EsSortOrderDecending EsSortOrder = "desc"
+	EsSortOrderAscending  EsSortOrder = "asc"
+	EsSortOrderDescending EsSortOrder = "desc"
 )
 
 type EsSearchCollapse struct {
@@ -103,8 +103,8 @@ type EsDeleteResponse struct {
 // Elasticsearch /_bulk query fragments
 
 type EsBulkQueryFragment struct {
-	Index  *EsBulkQueryIndexFragment  `json:"index"`
-	Create *EsBulkQueryCreateFragment `json:"create"`
+	Index  *EsBulkQueryIndexFragment  `json:"index,omitempty"`
+	Create *EsBulkQueryCreateFragment `json:"create,omitempty"`
 }
 
 type EsBulkQueryIndexFragment struct {

@@ -556,7 +556,6 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(searchBody.Query).To(BeNil())
 				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
-				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 			})
 
 			It("should return the Grafeas project(s) and the new page token", func() {
@@ -601,7 +600,6 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(searchBody.Query).To(BeNil())
 				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
-				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 			})
 
@@ -1763,7 +1761,6 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
 				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
-				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 			})
 
 			It("should return the Grafeas occurrence(s) and the new page token", func() {
@@ -1809,7 +1806,6 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(searchBody.Query).To(BeNil())
 				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
 				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
-				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 			})
 
@@ -2554,7 +2550,6 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
 				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
-				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 			})
 
 			It("should return the Grafeas note(s) and the new page token", func() {
@@ -2600,7 +2595,6 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(searchBody.Query).To(BeNil())
 				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
 				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
-				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
 			})
 

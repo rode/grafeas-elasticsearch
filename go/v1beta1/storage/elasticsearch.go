@@ -882,7 +882,7 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 
 	if sort {
 		body.Sort = map[string]esutil.EsSortOrder{
-			sortField: esutil.EsSortOrderDecending,
+			sortField: esutil.EsSortOrderDescending,
 		}
 	}
 

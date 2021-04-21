@@ -506,7 +506,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			expectedProjects = generateTestProjects(fake.Number(5, 15))
-			expectedPageSize = fake.Number(1, len(expectedProjects) - 2)
+			expectedPageSize = fake.Number(1, len(expectedProjects)-2)
 			expectedFrom = fake.Number(1, 1)
 			expectedPitId = fake.LetterN(20)
 			transport.PreparedHttpResponses = []*http.Response{
@@ -563,8 +563,6 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(actualProjects).To(Equal(expectedProjects))
 				Expect(actualErr).ToNot(HaveOccurred())
 
-				fmt.Printf("actual next page token \"%s\"", actualNextPageToken)
-
 				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(pitId).To(Equal(expectedPitId))
@@ -609,9 +607,6 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(actualProjects).ToNot(BeNil())
 				Expect(actualProjects).To(Equal(expectedProjects))
 				Expect(actualErr).ToNot(HaveOccurred())
-
-
-				fmt.Printf("actual next page token \"%s\"", actualNextPageToken)
 
 				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
 				Expect(err).ToNot(HaveOccurred())
@@ -1729,7 +1724,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			expectedOccurrences = generateTestOccurrences(fake.Number(5, 15))
-			expectedPageSize = int32(fake.Number(1, len(expectedOccurrences) - 3))
+			expectedPageSize = int32(fake.Number(1, len(expectedOccurrences)-3))
 			expectedFrom = fake.Number(1, 1)
 			expectedPitId = fake.LetterN(20)
 			transport.PreparedHttpResponses = []*http.Response{
@@ -2532,7 +2527,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			expectedNotes = generateTestNotes(fake.Number(4, 5), expectedProjectId)
-			expectedPageSize = int32(fake.Number(1, len(expectedNotes) - 1))
+			expectedPageSize = int32(fake.Number(1, len(expectedNotes)-1))
 			expectedFrom = fake.Number(1, 1)
 			expectedPitId = fake.LetterN(20)
 			transport.PreparedHttpResponses = []*http.Response{

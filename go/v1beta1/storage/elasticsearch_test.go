@@ -506,7 +506,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			expectedProjects = generateTestProjects(fake.Number(5, 15))
-			expectedPageSize = fake.Number(1, 3)
+			expectedPageSize = fake.Number(1, len(expectedProjects) - 1)
 			expectedFrom = fake.Number(0, 1)
 			expectedPitId = fake.LetterN(20)
 			transport.PreparedHttpResponses = []*http.Response{
@@ -1723,8 +1723,8 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			expectedOccurrences = generateTestOccurrences(fake.Number(5, 15))
-			expectedPageSize = int32(fake.Number(1, 3))
+			expectedOccurrences = generateTestOccurrences(fake.Number(3, 5))
+			expectedPageSize = int32(fake.Number(1, len(expectedOccurrences) - 1))
 			expectedFrom = fake.Number(0, 1)
 			expectedPitId = fake.LetterN(20)
 			transport.PreparedHttpResponses = []*http.Response{
@@ -2527,7 +2527,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			expectedNotes = generateTestNotes(fake.Number(5, 15), expectedProjectId)
-			expectedPageSize = int32(fake.Number(1, 3))
+			expectedPageSize = int32(fake.Number(1, len(expectedNotes) - 1))
 			expectedFrom = fake.Number(0, 1)
 			expectedPitId = fake.LetterN(20)
 			transport.PreparedHttpResponses = []*http.Response{

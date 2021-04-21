@@ -505,9 +505,9 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			expectedProjects = generateTestProjects(fake.Number(2, 5))
-			expectedPageSize = fake.Number(10, 100)
-			expectedFrom = fake.Number(10, 100)
+			expectedProjects = generateTestProjects(fake.Number(5, 15))
+			expectedPageSize = fake.Number(1, len(expectedProjects) - 2)
+			expectedFrom = fake.Number(1, 1)
 			expectedPitId = fake.LetterN(20)
 			transport.PreparedHttpResponses = []*http.Response{
 				{
@@ -563,6 +563,8 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(actualProjects).To(Equal(expectedProjects))
 				Expect(actualErr).ToNot(HaveOccurred())
 
+				fmt.Printf("actual next page token \"%s\"", actualNextPageToken)
+
 				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(pitId).To(Equal(expectedPitId))
@@ -608,10 +610,27 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(actualProjects).To(Equal(expectedProjects))
 				Expect(actualErr).ToNot(HaveOccurred())
 
+
+				fmt.Printf("actual next page token \"%s\"", actualNextPageToken)
+
 				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
 				Expect(err).ToNot(HaveOccurred())
 				Expect(pitId).To(Equal(expectedPitId))
 				Expect(from).To(BeEquivalentTo(expectedPageSize + expectedFrom))
+			})
+		})
+
+		When("getting the last page of results", func() {
+			BeforeEach(func() {
+				expectedFrom = fake.Number(len(expectedProjects), 100)
+				expectedPageToken = esutil.CreatePageToken(expectedPitId, expectedFrom)
+			})
+
+			It("should return an empty next page token", func() {
+				Expect(actualProjects).ToNot(BeNil())
+				Expect(actualProjects).To(Equal(expectedProjects))
+				Expect(actualNextPageToken).To(Equal(""))
+				Expect(actualErr).ToNot(HaveOccurred())
 			})
 		})
 
@@ -1709,9 +1728,9 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			expectedOccurrences = generateTestOccurrences(fake.Number(2, 5))
-			expectedPageSize = int32(fake.Number(10, 100))
-			expectedFrom = fake.Number(10, 100)
+			expectedOccurrences = generateTestOccurrences(fake.Number(5, 15))
+			expectedPageSize = int32(fake.Number(1, len(expectedOccurrences) - 3))
+			expectedFrom = fake.Number(1, 1)
 			expectedPitId = fake.LetterN(20)
 			transport.PreparedHttpResponses = []*http.Response{
 				{
@@ -1818,6 +1837,20 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(pitId).To(Equal(expectedPitId))
 				Expect(from).To(BeEquivalentTo(int(expectedPageSize) + expectedFrom))
+			})
+		})
+
+		When("getting the last page of results", func() {
+			BeforeEach(func() {
+				expectedFrom = fake.Number(len(expectedOccurrences), 100)
+				expectedPageToken = esutil.CreatePageToken(expectedPitId, expectedFrom)
+			})
+
+			It("should return an empty next page token", func() {
+				Expect(actualOccurrences).ToNot(BeNil())
+				Expect(actualOccurrences).To(Equal(expectedOccurrences))
+				Expect(actualNextPageToken).To(Equal(""))
+				Expect(actualErr).ToNot(HaveOccurred())
 			})
 		})
 
@@ -2498,9 +2531,9 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			expectedNotes = generateTestNotes(fake.Number(2, 5), expectedProjectId)
-			expectedPageSize = int32(fake.Number(10, 100))
-			expectedFrom = fake.Number(10, 100)
+			expectedNotes = generateTestNotes(fake.Number(4, 5), expectedProjectId)
+			expectedPageSize = int32(fake.Number(1, len(expectedNotes) - 1))
+			expectedFrom = fake.Number(1, 1)
 			expectedPitId = fake.LetterN(20)
 			transport.PreparedHttpResponses = []*http.Response{
 				{
@@ -2607,6 +2640,20 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(pitId).To(Equal(expectedPitId))
 				Expect(from).To(BeEquivalentTo(int(expectedPageSize) + expectedFrom))
+			})
+		})
+
+		When("getting the last page of results", func() {
+			BeforeEach(func() {
+				expectedFrom = fake.Number(len(expectedNotes), 100)
+				expectedPageToken = esutil.CreatePageToken(expectedPitId, expectedFrom)
+			})
+
+			It("should return an empty next page token", func() {
+				Expect(actualNotes).ToNot(BeNil())
+				Expect(actualNotes).To(Equal(expectedNotes))
+				Expect(actualNextPageToken).To(Equal(""))
+				Expect(actualErr).ToNot(HaveOccurred())
 			})
 		})
 

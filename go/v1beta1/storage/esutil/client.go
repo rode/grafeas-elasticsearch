@@ -1,6 +1,7 @@
 package esutil
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -11,6 +12,16 @@ import (
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
 )
+
+type CreateRequest struct {
+	Index   string
+	Refresh string // TODO: use RefreshOption type
+}
+
+type GetRequest struct {
+	Index  string
+	Search *EsSearch
+}
 
 type ListRequest struct {
 	Index       string
@@ -36,17 +47,13 @@ type ListResponse struct {
 	NextPageToken string
 }
 
-type GetRequest struct {
-	Index  string
-	Search *EsSearch
-}
-
 const defaultPitKeepAlive = "5m"
 const grafeasMaxPageSize = 1000
 
 type Client interface {
-	Get(context.Context, *GetRequest, proto.Message) (string, error)
-	List(context.Context, *ListRequest) (*ListResponse, error)
+	Create(ctx context.Context, request *CreateRequest, message proto.Message) (string, error)
+	Get(ctx context.Context, request *GetRequest, message proto.Message) (string, error)
+	List(ctx context.Context, request *ListRequest) (*ListResponse, error)
 }
 
 type client struct {
@@ -61,6 +68,40 @@ func NewClient(logger *zap.Logger, esClient *elasticsearch.Client, filterer filt
 		esClient,
 		filterer,
 	}
+}
+
+func (c *client) Create(ctx context.Context, request *CreateRequest, message proto.Message) (string, error) {
+	log := c.logger.Named("Create")
+	str, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(message)
+	if err != nil {
+		return "", err
+	}
+
+	if request.Refresh == "" {
+		request.Refresh = "true"
+	}
+
+	res, err := c.esClient.Index(
+		request.Index,
+		bytes.NewReader(str),
+		c.esClient.Index.WithContext(ctx),
+		c.esClient.Index.WithRefresh(request.Refresh),
+	)
+	if err != nil {
+		return "", err
+	}
+	if res.IsError() {
+		return "", errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+	}
+
+	esResponse := EsIndexDocResponse{}
+	if err := DecodeResponse(res.Body, &esResponse); err != nil {
+		return "", err
+	}
+
+	log.Debug("elasticsearch response", zap.Any("response", esResponse))
+
+	return esResponse.Id, nil
 }
 
 func (c *client) Get(ctx context.Context, request *GetRequest, message proto.Message) (string, error) {

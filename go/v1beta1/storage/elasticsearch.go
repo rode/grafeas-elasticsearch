@@ -44,7 +44,7 @@ import (
 
 const grafeasMaxPageSize = 1000
 const sortField = "createTime"
-const pitKeepAlive = "1m"
+const pitKeepAlive = "5m"
 
 type ElasticsearchStorage struct {
 	client                *elasticsearch.Client

@@ -17,11 +17,18 @@ package esutil
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 )
 
 func DecodeResponse(r io.ReadCloser, i interface{}) error {
-	return json.NewDecoder(r).Decode(i)
+	err := json.NewDecoder(r).Decode(i)
+	if err != nil {
+		return errors.New(fmt.Sprintf("error decoding elasticsearch response: %s", err))
+	}
+
+	return nil
 }
 
 func EncodeRequest(body interface{}) (io.Reader, string) {

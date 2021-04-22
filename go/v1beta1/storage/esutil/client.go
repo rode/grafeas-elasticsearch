@@ -8,23 +8,25 @@ import (
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"go.uber.org/zap"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 type ListRequest struct {
 	Index       string
 	Filter      string
 	Query       *EsSearch
-	Pagination  *PaginationOptions
-	SortOptions *SortOptions
+	Pagination  *ListPaginationOptions
+	SortOptions *ListSortOptions
 }
 
-type PaginationOptions struct {
+type ListPaginationOptions struct {
 	Size      int
 	Token     string
 	Keepalive string
 }
 
-type SortOptions struct {
+type ListSortOptions struct {
 	Direction EsSortOrder
 	Field     string
 }
@@ -34,10 +36,16 @@ type ListResponse struct {
 	NextPageToken string
 }
 
+type GetRequest struct {
+	Index  string
+	Search *EsSearch
+}
+
 const defaultPitKeepAlive = "5m"
 const grafeasMaxPageSize = 1000
 
 type Client interface {
+	Get(context.Context, *GetRequest, proto.Message) (string, error)
 	List(context.Context, *ListRequest) (*ListResponse, error)
 }
 
@@ -53,6 +61,36 @@ func NewClient(logger *zap.Logger, esClient *elasticsearch.Client, filterer filt
 		esClient,
 		filterer,
 	}
+}
+
+func (c *client) Get(ctx context.Context, request *GetRequest, message proto.Message) (string, error) {
+	log := c.logger.Named("Get")
+	encodedBody, requestJson := EncodeRequest(request.Search)
+	log = log.With(zap.String("request", requestJson))
+
+	res, err := c.esClient.Search(
+		c.esClient.Search.WithContext(ctx),
+		c.esClient.Search.WithIndex(request.Index),
+		c.esClient.Search.WithBody(encodedBody),
+	)
+	if err != nil {
+		return "", err
+	}
+	if res.IsError() {
+		return "", errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+	}
+
+	var searchResults EsSearchResponse
+	if err := DecodeResponse(res.Body, &searchResults); err != nil {
+		return "", err
+	}
+
+	if searchResults.Hits.Total.Value == 0 {
+		log.Debug("document not found", zap.Any("search", request.Search))
+		return "", nil
+	}
+
+	return searchResults.Hits.Hits[0].ID, protojson.Unmarshal(searchResults.Hits.Hits[0].Source, message)
 }
 
 func (c *client) List(ctx context.Context, request *ListRequest) (*ListResponse, error) {

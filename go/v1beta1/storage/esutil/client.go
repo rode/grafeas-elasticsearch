@@ -53,6 +53,12 @@ type UpdateRequest struct {
 	Refresh    string // TODO: use RefreshOption type
 }
 
+type DeleteRequest struct {
+	Index   string
+	Search  *EsSearch
+	Refresh string // TODO: use RefreshOption type
+}
+
 const defaultPitKeepAlive = "5m"
 const grafeasMaxPageSize = 1000
 
@@ -61,6 +67,7 @@ type Client interface {
 	Get(ctx context.Context, request *GetRequest, message proto.Message) (string, error)
 	List(ctx context.Context, request *ListRequest) (*ListResponse, error)
 	Update(ctx context.Context, request *UpdateRequest, message proto.Message) error
+	Delete(ctx context.Context, request *DeleteRequest) error
 }
 
 type client struct {
@@ -289,4 +296,48 @@ func (c *client) Update(ctx context.Context, request *UpdateRequest, message pro
 	log.Debug("elasticsearch response", zap.Any("response", esResponse))
 
 	return nil
+}
+
+func (c *client) Delete(ctx context.Context, request *DeleteRequest) error {
+	log := c.logger.Named("Delete")
+	encodedBody, requestJson := EncodeRequest(request.Search)
+	log = log.With(zap.String("request", requestJson))
+
+	if request.Refresh == "" {
+		request.Refresh = "true"
+	}
+
+	res, err := c.esClient.DeleteByQuery(
+		[]string{request.Index},
+		encodedBody,
+		c.esClient.DeleteByQuery.WithContext(ctx),
+		c.esClient.DeleteByQuery.WithRefresh(withRefreshBool(request.Refresh)),
+	)
+	if err != nil {
+		return err
+	}
+	if res.IsError() {
+		return errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+	}
+
+	deletedResults := EsDeleteResponse{}
+	if err = DecodeResponse(res.Body, &deletedResults); err != nil {
+		return err
+	}
+
+	if deletedResults.Deleted == 0 {
+		return errors.New("elasticsearch returned zero deleted documents")
+	}
+
+	return nil
+}
+
+// DeleteByQuery does not support `wait_for` value, although API docs say it is available.
+// Immediately refresh on `wait_for` config, assuming that is likely closer to the desired Grafeas user functionality.
+// https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-delete-by-query.html#docs-delete-by-query-api-query-params
+func withRefreshBool(o string) bool {
+	if o == "false" {
+		return false
+	}
+	return true
 }

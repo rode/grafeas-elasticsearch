@@ -44,7 +44,7 @@ import (
 
 const grafeasMaxPageSize = 1000
 const sortField = "createTime"
-const pitKeepAlive = "1m"
+const pitKeepAlive = "5m"
 
 type ElasticsearchStorage struct {
 	client                *elasticsearch.Client
@@ -923,6 +923,17 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 	var searchResults esutil.EsSearchResponse
 	if err := esutil.DecodeResponse(res.Body, &searchResults); err != nil {
 		return nil, "", createError(log, "error decoding elasticsearch response", err)
+	}
+
+	if pageToken != "" || pageSize != 0 { // if request is paginated, check for last page
+		_, from, err := esutil.ParsePageToken(nextPageToken)
+		if err != nil {
+			return nil, "", createError(log, "error parsing page token", err)
+		}
+
+		if from >= searchResults.Hits.Total.Value {
+			nextPageToken = ""
+		}
 	}
 
 	return searchResults.Hits, nextPageToken, nil

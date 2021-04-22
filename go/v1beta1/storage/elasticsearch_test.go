@@ -506,13 +506,14 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			expectedProjects = generateTestProjects(fake.Number(2, 5))
-			expectedPageSize = fake.Number(10, 100)
-			expectedFrom = fake.Number(10, 100)
+			expectedPageSize = fake.Number(5, 20)
+			expectedFrom = fake.Number(expectedPageSize, 100)
 			expectedPitId = fake.LetterN(20)
 			transport.PreparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
-					Body: createProjectEsSearchResponse(
+					Body: createPaginatedProjectEsSearchResponse(
+						fake.Number(1000, 10000),
 						expectedProjects...,
 					),
 				},
@@ -612,6 +613,17 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(pitId).To(Equal(expectedPitId))
 				Expect(from).To(BeEquivalentTo(expectedPageSize + expectedFrom))
+			})
+
+			When("getting the last page of results", func() {
+				BeforeEach(func() {
+					transport.PreparedHttpResponses[0].Body = createPaginatedProjectEsSearchResponse(fake.Number(1, int(expectedPageSize)) + expectedFrom - 1)
+				})
+
+				It("should return an empty next page token", func() {
+					Expect(actualNextPageToken).To(Equal(""))
+					Expect(actualErr).ToNot(HaveOccurred())
+				})
 			})
 		})
 
@@ -1710,13 +1722,14 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			expectedOccurrences = generateTestOccurrences(fake.Number(2, 5))
-			expectedPageSize = int32(fake.Number(10, 100))
-			expectedFrom = fake.Number(10, 100)
+			expectedPageSize = int32(fake.Number(5, 20))
+			expectedFrom = fake.Number(int(expectedPageSize), 100)
 			expectedPitId = fake.LetterN(20)
 			transport.PreparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
-					Body: createOccurrenceEsSearchResponse(
+					Body: createPaginatedOccurrenceEsSearchResponse(
+						fake.Number(1000, 10000),
 						expectedOccurrences...,
 					),
 				},
@@ -1818,6 +1831,17 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(pitId).To(Equal(expectedPitId))
 				Expect(from).To(BeEquivalentTo(int(expectedPageSize) + expectedFrom))
+			})
+
+			When("getting the last page of results", func() {
+				BeforeEach(func() {
+					transport.PreparedHttpResponses[0].Body = createPaginatedOccurrenceEsSearchResponse(fake.Number(1, int(expectedPageSize)) + expectedFrom - 1)
+				})
+
+				It("should return an empty next page token", func() {
+					Expect(actualNextPageToken).To(Equal(""))
+					Expect(actualErr).ToNot(HaveOccurred())
+				})
 			})
 		})
 
@@ -2499,13 +2523,14 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			expectedNotes = generateTestNotes(fake.Number(2, 5), expectedProjectId)
-			expectedPageSize = int32(fake.Number(10, 100))
-			expectedFrom = fake.Number(10, 100)
+			expectedPageSize = int32(fake.Number(5, 20))
+			expectedFrom = fake.Number(int(expectedPageSize), 100)
 			expectedPitId = fake.LetterN(20)
 			transport.PreparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
-					Body: createNoteEsSearchResponse(
+					Body: createPaginatedNoteEsSearchResponse(
+						fake.Number(1000, 10000),
 						expectedNotes...,
 					),
 				},
@@ -2607,6 +2632,17 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(pitId).To(Equal(expectedPitId))
 				Expect(from).To(BeEquivalentTo(int(expectedPageSize) + expectedFrom))
+			})
+
+			When("getting the last page of results", func() {
+				BeforeEach(func() {
+					transport.PreparedHttpResponses[0].Body = createPaginatedNoteEsSearchResponse(fake.Number(1, int(expectedPageSize)) + expectedFrom - 1)
+				})
+
+				It("should return an empty next page token", func() {
+					Expect(actualNextPageToken).To(Equal(""))
+					Expect(actualErr).ToNot(HaveOccurred())
+				})
 			})
 		})
 
@@ -2751,33 +2787,47 @@ var _ = Describe("elasticsearch storage", func() {
 })
 
 func createProjectEsSearchResponse(projects ...*prpb.Project) io.ReadCloser {
+	return createPaginatedProjectEsSearchResponse(len(projects), projects...)
+}
+
+func createPaginatedProjectEsSearchResponse(totalValue int, projects ...*prpb.Project) io.ReadCloser {
 	var messages []proto.Message
 	for _, p := range projects {
 		messages = append(messages, p)
 	}
 
-	return createGenericEsSearchResponse(messages...)
+	return createPaginatedGenericEsSearchResponse(totalValue, messages...)
 }
 
 func createOccurrenceEsSearchResponse(occurrences ...*pb.Occurrence) io.ReadCloser {
+	return createPaginatedOccurrenceEsSearchResponse(len(occurrences), occurrences...)
+}
+func createPaginatedOccurrenceEsSearchResponse(totalValue int, occurrences ...*pb.Occurrence) io.ReadCloser {
 	var messages []proto.Message
 	for _, p := range occurrences {
 		messages = append(messages, p)
 	}
 
-	return createGenericEsSearchResponse(messages...)
+	return createPaginatedGenericEsSearchResponse(totalValue, messages...)
+}
+func createNoteEsSearchResponse(notes ...*pb.Note) io.ReadCloser {
+	return createPaginatedNoteEsSearchResponse(len(notes), notes...)
 }
 
-func createNoteEsSearchResponse(notes ...*pb.Note) io.ReadCloser {
+func createPaginatedNoteEsSearchResponse(totalValue int, notes ...*pb.Note) io.ReadCloser {
 	var messages []proto.Message
 	for _, p := range notes {
 		messages = append(messages, p)
 	}
 
-	return createGenericEsSearchResponse(messages...)
+	return createPaginatedGenericEsSearchResponse(totalValue, messages...)
 }
 
 func createGenericEsSearchResponse(messages ...proto.Message) io.ReadCloser {
+	return createPaginatedGenericEsSearchResponse(len(messages), messages...)
+}
+
+func createPaginatedGenericEsSearchResponse(totalValue int, messages ...proto.Message) io.ReadCloser {
 	var hits []*esutil.EsSearchResponseHit
 
 	for _, m := range messages {
@@ -2793,7 +2843,7 @@ func createGenericEsSearchResponse(messages ...proto.Message) io.ReadCloser {
 		Took: fake.Number(1, 10),
 		Hits: &esutil.EsSearchResponseHits{
 			Total: &esutil.EsSearchResponseTotal{
-				Value: len(hits),
+				Value: totalValue,
 			},
 			Hits: hits,
 		},

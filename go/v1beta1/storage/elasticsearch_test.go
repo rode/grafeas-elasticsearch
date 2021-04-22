@@ -614,21 +614,18 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(pitId).To(Equal(expectedPitId))
 				Expect(from).To(BeEquivalentTo(expectedPageSize + expectedFrom))
 			})
-		})
 
-		//When("getting the last page of results", func() {
-		//	BeforeEach(func() {
-		//		expectedFrom = fake.Number(len(expectedProjects), 100)
-		//		expectedPageToken = esutil.CreatePageToken(expectedPitId, expectedFrom)
-		//	})
-		//
-		//	It("should return an empty next page token", func() {
-		//		Expect(actualProjects).ToNot(BeNil())
-		//		Expect(actualProjects).To(Equal(expectedProjects))
-		//		Expect(actualNextPageToken).To(Equal(""))
-		//		Expect(actualErr).ToNot(HaveOccurred())
-		//	})
-		//})
+			When("getting the last page of results", func() {
+				BeforeEach(func() {
+					transport.PreparedHttpResponses[0].Body = createPaginatedProjectEsSearchResponse(fake.Number(1, int(expectedPageSize)) + expectedFrom - 1)
+				})
+
+				It("should return an empty next page token", func() {
+					Expect(actualNextPageToken).To(Equal(""))
+					Expect(actualErr).ToNot(HaveOccurred())
+				})
+			})
+		})
 
 		When("an invalid page token is specified (bad format)", func() {
 			BeforeEach(func() {
@@ -1836,19 +1833,16 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(from).To(BeEquivalentTo(int(expectedPageSize) + expectedFrom))
 			})
 
-			//When("getting the last page of results", func() {
-			//	BeforeEach(func() {
-			//		expectedFrom = fake.Number(len(expectedOccurrences), 100)
-			//		expectedPageToken = esutil.CreatePageToken(expectedPitId, expectedFrom)
-			//	})
-			//
-			//	It("should return an empty next page token", func() {
-			//		Expect(actualOccurrences).ToNot(BeNil())
-			//		Expect(actualOccurrences).To(Equal(expectedOccurrences))
-			//		Expect(actualNextPageToken).To(Equal(""))
-			//		Expect(actualErr).ToNot(HaveOccurred())
-			//	})
-			//})
+			When("getting the last page of results", func() {
+				BeforeEach(func() {
+					transport.PreparedHttpResponses[0].Body = createPaginatedOccurrenceEsSearchResponse(fake.Number(1, int(expectedPageSize)) + expectedFrom - 1)
+				})
+
+				It("should return an empty next page token", func() {
+					Expect(actualNextPageToken).To(Equal(""))
+					Expect(actualErr).ToNot(HaveOccurred())
+				})
+			})
 		})
 
 		When("an invalid page token is specified (bad format)", func() {
@@ -2639,21 +2633,18 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(pitId).To(Equal(expectedPitId))
 				Expect(from).To(BeEquivalentTo(int(expectedPageSize) + expectedFrom))
 			})
-		})
 
-		//When("getting the last page of results", func() {
-		//	BeforeEach(func() {
-		//		expectedFrom = fake.Number(len(expectedNotes), 100)
-		//		expectedPageToken = esutil.CreatePageToken(expectedPitId, expectedFrom)
-		//	})
-		//
-		//	It("should return an empty next page token", func() {
-		//		Expect(actualNotes).ToNot(BeNil())
-		//		Expect(actualNotes).To(Equal(expectedNotes))
-		//		Expect(actualNextPageToken).To(Equal(""))
-		//		Expect(actualErr).ToNot(HaveOccurred())
-		//	})
-		//})
+			When("getting the last page of results", func() {
+				BeforeEach(func() {
+					transport.PreparedHttpResponses[0].Body = createPaginatedNoteEsSearchResponse(fake.Number(1, int(expectedPageSize)) + expectedFrom - 1)
+				})
+
+				It("should return an empty next page token", func() {
+					Expect(actualNextPageToken).To(Equal(""))
+					Expect(actualErr).ToNot(HaveOccurred())
+				})
+			})
+		})
 
 		When("an invalid page token is specified (bad format)", func() {
 			BeforeEach(func() {
@@ -2823,7 +2814,7 @@ func createNoteEsSearchResponse(notes ...*pb.Note) io.ReadCloser {
 	return createPaginatedNoteEsSearchResponse(len(notes), notes...)
 }
 
-func createPaginatedNoteEsSearchResponse( totalValue int, notes ...*pb.Note) io.ReadCloser {
+func createPaginatedNoteEsSearchResponse(totalValue int, notes ...*pb.Note) io.ReadCloser {
 	var messages []proto.Message
 	for _, p := range notes {
 		messages = append(messages, p)

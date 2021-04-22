@@ -505,7 +505,7 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			expectedProjects = generateTestProjects(fake.Number(5, 15))
+			expectedProjects = generateTestProjects(fake.Number(2, 5))
 			expectedPageSize = fake.Number(5, 20)
 			expectedFrom = fake.Number(expectedPageSize, 100)
 			expectedPitId = fake.LetterN(20)
@@ -513,7 +513,7 @@ var _ = Describe("elasticsearch storage", func() {
 				{
 					StatusCode: http.StatusOK,
 					Body: createPaginatedProjectEsSearchResponse(
-						fake.Number(1000, 1000),
+						fake.Number(1000, 10000),
 						expectedProjects...,
 					),
 				},
@@ -1721,7 +1721,7 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			expectedOccurrences = generateTestOccurrences(fake.Number(3, 5))
+			expectedOccurrences = generateTestOccurrences(fake.Number(2, 5))
 			expectedPageSize = int32(fake.Number(5, 20))
 			expectedFrom = fake.Number(int(expectedPageSize), 100)
 			expectedPitId = fake.LetterN(20)
@@ -2522,7 +2522,7 @@ var _ = Describe("elasticsearch storage", func() {
 		)
 
 		BeforeEach(func() {
-			expectedNotes = generateTestNotes(fake.Number(5, 15), expectedProjectId)
+			expectedNotes = generateTestNotes(fake.Number(2, 5), expectedProjectId)
 			expectedPageSize = int32(fake.Number(5, 20))
 			expectedFrom = fake.Number(int(expectedPageSize), 100)
 			expectedPitId = fake.LetterN(20)
@@ -2824,30 +2824,7 @@ func createPaginatedNoteEsSearchResponse(totalValue int, notes ...*pb.Note) io.R
 }
 
 func createGenericEsSearchResponse(messages ...proto.Message) io.ReadCloser {
-	var hits []*esutil.EsSearchResponseHit
-
-	for _, m := range messages {
-		raw, err := protojson.Marshal(proto.MessageV2(m))
-		Expect(err).ToNot(HaveOccurred())
-
-		hits = append(hits, &esutil.EsSearchResponseHit{
-			Source: raw,
-		})
-	}
-
-	response := &esutil.EsSearchResponse{
-		Took: fake.Number(1, 10),
-		Hits: &esutil.EsSearchResponseHits{
-			Total: &esutil.EsSearchResponseTotal{
-				Value: len(hits),
-			},
-			Hits: hits,
-		},
-	}
-	responseBody, err := json.Marshal(response)
-	Expect(err).ToNot(HaveOccurred())
-
-	return ioutil.NopCloser(bytes.NewReader(responseBody))
+	return createPaginatedGenericEsSearchResponse(len(messages), messages...)
 }
 
 func createPaginatedGenericEsSearchResponse(totalValue int, messages ...proto.Message) io.ReadCloser {

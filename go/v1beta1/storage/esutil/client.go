@@ -47,6 +47,12 @@ type ListResponse struct {
 	NextPageToken string
 }
 
+type UpdateRequest struct {
+	Index      string
+	DocumentId string
+	Refresh    string // TODO: use RefreshOption type
+}
+
 const defaultPitKeepAlive = "5m"
 const grafeasMaxPageSize = 1000
 
@@ -54,6 +60,7 @@ type Client interface {
 	Create(ctx context.Context, request *CreateRequest, message proto.Message) (string, error)
 	Get(ctx context.Context, request *GetRequest, message proto.Message) (string, error)
 	List(ctx context.Context, request *ListRequest) (*ListResponse, error)
+	Update(ctx context.Context, request *UpdateRequest, message proto.Message) error
 }
 
 type client struct {
@@ -247,4 +254,39 @@ func (c *client) List(ctx context.Context, request *ListRequest) (*ListResponse,
 	}
 
 	return response, nil
+}
+
+func (c *client) Update(ctx context.Context, request *UpdateRequest, message proto.Message) error {
+	log := c.logger.Named("Update")
+	str, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(message)
+	if err != nil {
+		return err
+	}
+
+	if request.Refresh == "" {
+		request.Refresh = "true"
+	}
+
+	res, err := c.esClient.Index(
+		request.Index,
+		bytes.NewReader(str),
+		c.esClient.Index.WithDocumentID(request.DocumentId),
+		c.esClient.Index.WithContext(ctx),
+		c.esClient.Index.WithRefresh(request.Refresh),
+	)
+	if err != nil {
+		return err
+	}
+	if res.IsError() {
+		return errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+	}
+
+	esResponse := EsIndexDocResponse{}
+	if err := DecodeResponse(res.Body, &esResponse); err != nil {
+		return err
+	}
+
+	log.Debug("elasticsearch response", zap.Any("response", esResponse))
+
+	return nil
 }

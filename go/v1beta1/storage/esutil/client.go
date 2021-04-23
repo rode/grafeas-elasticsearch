@@ -17,6 +17,7 @@ package esutil
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/elastic/go-elasticsearch/v7"
@@ -28,6 +29,11 @@ import (
 )
 
 type CreateRequest struct {
+	Index   string
+	Refresh string // TODO: use RefreshOption type
+}
+
+type BulkCreateRequest struct {
 	Index   string
 	Refresh string // TODO: use RefreshOption type
 }
@@ -78,6 +84,7 @@ const grafeasMaxPageSize = 1000
 
 type Client interface {
 	Create(ctx context.Context, request *CreateRequest, message proto.Message) (string, error)
+	BulkCreate(ctx context.Context, request *BulkCreateRequest, messages []proto.Message) (*EsBulkResponse, error)
 	Get(ctx context.Context, request *GetRequest, message proto.Message) (string, error)
 	List(ctx context.Context, request *ListRequest) (*ListResponse, error)
 	Update(ctx context.Context, request *UpdateRequest, message proto.Message) error
@@ -130,6 +137,58 @@ func (c *client) Create(ctx context.Context, request *CreateRequest, message pro
 	log.Debug("elasticsearch response", zap.Any("response", esResponse))
 
 	return esResponse.Id, nil
+}
+
+func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest, messages []proto.Message) (*EsBulkResponse, error) {
+	log := c.logger.Named("BulkCreate")
+
+	indexMetadata := &EsBulkQueryFragment{
+		Index: &EsBulkQueryIndexFragment{
+			Index: request.Index,
+		},
+	}
+
+	metadata, _ := json.Marshal(indexMetadata)
+	metadata = append(metadata, "\n"...)
+
+	// build the request body using newline delimited JSON (ndjson)
+	// each message is represented by two JSON structures:
+	// the first is the metadata that represents the ES operation, in this case "index"
+	// the second is the source payload to index
+	// in total, this body will consist of (len(messages) * 2) JSON structures, separated by newlines, with a trailing newline at the end
+	var body bytes.Buffer
+	for _, message := range messages {
+		data, err := protojson.Marshal(message)
+		if err != nil {
+			return nil, err
+		}
+
+		dataBytes := append(data, "\n"...)
+		body.Grow(len(metadata) + len(dataBytes))
+		body.Write(metadata)
+		body.Write(dataBytes)
+	}
+
+	log.Debug("attempting ES bulk index", zap.String("payload", string(body.Bytes())))
+
+	res, err := c.esClient.Bulk(
+		bytes.NewReader(body.Bytes()),
+		c.esClient.Bulk.WithContext(ctx),
+		c.esClient.Bulk.WithRefresh(request.Refresh),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if res.IsError() {
+		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+	}
+
+	var response EsBulkResponse
+	if err = DecodeResponse(res.Body, &response); err != nil {
+		return nil, err
+	}
+
+	return &response, nil
 }
 
 func (c *client) Get(ctx context.Context, request *GetRequest, message proto.Message) (string, error) {

@@ -29,18 +29,37 @@ import (
 )
 
 type CreateRequest struct {
-	Index   string
-	Refresh string // TODO: use RefreshOption type
+	Index      string
+	Refresh    string // TODO: use RefreshOption type
+	Message    proto.Message
+	DocumentId string
 }
 
 type BulkCreateRequest struct {
-	Index   string
 	Refresh string // TODO: use RefreshOption type
+	Items   []*BulkCreateRequestItem
 }
 
-type GetRequest struct {
-	Index  string
-	Search *EsSearch
+type BulkCreateRequestItem struct {
+	Message    proto.Message
+	DocumentId string
+	Index      string
+}
+
+type SearchRequest struct {
+	Index   string
+	Search  *EsSearch
+	Message proto.Message
+}
+
+type SearchResponse struct {
+	DocumentId string
+	Message    proto.Message
+}
+
+type MultiGetRequest struct {
+	Index       string
+	DocumentIds []string
 }
 
 type ListRequest struct {
@@ -83,9 +102,10 @@ const defaultPitKeepAlive = "5m"
 const grafeasMaxPageSize = 1000
 
 type Client interface {
-	Create(ctx context.Context, request *CreateRequest, message proto.Message) (string, error)
-	BulkCreate(ctx context.Context, request *BulkCreateRequest, messages []proto.Message) (*EsBulkResponse, error)
-	Get(ctx context.Context, request *GetRequest, message proto.Message) (string, error)
+	Create(ctx context.Context, request *CreateRequest) (string, error)
+	BulkCreate(ctx context.Context, request *BulkCreateRequest) (*EsBulkResponse, error)
+	Search(ctx context.Context, request *SearchRequest) (*SearchResponse, error)
+	MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error)
 	List(ctx context.Context, request *ListRequest) (*ListResponse, error)
 	Update(ctx context.Context, request *UpdateRequest, message proto.Message) error
 	Delete(ctx context.Context, request *DeleteRequest) error
@@ -105,9 +125,9 @@ func NewClient(logger *zap.Logger, esClient *elasticsearch.Client, filterer filt
 	}
 }
 
-func (c *client) Create(ctx context.Context, request *CreateRequest, message proto.Message) (string, error) {
+func (c *client) Create(ctx context.Context, request *CreateRequest) (string, error) {
 	log := c.logger.Named("Create")
-	str, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(message)
+	str, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(request.Message)
 	if err != nil {
 		return "", err
 	}
@@ -116,11 +136,18 @@ func (c *client) Create(ctx context.Context, request *CreateRequest, message pro
 		request.Refresh = "true"
 	}
 
+	indexOpts := []func(*esapi.IndexRequest){
+		c.esClient.Index.WithContext(ctx),
+		c.esClient.Index.WithRefresh(request.Refresh),
+	}
+	if request.DocumentId != "" {
+		indexOpts = append(indexOpts, c.esClient.Index.WithDocumentID(request.DocumentId))
+	}
+
 	res, err := c.esClient.Index(
 		request.Index,
 		bytes.NewReader(str),
-		c.esClient.Index.WithContext(ctx),
-		c.esClient.Index.WithRefresh(request.Refresh),
+		indexOpts...,
 	)
 	if err != nil {
 		return "", err
@@ -139,17 +166,8 @@ func (c *client) Create(ctx context.Context, request *CreateRequest, message pro
 	return esResponse.Id, nil
 }
 
-func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest, messages []proto.Message) (*EsBulkResponse, error) {
+func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest) (*EsBulkResponse, error) {
 	log := c.logger.Named("BulkCreate")
-
-	indexMetadata := &EsBulkQueryFragment{
-		Index: &EsBulkQueryIndexFragment{
-			Index: request.Index,
-		},
-	}
-
-	metadata, _ := json.Marshal(indexMetadata)
-	metadata = append(metadata, "\n"...)
 
 	// build the request body using newline delimited JSON (ndjson)
 	// each message is represented by two JSON structures:
@@ -157,15 +175,29 @@ func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest, mes
 	// the second is the source payload to index
 	// in total, this body will consist of (len(messages) * 2) JSON structures, separated by newlines, with a trailing newline at the end
 	var body bytes.Buffer
-	for _, message := range messages {
-		data, err := protojson.Marshal(message)
+	for _, item := range request.Items {
+		metadata := &EsBulkQueryFragment{
+			Index: &EsBulkQueryIndexFragment{
+				Index: item.Index,
+			},
+		}
+		if item.DocumentId != "" {
+			metadata.Create = &EsBulkQueryCreateFragment{
+				Id: item.DocumentId,
+			}
+		}
+
+		metadataBytes, _ := json.Marshal(metadata)
+		metadataBytes = append(metadataBytes, "\n"...)
+
+		data, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(item.Message)
 		if err != nil {
 			return nil, err
 		}
 
 		dataBytes := append(data, "\n"...)
-		body.Grow(len(metadata) + len(dataBytes))
-		body.Write(metadata)
+		body.Grow(len(metadataBytes) + len(dataBytes))
+		body.Write(metadataBytes)
 		body.Write(dataBytes)
 	}
 
@@ -191,8 +223,8 @@ func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest, mes
 	return &response, nil
 }
 
-func (c *client) Get(ctx context.Context, request *GetRequest, message proto.Message) (string, error) {
-	log := c.logger.Named("Get")
+func (c *client) Search(ctx context.Context, request *SearchRequest) (*SearchResponse, error) {
+	log := c.logger.Named("Search")
 	encodedBody, requestJson := EncodeRequest(request.Search)
 	log = log.With(zap.String("request", requestJson))
 
@@ -202,23 +234,62 @@ func (c *client) Get(ctx context.Context, request *GetRequest, message proto.Mes
 		c.esClient.Search.WithBody(encodedBody),
 	)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if res.IsError() {
-		return "", errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
 	}
 
 	var searchResults EsSearchResponse
 	if err := DecodeResponse(res.Body, &searchResults); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	if searchResults.Hits.Total.Value == 0 {
 		log.Debug("document not found", zap.Any("search", request.Search))
-		return "", nil
+		return nil, nil
 	}
 
-	return searchResults.Hits.Hits[0].ID, protojson.Unmarshal(searchResults.Hits.Hits[0].Source, message)
+	response := &SearchResponse{
+		DocumentId: searchResults.Hits.Hits[0].ID,
+	}
+
+	err = protojson.Unmarshal(searchResults.Hits.Hits[0].Source, response.Message)
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+func (c *client) MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error) {
+	log := c.logger.Named("MultiGet")
+
+	encodedBody, requestJson := EncodeRequest(&EsMultiGetRequest{
+		IDs: request.DocumentIds,
+	})
+	log = log.With(zap.String("request", requestJson))
+
+	res, err := c.esClient.Mget(
+		encodedBody,
+		c.esClient.Mget.WithContext(ctx),
+		c.esClient.Mget.WithIndex(request.Index),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if res.IsError() {
+		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+	}
+
+	var response *EsMultiGetResponse
+	if err = DecodeResponse(res.Body, response); err != nil {
+		return nil, err
+	}
+
+	log.Debug("elasticsearch response", zap.Any("response", response))
+
+	return response, nil
 }
 
 func (c *client) List(ctx context.Context, request *ListRequest) (*ListResponse, error) {

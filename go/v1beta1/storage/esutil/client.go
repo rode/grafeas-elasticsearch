@@ -36,6 +36,7 @@ type CreateRequest struct {
 }
 
 type BulkCreateRequest struct {
+	Index   string
 	Refresh string // TODO: use RefreshOption type
 	Items   []*BulkCreateRequestItem
 }
@@ -43,7 +44,6 @@ type BulkCreateRequest struct {
 type BulkCreateRequestItem struct {
 	Message    proto.Message
 	DocumentId string
-	Index      string
 }
 
 type SearchRequest struct {
@@ -55,6 +55,11 @@ type SearchRequest struct {
 type SearchResponse struct {
 	DocumentId string
 	Message    proto.Message
+}
+
+type MultiSearchRequest struct {
+	Index    string
+	Searches []*EsSearch
 }
 
 type MultiGetRequest struct {
@@ -105,6 +110,7 @@ type Client interface {
 	Create(ctx context.Context, request *CreateRequest) (string, error)
 	BulkCreate(ctx context.Context, request *BulkCreateRequest) (*EsBulkResponse, error)
 	Search(ctx context.Context, request *SearchRequest) (*SearchResponse, error)
+	MultiSearch(ctx context.Context, request *MultiSearchRequest) (*EsMultiSearchResponse, error)
 	MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error)
 	List(ctx context.Context, request *ListRequest) (*ListResponse, error)
 	Update(ctx context.Context, request *UpdateRequest, message proto.Message) error
@@ -178,7 +184,7 @@ func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest) (*E
 	for _, item := range request.Items {
 		metadata := &EsBulkQueryFragment{
 			Index: &EsBulkQueryIndexFragment{
-				Index: item.Index,
+				Index: request.Index,
 			},
 		}
 		if item.DocumentId != "" {
@@ -258,6 +264,45 @@ func (c *client) Search(ctx context.Context, request *SearchRequest) (*SearchRes
 	if err != nil {
 		return nil, err
 	}
+
+	return response, nil
+}
+
+func (c *client) MultiSearch(ctx context.Context, request *MultiSearchRequest) (*EsMultiSearchResponse, error) {
+	log := c.logger.Named("MultiSearch")
+
+	searchMetadata, _ := json.Marshal(&EsMultiSearchQueryFragment{
+		Index: request.Index,
+	})
+	searchMetadata = append(searchMetadata, "\n"...)
+
+	var searchRequestBody bytes.Buffer
+	for _, search := range request.Searches {
+		data, _ := json.Marshal(search)
+		dataBytes := append(data, "\n"...)
+
+		searchRequestBody.Grow(len(searchMetadata) + len(dataBytes))
+		searchRequestBody.Write(searchMetadata)
+		searchRequestBody.Write(dataBytes)
+	}
+
+	res, err := c.esClient.Msearch(
+		bytes.NewReader(searchRequestBody.Bytes()),
+		c.esClient.Msearch.WithContext(ctx),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if res.IsError() {
+		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+	}
+
+	var response *EsMultiSearchResponse
+	if err = DecodeResponse(res.Body, response); err != nil {
+		return nil, err
+	}
+
+	log.Debug("elasticsearch response", zap.Any("response", response))
 
 	return response, nil
 }

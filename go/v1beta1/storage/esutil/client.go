@@ -22,7 +22,6 @@ import (
 	"fmt"
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
-	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
@@ -46,17 +45,6 @@ type BulkCreateRequestItem struct {
 	DocumentId string
 }
 
-type SearchRequest struct {
-	Index   string
-	Search  *EsSearch
-	Message proto.Message
-}
-
-type SearchResponse struct {
-	DocumentId string
-	Message    proto.Message
-}
-
 type MultiSearchRequest struct {
 	Index    string
 	Searches []*EsSearch
@@ -67,26 +55,19 @@ type MultiGetRequest struct {
 	DocumentIds []string
 }
 
-type ListRequest struct {
-	Index       string
-	Filter      string
-	Query       *EsSearch
-	Pagination  *ListPaginationOptions
-	SortOptions *ListSortOptions
+type SearchRequest struct {
+	Index      string
+	Search     *EsSearch
+	Pagination *SearchPaginationOptions
 }
 
-type ListPaginationOptions struct {
+type SearchPaginationOptions struct {
 	Size      int
 	Token     string
 	Keepalive string
 }
 
-type ListSortOptions struct {
-	Direction EsSortOrder
-	Field     string
-}
-
-type ListResponse struct {
+type SearchResponse struct {
 	Hits          *EsSearchResponseHits
 	NextPageToken string
 }
@@ -95,6 +76,7 @@ type UpdateRequest struct {
 	Index      string
 	DocumentId string
 	Refresh    string // TODO: use RefreshOption type
+	Message    proto.Message
 }
 
 type DeleteRequest struct {
@@ -112,22 +94,19 @@ type Client interface {
 	Search(ctx context.Context, request *SearchRequest) (*SearchResponse, error)
 	MultiSearch(ctx context.Context, request *MultiSearchRequest) (*EsMultiSearchResponse, error)
 	MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error)
-	List(ctx context.Context, request *ListRequest) (*ListResponse, error)
-	Update(ctx context.Context, request *UpdateRequest, message proto.Message) error
+	Update(ctx context.Context, request *UpdateRequest) error
 	Delete(ctx context.Context, request *DeleteRequest) error
 }
 
 type client struct {
 	logger   *zap.Logger
 	esClient *elasticsearch.Client
-	filterer filtering.Filterer
 }
 
-func NewClient(logger *zap.Logger, esClient *elasticsearch.Client, filterer filtering.Filterer) Client {
+func NewClient(logger *zap.Logger, esClient *elasticsearch.Client) Client {
 	return &client{
 		logger,
 		esClient,
-		filterer,
 	}
 }
 
@@ -231,135 +210,11 @@ func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest) (*E
 
 func (c *client) Search(ctx context.Context, request *SearchRequest) (*SearchResponse, error) {
 	log := c.logger.Named("Search")
-	encodedBody, requestJson := EncodeRequest(request.Search)
-	log = log.With(zap.String("request", requestJson))
-
-	res, err := c.esClient.Search(
-		c.esClient.Search.WithContext(ctx),
-		c.esClient.Search.WithIndex(request.Index),
-		c.esClient.Search.WithBody(encodedBody),
-	)
-	if err != nil {
-		return nil, err
-	}
-	if res.IsError() {
-		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
-	}
-
-	var searchResults EsSearchResponse
-	if err := DecodeResponse(res.Body, &searchResults); err != nil {
-		return nil, err
-	}
-
-	if searchResults.Hits.Total.Value == 0 {
-		log.Debug("document not found", zap.Any("search", request.Search))
-		return nil, nil
-	}
-
-	response := &SearchResponse{
-		DocumentId: searchResults.Hits.Hits[0].ID,
-	}
-
-	err = protojson.Unmarshal(searchResults.Hits.Hits[0].Source, response.Message)
-	if err != nil {
-		return nil, err
-	}
-
-	return response, nil
-}
-
-func (c *client) MultiSearch(ctx context.Context, request *MultiSearchRequest) (*EsMultiSearchResponse, error) {
-	log := c.logger.Named("MultiSearch")
-
-	searchMetadata, _ := json.Marshal(&EsMultiSearchQueryFragment{
-		Index: request.Index,
-	})
-	searchMetadata = append(searchMetadata, "\n"...)
-
-	var searchRequestBody bytes.Buffer
-	for _, search := range request.Searches {
-		data, _ := json.Marshal(search)
-		dataBytes := append(data, "\n"...)
-
-		searchRequestBody.Grow(len(searchMetadata) + len(dataBytes))
-		searchRequestBody.Write(searchMetadata)
-		searchRequestBody.Write(dataBytes)
-	}
-
-	res, err := c.esClient.Msearch(
-		bytes.NewReader(searchRequestBody.Bytes()),
-		c.esClient.Msearch.WithContext(ctx),
-	)
-	if err != nil {
-		return nil, err
-	}
-	if res.IsError() {
-		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
-	}
-
-	var response *EsMultiSearchResponse
-	if err = DecodeResponse(res.Body, response); err != nil {
-		return nil, err
-	}
-
-	log.Debug("elasticsearch response", zap.Any("response", response))
-
-	return response, nil
-}
-
-func (c *client) MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error) {
-	log := c.logger.Named("MultiGet")
-
-	encodedBody, requestJson := EncodeRequest(&EsMultiGetRequest{
-		IDs: request.DocumentIds,
-	})
-	log = log.With(zap.String("request", requestJson))
-
-	res, err := c.esClient.Mget(
-		encodedBody,
-		c.esClient.Mget.WithContext(ctx),
-		c.esClient.Mget.WithIndex(request.Index),
-	)
-	if err != nil {
-		return nil, err
-	}
-	if res.IsError() {
-		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
-	}
-
-	var response *EsMultiGetResponse
-	if err = DecodeResponse(res.Body, response); err != nil {
-		return nil, err
-	}
-
-	log.Debug("elasticsearch response", zap.Any("response", response))
-
-	return response, nil
-}
-
-func (c *client) List(ctx context.Context, request *ListRequest) (*ListResponse, error) {
-	log := c.logger.Named("List")
-	response := &ListResponse{}
+	response := &SearchResponse{}
 
 	body := &EsSearch{}
-	if request.Query != nil {
-		body = request.Query
-	}
-
-	if request.Filter != "" {
-		log = log.With(zap.String("filter", request.Filter))
-		filterQuery, err := c.filterer.ParseExpression(request.Filter)
-		if err != nil {
-			return nil, err
-		}
-
-		body.Query = filterQuery
-	}
-
-	if request.SortOptions != nil {
-		body.Sort = map[string]EsSortOrder{
-			request.SortOptions.Field: request.SortOptions.Direction,
-		}
+	if request.Search != nil {
+		body = request.Search
 	}
 
 	searchOptions := []func(*esapi.SearchRequest){
@@ -452,9 +307,78 @@ func (c *client) List(ctx context.Context, request *ListRequest) (*ListResponse,
 	return response, nil
 }
 
-func (c *client) Update(ctx context.Context, request *UpdateRequest, message proto.Message) error {
+func (c *client) MultiSearch(ctx context.Context, request *MultiSearchRequest) (*EsMultiSearchResponse, error) {
+	log := c.logger.Named("MultiSearch")
+
+	searchMetadata, _ := json.Marshal(&EsMultiSearchQueryFragment{
+		Index: request.Index,
+	})
+	searchMetadata = append(searchMetadata, "\n"...)
+
+	var searchRequestBody bytes.Buffer
+	for _, search := range request.Searches {
+		data, _ := json.Marshal(search)
+		dataBytes := append(data, "\n"...)
+
+		searchRequestBody.Grow(len(searchMetadata) + len(dataBytes))
+		searchRequestBody.Write(searchMetadata)
+		searchRequestBody.Write(dataBytes)
+	}
+
+	res, err := c.esClient.Msearch(
+		bytes.NewReader(searchRequestBody.Bytes()),
+		c.esClient.Msearch.WithContext(ctx),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if res.IsError() {
+		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+	}
+
+	var response EsMultiSearchResponse
+	if err = DecodeResponse(res.Body, &response); err != nil {
+		return nil, err
+	}
+
+	log.Debug("elasticsearch response", zap.Any("response", response))
+
+	return &response, nil
+}
+
+func (c *client) MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error) {
+	log := c.logger.Named("MultiGet")
+
+	encodedBody, requestJson := EncodeRequest(&EsMultiGetRequest{
+		IDs: request.DocumentIds,
+	})
+	log = log.With(zap.String("request", requestJson))
+
+	res, err := c.esClient.Mget(
+		encodedBody,
+		c.esClient.Mget.WithContext(ctx),
+		c.esClient.Mget.WithIndex(request.Index),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if res.IsError() {
+		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+	}
+
+	var response EsMultiGetResponse
+	if err = DecodeResponse(res.Body, &response); err != nil {
+		return nil, err
+	}
+
+	log.Debug("elasticsearch response", zap.Any("response", response))
+
+	return &response, nil
+}
+
+func (c *client) Update(ctx context.Context, request *UpdateRequest) error {
 	log := c.logger.Named("Update")
-	str, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(message)
+	str, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(request.Message)
 	if err != nil {
 		return err
 	}

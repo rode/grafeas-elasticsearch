@@ -88,9 +88,10 @@ func (es *ElasticsearchStorage) Initialize(ctx context.Context) error {
 // CreateProject creates a project document within the project index, along with two indices that can be used
 // to store notes and occurrences.
 // Additional metadata is attached to the newly created indices to help identify them as part of a Grafeas project
-func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId string, p *prpb.Project) (*prpb.Project, error) {
+func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId string, project *prpb.Project) (*prpb.Project, error) {
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("CreateProject").With(zap.String("project", projectName))
+
 	exists, err := es.doesProjectExist(ctx, log, projectId)
 	if err != nil {
 		return nil, err
@@ -99,12 +100,15 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 		log.Debug("project already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("project with name %s already exists", projectName))
 	}
-	p.Name = projectName
+	project.Name = projectName
 
-	// create project document
-	err = es.genericCreate(ctx, log, es.indexManager.ProjectsAlias(), p)
+	_, err = es.client.Create(ctx, &esutil.CreateRequest{
+		Index:   es.indexManager.ProjectsAlias(),
+		Message: proto.MessageV2(project),
+		Refresh: string(es.config.Refresh),
+	})
 	if err != nil {
-		return nil, err
+		return nil, createError(log, "error creating project in elasticsearch", err)
 	}
 
 	indicesToCreate := []*esutil.IndexInfo{
@@ -129,7 +133,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 
 	log.Debug("created project")
 
-	return p, nil
+	return project, nil
 }
 
 // GetProject returns the project with the given projectId from Elasticsearch
@@ -198,9 +202,13 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 		},
 	}
 
-	err := es.genericDelete(ctx, log, search, es.indexManager.ProjectsAlias())
+	err := es.client.Delete(ctx, &esutil.DeleteRequest{
+		Index:   es.indexManager.ProjectsAlias(),
+		Search:  search,
+		Refresh: es.config.Refresh.String(),
+	})
 	if err != nil {
-		return err
+		return createError(log, "error deleting project in elasticsearch", err)
 	}
 
 	log.Debug("project document deleted")
@@ -274,8 +282,9 @@ func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, projectId, 
 }
 
 // CreateOccurrence adds the specified occurrence to Elasticsearch
-func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId, userID string, o *pb.Occurrence) (*pb.Occurrence, error) {
+func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId, userID string, occurrence *pb.Occurrence) (*pb.Occurrence, error) {
 	log := es.logger.Named("CreateOccurrence")
+
 	exists, err := es.doesProjectExist(ctx, log, projectId)
 	if err != nil {
 		return nil, err
@@ -285,17 +294,21 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId,
 		return nil, status.Error(codes.FailedPrecondition, fmt.Sprintf("project with ID %s does not exist", projectId))
 	}
 
-	if o.CreateTime == nil {
-		o.CreateTime = ptypes.TimestampNow()
+	if occurrence.CreateTime == nil {
+		occurrence.CreateTime = ptypes.TimestampNow()
 	}
-	o.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, uuid.New().String())
+	occurrence.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, uuid.New().String())
 
-	err = es.genericCreate(ctx, log, es.indexManager.OccurrencesAlias(projectId), o)
+	_, err = es.client.Create(ctx, &esutil.CreateRequest{
+		Index:   es.indexManager.OccurrencesAlias(projectId),
+		Message: proto.MessageV2(occurrence),
+		Refresh: string(es.config.Refresh),
+	})
 	if err != nil {
-		return nil, err
+		return nil, createError(log, "error creating occurrence in elasticsearch", err)
 	}
 
-	return o, nil
+	return occurrence, nil
 }
 
 // BatchCreateOccurrences batch creates the specified occurrences in Elasticsearch.
@@ -396,7 +409,15 @@ func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, projectId,
 	}
 	fieldmask_utils.StructToStruct(m, o, occurrence)
 
-	err = es.genericUpdate(ctx, log, es.indexManager.OccurrencesAlias(projectId), targetDocumentID, occurrence)
+	err = es.client.Update(ctx, &esutil.UpdateRequest{
+		Index:      es.indexManager.OccurrencesAlias(projectId),
+		DocumentId: targetDocumentID,
+		Message:    proto.MessageV2(occurrence),
+		Refresh:    es.config.Refresh.String(),
+	})
+	if err != nil {
+		return nil, createError(log, "error updating occurrence in elasticsearch", err)
+	}
 
 	return occurrence, nil
 }
@@ -416,7 +437,16 @@ func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, projectId,
 		},
 	}
 
-	return es.genericDelete(ctx, log, search, es.indexManager.OccurrencesAlias(projectId))
+	err := es.client.Delete(ctx, &esutil.DeleteRequest{
+		Index:   es.indexManager.OccurrencesAlias(projectId),
+		Search:  search,
+		Refresh: es.config.Refresh.String(),
+	})
+	if err != nil {
+		return createError(log, "error deleting occurrence in elasticsearch", err)
+	}
+
+	return nil
 }
 
 // GetNote returns the note with project (pID) and note ID (nID)
@@ -472,9 +502,10 @@ func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectId, filter
 }
 
 // CreateNote adds the specified note
-func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteId, uID string, n *pb.Note) (*pb.Note, error) {
+func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteId, uID string, note *pb.Note) (*pb.Note, error) {
 	noteName := fmt.Sprintf("projects/%s/notes/%s", projectId, noteId)
 	log := es.logger.Named("CreateNote").With(zap.String("note", noteName))
+
 	exists, err := es.doesProjectExist(ctx, log, projectId)
 	if err != nil {
 		return nil, err
@@ -500,17 +531,21 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 		return nil, err
 	}
 
-	if n.CreateTime == nil {
-		n.CreateTime = ptypes.TimestampNow()
+	if note.CreateTime == nil {
+		note.CreateTime = ptypes.TimestampNow()
 	}
-	n.Name = noteName
+	note.Name = noteName
 
-	err = es.genericCreate(ctx, log, es.indexManager.NotesAlias(projectId), n)
+	_, err = es.client.Create(ctx, &esutil.CreateRequest{
+		Index:   es.indexManager.NotesAlias(projectId),
+		Message: proto.MessageV2(note),
+		Refresh: string(es.config.Refresh),
+	})
 	if err != nil {
-		return nil, err
+		return nil, createError(log, "error creating note in elasticsearch", err)
 	}
 
-	return n, nil
+	return note, nil
 }
 
 // BatchCreateNotes batch creates the specified notes in memstore.
@@ -637,7 +672,16 @@ func (es *ElasticsearchStorage) DeleteNote(ctx context.Context, projectId, noteI
 		},
 	}
 
-	return es.genericDelete(ctx, log, search, es.indexManager.NotesAlias(projectId))
+	err := es.client.Delete(ctx, &esutil.DeleteRequest{
+		Index:   es.indexManager.NotesAlias(projectId),
+		Search:  search,
+		Refresh: es.config.Refresh.String(),
+	})
+	if err != nil {
+		return createError(log, "error deleting note in elasticsearch", err)
+	}
+
+	return nil
 }
 
 // GetOccurrenceNote gets the note for the specified occurrence from PostgreSQL.
@@ -670,46 +714,6 @@ func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger,
 	}
 
 	return res.Hits.Hits[0].ID, protojson.Unmarshal(res.Hits.Hits[0].Source, proto.MessageV2(protoMessage))
-}
-
-func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logger, index string, protoMessage interface{}) error {
-	_, err := es.client.Create(ctx, &esutil.CreateRequest{
-		Index:   index,
-		Message: proto.MessageV2(protoMessage),
-		Refresh: string(es.config.Refresh),
-	})
-	if err != nil {
-		return createError(log, "error creating document in elasticsearch", err)
-	}
-
-	return nil
-}
-
-func (es *ElasticsearchStorage) genericUpdate(ctx context.Context, log *zap.Logger, index string, docID string, protoMessage interface{}) error {
-	err := es.client.Update(ctx, &esutil.UpdateRequest{
-		Index:      index,
-		DocumentId: docID,
-		Message:    proto.MessageV2(protoMessage),
-		Refresh:    string(es.config.Refresh),
-	})
-	if err != nil {
-		return createError(log, "error updating document in elasticsearch", err)
-	}
-
-	return nil
-}
-
-func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logger, search *esutil.EsSearch, index string) error {
-	err := es.client.Delete(ctx, &esutil.DeleteRequest{
-		Index:   index,
-		Search:  search,
-		Refresh: string(es.config.Refresh),
-	})
-	if err != nil {
-		return createError(log, "error deleting document in elasticsearch", err)
-	}
-
-	return nil
 }
 
 func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger, index, filter string, sort bool, pageToken string, pageSize int32) (*esutil.EsSearchResponseHits, string, error) {
@@ -754,16 +758,6 @@ func createError(log *zap.Logger, message string, err error, fields ...zap.Field
 
 	log.Error(message, append(fields, zap.Error(err))...)
 	return status.Errorf(codes.Internal, "%s: %s", message, err)
-}
-
-// DeleteByQuery does not support `wait_for` value, although API docs say it is available.
-// Immediately refresh on `wait_for` config, assuming that is likely closer to the desired Grafeas user functionality.
-// https://www.elastic.co/guide/en/elasticsearch/reference/current/docs-delete-by-query.html#docs-delete-by-query-api-query-params
-func withRefreshBool(o config.RefreshOption) bool {
-	if o == config.RefreshFalse {
-		return false
-	}
-	return true
 }
 
 func (es *ElasticsearchStorage) doesProjectExist(ctx context.Context, log *zap.Logger, projectId string) (bool, error) {

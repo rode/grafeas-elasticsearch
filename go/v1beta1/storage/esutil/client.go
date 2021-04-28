@@ -161,14 +161,15 @@ func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest) (*E
 	// in total, this body will consist of (len(messages) * 2) JSON structures, separated by newlines, with a trailing newline at the end
 	var body bytes.Buffer
 	for _, item := range request.Items {
-		metadata := &EsBulkQueryFragment{
-			Index: &EsBulkQueryIndexFragment{
-				Index: request.Index,
-			},
-		}
+		metadata := &EsBulkQueryFragment{}
+
 		if item.DocumentId != "" {
 			metadata.Create = &EsBulkQueryCreateFragment{
 				Id: item.DocumentId,
+			}
+		} else {
+			metadata.Index = &EsBulkQueryIndexFragment{
+				Index: request.Index,
 			}
 		}
 
@@ -192,6 +193,7 @@ func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest) (*E
 		bytes.NewReader(body.Bytes()),
 		c.esClient.Bulk.WithContext(ctx),
 		c.esClient.Bulk.WithRefresh(request.Refresh),
+		c.esClient.Bulk.WithIndex(request.Index),
 	)
 	if err != nil {
 		return nil, err

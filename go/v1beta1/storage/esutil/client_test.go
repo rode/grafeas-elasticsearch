@@ -196,7 +196,7 @@ var _ = Describe("elasticsearch client", func() {
 
 		It("should send a bulk request to ES to create a document for each message", func() {
 			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodPost))
-			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal("/_bulk"))
+			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_bulk", expectedIndex)))
 
 			var expectedPayloads []interface{}
 
@@ -249,7 +249,7 @@ var _ = Describe("elasticsearch client", func() {
 				metadataIndex := randomItemIndex * 2
 				metadataWithDocumentId := expectedPayloads[metadataIndex].(*EsBulkQueryFragment)
 
-				Expect(metadataWithDocumentId.Index.Index).To(Equal(expectedIndex))
+				Expect(metadataWithDocumentId.Index).To(BeNil())
 				Expect(metadataWithDocumentId.Create).ToNot(BeNil())
 				Expect(metadataWithDocumentId.Create.Id).To(Equal(expectedDocumentId))
 			})

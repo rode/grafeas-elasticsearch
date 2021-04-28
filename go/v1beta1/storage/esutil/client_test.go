@@ -763,48 +763,46 @@ var _ = Describe("elasticsearch client", func() {
 		var (
 			actualErr error
 
-			expectedUpdateRequest *UpdateRequest
-			expectedDocumentId    string
+			expectedDeleteRequest *DeleteRequest
 			expectedIndex         string
-			expectedMessage       proto.Message
-			expectedOccurrence    *pb.Occurrence
+			expectedSearch        *EsSearch
 		)
 
 		BeforeEach(func() {
-			expectedDocumentId = fake.LetterN(10)
 			expectedIndex = fake.LetterN(10)
-			expectedOccurrence = createRandomOccurrence()
-			expectedMessage = protov1.MessageV2(expectedOccurrence)
-			expectedUpdateRequest = &UpdateRequest{
-				Index:      expectedIndex,
-				Message:    expectedMessage,
-				DocumentId: expectedDocumentId,
+			expectedSearch = &EsSearch{
+				Query: &filtering.Query{
+					Term: &filtering.Term{
+						fake.LetterN(10): fake.LetterN(10),
+					},
+				},
+			}
+			expectedDeleteRequest = &DeleteRequest{
+				Index:  expectedIndex,
+				Search: expectedSearch,
 			}
 
 			transport.PreparedHttpResponses = []*http.Response{
 				{
 					StatusCode: http.StatusOK,
-					Body: structToJsonBody(&EsIndexDocResponse{
-						Id: expectedDocumentId,
+					Body: structToJsonBody(&EsDeleteResponse{
+						Deleted: 1,
 					}),
 				},
 			}
 		})
 
 		JustBeforeEach(func() {
-			actualErr = client.Update(ctx, expectedUpdateRequest)
+			actualErr = client.Delete(ctx, expectedDeleteRequest)
 		})
 
-		It("should index (update) the document in ES", func() {
-			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc/%s", expectedUpdateRequest.Index, expectedUpdateRequest.DocumentId)))
+		It("should delete the document in ES", func() {
+			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_delete_by_query", expectedDeleteRequest.Index)))
 
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-			Expect(err).ToNot(HaveOccurred())
+			searchRequest := &EsSearch{}
+			ReadRequestBody(transport.ReceivedHttpRequests[0], &searchRequest)
 
-			indexedMessage := &pb.Occurrence{}
-			err = protojson.Unmarshal(requestBody, protov1.MessageV2(indexedMessage))
-			Expect(err).ToNot(HaveOccurred())
-			Expect(indexedMessage).To(BeEquivalentTo(expectedOccurrence))
+			Expect(searchRequest).To(BeEquivalentTo(expectedSearch))
 		})
 
 		It("should refresh the index by default", func() {
@@ -829,11 +827,23 @@ var _ = Describe("elasticsearch client", func() {
 
 		When("the refresh option is set to false", func() {
 			BeforeEach(func() {
-				expectedUpdateRequest.Refresh = "false"
+				expectedDeleteRequest.Refresh = "false"
 			})
 
 			It("should not refresh the index after updating the document", func() {
 				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("false"))
+			})
+		})
+
+		When("zero documents are deleted", func() {
+			BeforeEach(func() {
+				transport.PreparedHttpResponses[0].Body = structToJsonBody(&EsDeleteResponse{
+					Deleted: 0,
+				})
+			})
+
+			It("should return an error", func() {
+				Expect(actualErr).To(HaveOccurred())
 			})
 		})
 	})

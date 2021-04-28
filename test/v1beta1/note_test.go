@@ -258,13 +258,12 @@ func TestNote(t *testing.T) {
 				Expect(err).ToNot(HaveOccurred())
 				Expect(res.Notes).To(HaveLen(pageSize))
 
-				isLastPage := len(res.Notes) + len(foundNotes) == len(batch.Notes)
+				isLastPage := len(res.Notes)+len(foundNotes) == len(batch.Notes)
 				if isLastPage {
 					Expect(res.NextPageToken).To(BeEmpty())
 				} else {
 					Expect(res.NextPageToken).ToNot(BeEmpty())
 				}
-
 
 				// ensure we have not received these notes already
 				for _, o := range res.Notes {

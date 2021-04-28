@@ -204,7 +204,7 @@ var _ = Describe("elasticsearch client", func() {
 				expectedPayloads = append(expectedPayloads, &EsBulkQueryFragment{}, &pb.Occurrence{})
 			}
 
-			parseEsNDJSONRequestBodyWithProtobufs(transport.ReceivedHttpRequests[0].Body, expectedPayloads)
+			parseNDJSONRequestBodyWithProtobufs(transport.ReceivedHttpRequests[0].Body, expectedPayloads)
 
 			for i, payload := range expectedPayloads {
 				if i%2 == 0 { // index metadata
@@ -244,7 +244,7 @@ var _ = Describe("elasticsearch client", func() {
 					expectedPayloads = append(expectedPayloads, &EsBulkQueryFragment{}, &pb.Occurrence{})
 				}
 
-				parseEsNDJSONRequestBodyWithProtobufs(transport.ReceivedHttpRequests[0].Body, expectedPayloads)
+				parseNDJSONRequestBodyWithProtobufs(transport.ReceivedHttpRequests[0].Body, expectedPayloads)
 
 				metadataIndex := randomItemIndex * 2
 				metadataWithDocumentId := expectedPayloads[metadataIndex].(*EsBulkQueryFragment)
@@ -571,7 +571,7 @@ var _ = Describe("elasticsearch client", func() {
 				expectedPayloads = append(expectedPayloads, &EsMultiSearchQueryFragment{}, &EsSearch{})
 			}
 
-			parseEsNDJSONRequestBody(transport.ReceivedHttpRequests[0].Body, expectedPayloads)
+			parseNDJSONRequestBody(transport.ReceivedHttpRequests[0].Body, expectedPayloads)
 
 			for i, payload := range expectedPayloads {
 				if i%2 == 0 { // search metadata
@@ -949,11 +949,11 @@ func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []er
 	}
 }
 
-// parseEsNDJSONRequestBodyWithProtobufs parses a request body in ndjson format
+// parseNDJSONRequestBodyWithProtobufs parses a request body in ndjson format
 // each line of the body is assumed to be properly formatted JSON
 // every odd line is assumed to be a regular JSON structure that can be unmarshalled via json.Unmarshal
 // every even line is assumed to be a JSON structure representing a protobuf message, and will be unmarshalled using protojson.Unmarshal
-func parseEsNDJSONRequestBodyWithProtobufs(body io.ReadCloser, structs []interface{}) {
+func parseNDJSONRequestBodyWithProtobufs(body io.ReadCloser, structs []interface{}) {
 	buf := new(bytes.Buffer)
 	_, err := buf.ReadFrom(body)
 	Expect(err).ToNot(HaveOccurred())
@@ -973,9 +973,9 @@ func parseEsNDJSONRequestBodyWithProtobufs(body io.ReadCloser, structs []interfa
 	}
 }
 
-// parseEsNDJSONRequestBodyWithProtobufs parses a request body in ndjson format
+// parseNDJSONRequestBody parses a request body in ndjson format
 // each line of the body is assumed to be properly formatted JSON that can be unmarshalled via json.Unmarshal
-func parseEsNDJSONRequestBody(body io.ReadCloser, structs []interface{}) {
+func parseNDJSONRequestBody(body io.ReadCloser, structs []interface{}) {
 	buf := new(bytes.Buffer)
 	_, err := buf.ReadFrom(body)
 	Expect(err).ToNot(HaveOccurred())

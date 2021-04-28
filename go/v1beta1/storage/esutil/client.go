@@ -174,14 +174,14 @@ func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest) (*E
 		}
 
 		metadataBytes, _ := json.Marshal(metadata)
-		metadataBytes = append(metadataBytes, "\n"...)
+		metadataBytes = append(metadataBytes, '\n')
 
 		data, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(item.Message)
 		if err != nil {
 			return nil, err
 		}
 
-		dataBytes := append(data, "\n"...)
+		dataBytes := append(data, '\n')
 		body.Grow(len(metadataBytes) + len(dataBytes))
 		body.Write(metadataBytes)
 		body.Write(dataBytes)
@@ -317,12 +317,12 @@ func (c *client) MultiSearch(ctx context.Context, request *MultiSearchRequest) (
 	searchMetadata, _ := json.Marshal(&EsMultiSearchQueryFragment{
 		Index: request.Index,
 	})
-	searchMetadata = append(searchMetadata, "\n"...)
+	searchMetadata = append(searchMetadata, '\n')
 
 	var searchRequestBody bytes.Buffer
 	for _, search := range request.Searches {
 		data, _ := json.Marshal(search)
-		dataBytes := append(data, "\n"...)
+		dataBytes := append(data, '\n')
 
 		searchRequestBody.Grow(len(searchMetadata) + len(dataBytes))
 		searchRequestBody.Write(searchMetadata)

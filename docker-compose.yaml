@@ -9,6 +9,8 @@ services:
     volumes:
       - ./local/docker-config.yaml:/etc/grafeas/config.yaml
     command: "--config /etc/grafeas/config.yaml"
+    environment:
+      DEBUG: "true"
     depends_on:
       elasticsearch:
         condition: service_healthy

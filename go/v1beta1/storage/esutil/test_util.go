@@ -71,7 +71,7 @@ func CreateESBody(value interface{}) io.ReadCloser {
 
 func ReadRequestBody(request *http.Request, target interface{}) {
 	rawBody, err := ioutil.ReadAll(request.Body)
-	Expect(err).To(BeNil())
+	Expect(err).ToNot(HaveOccurred())
 
-	Expect(json.Unmarshal(rawBody, target)).To(BeNil())
+	Expect(json.Unmarshal(rawBody, target)).ToNot(HaveOccurred())
 }

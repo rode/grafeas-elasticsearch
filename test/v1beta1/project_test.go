@@ -15,6 +15,7 @@
 package v1beta1_test
 
 import (
+	"fmt"
 	"github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 	. "github.com/onsi/gomega"
 	"github.com/rode/grafeas-elasticsearch/test/util"
@@ -46,10 +47,14 @@ func TestProject(t *testing.T) {
 	})
 
 	t.Run("listing projects", func(t *testing.T) {
+		projectOne := util.RandomProjectName()
+		projectTwo := util.RandomProjectName()
+		projectThree := util.RandomProjectName()
+
 		names := []string{
-			"projects/foo",
-			"projects/bar",
-			"projects/foo-bar-123",
+			projectOne,
+			projectTwo,
+			projectThree,
 		}
 
 		for _, n := range names {
@@ -65,13 +70,13 @@ func TestProject(t *testing.T) {
 			}{
 				{
 					name:     "single exact name match",
-					filter:   `name=="projects/foo"`,
-					expected: &[]string{"projects/foo"},
+					filter:   fmt.Sprintf(`name=="%s"`, projectOne),
+					expected: &[]string{projectOne},
 				},
 				{
 					name:     "or exact name match",
-					filter:   `name=="projects/foo"||name=="projects/bar"`,
-					expected: &[]string{"projects/foo", "projects/bar"},
+					filter:   fmt.Sprintf(`name=="%s"||name=="%s"`, projectOne, projectTwo),
+					expected: &[]string{projectOne, projectTwo},
 				},
 				{
 					name:     "no name match",

@@ -7,7 +7,7 @@ services:
     ports:
       - "8080:8080"
     volumes:
-      - ./local/config.yaml:/etc/grafeas/config.yaml
+      - ./local/docker-config.yaml:/etc/grafeas/config.yaml
     command: "--config /etc/grafeas/config.yaml"
     depends_on:
       elasticsearch:

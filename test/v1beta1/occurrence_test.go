@@ -45,6 +45,18 @@ func TestOccurrence(t *testing.T) {
 	_, err := util.CreateProject(s, projectName)
 	Expect(err).ToNot(HaveOccurred())
 
+	t.Run("filter on project with no occurrences", func(t *testing.T) {
+		newProjectName := util.RandomProjectName()
+		_, err := util.CreateProject(s, newProjectName)
+		Expect(err).ToNot(HaveOccurred())
+
+		res, err := s.Gc.ListOccurrences(s.Ctx, &grafeas_go_proto.ListOccurrencesRequest{
+			Parent: newProjectName,
+		})
+		Expect(err).ToNot(HaveOccurred())
+		Expect(res.GetOccurrences()).To(HaveLen(0))
+	})
+
 	t.Run("creating an occurrence", func(t *testing.T) {
 		t.Run("should be successful", func(t *testing.T) {
 			o, err := s.Gc.CreateOccurrence(s.Ctx, &grafeas_go_proto.CreateOccurrenceRequest{

@@ -1,3 +1,17 @@
+// Copyright 2021 The Rode Authors
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//      http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
 package esutil
 
 import (
@@ -19,6 +33,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"strconv"
 	"strings"
 )
 
@@ -291,6 +306,9 @@ var _ = Describe("elasticsearch client", func() {
 							Highlights: []byte("{}"),
 						},
 					},
+					Total: &EsSearchResponseTotal{
+						Value: fake.Number(1000, 10000),
+					},
 				},
 			}
 			expectedSearchRequest = &SearchRequest{
@@ -311,6 +329,8 @@ var _ = Describe("elasticsearch client", func() {
 
 		It("should send a search request to ES", func() {
 			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedIndex)))
+			// page size should be 1000 by default
+			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(grafeasMaxPageSize)))
 
 			searchRequest := &EsSearch{}
 			ReadRequestBody(transport.ReceivedHttpRequests[0], &searchRequest)
@@ -361,6 +381,139 @@ var _ = Describe("elasticsearch client", func() {
 			It("should return an error", func() {
 				Expect(actualSearchResponse).To(BeNil())
 				Expect(actualErr).To(HaveOccurred())
+			})
+		})
+
+		When("pagination is used", func() {
+			var (
+				expectedPageSize int
+				expectedPitId    string
+			)
+
+			BeforeEach(func() {
+				expectedPageSize = fake.Number(20, 100)
+				expectedPitId = fake.LetterN(10)
+				expectedSearchRequest.Pagination = &SearchPaginationOptions{
+					Size: expectedPageSize,
+				}
+
+				transport.PreparedHttpResponses = append([]*http.Response{
+					{
+						StatusCode: http.StatusOK,
+						Body: structToJsonBody(&ESPitResponse{
+							Id: expectedPitId,
+						}),
+					},
+				}, transport.PreparedHttpResponses...)
+			})
+
+			When("a page token is not specified", func() {
+				It("should create a PIT in ES before performing a search", func() {
+					Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_pit", expectedIndex)))
+					Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodPost))
+					Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("keep_alive")).To(Equal(defaultPitKeepAlive))
+				})
+
+				It("should perform a search using the PIT id", func() {
+					Expect(transport.ReceivedHttpRequests[1].URL.Path).To(Equal("/_search"))
+					Expect(transport.ReceivedHttpRequests[1].Method).To(Equal(http.MethodGet))
+					Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("size")).To(Equal(strconv.Itoa(expectedPageSize)))
+					Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("from")).To(Equal(strconv.Itoa(0)))
+
+					searchRequest := &EsSearch{}
+					ReadRequestBody(transport.ReceivedHttpRequests[1], &searchRequest)
+
+					Expect(searchRequest.Pit.Id).To(Equal(expectedPitId))
+				})
+
+				It("should return the next page token", func() {
+					pitId, from, err := ParsePageToken(actualSearchResponse.NextPageToken)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(pitId).To(Equal(expectedPitId))
+					Expect(from).To(BeEquivalentTo(expectedPageSize))
+				})
+
+				When("creating the PIT fails", func() {
+					BeforeEach(func() {
+						transport.PreparedHttpResponses[0] = &http.Response{
+							StatusCode: http.StatusInternalServerError,
+						}
+					})
+
+					It("should return an error", func() {
+						Expect(actualSearchResponse).To(BeNil())
+						Expect(actualErr).To(HaveOccurred())
+					})
+				})
+
+				When("the search operation fails", func() {
+					BeforeEach(func() {
+						transport.PreparedHttpResponses[1] = &http.Response{
+							StatusCode: http.StatusInternalServerError,
+						}
+					})
+
+					It("should return an error", func() {
+						Expect(actualSearchResponse).To(BeNil())
+						Expect(actualErr).To(HaveOccurred())
+					})
+				})
+
+				When("the end of the search results has been reached", func() {
+					BeforeEach(func() {
+						expectedSearchResponse.Hits.Total.Value = fake.Number(0, expectedPageSize-1)
+						transport.PreparedHttpResponses[1].Body = structToJsonBody(expectedSearchResponse)
+					})
+
+					It("should return an empty next page token", func() {
+						Expect(actualSearchResponse.NextPageToken).To(BeEmpty())
+					})
+				})
+			})
+
+			When("a page token is specified", func() {
+				var (
+					expectedFrom int
+				)
+
+				BeforeEach(func() {
+					expectedFrom = fake.Number(10, 20)
+					expectedSearchRequest.Pagination.Token = CreatePageToken(expectedPitId, expectedFrom)
+
+					// we only expect one ES response now for the search operation
+					transport.PreparedHttpResponses = []*http.Response{
+						transport.PreparedHttpResponses[1],
+					}
+				})
+
+				It("should perform a search using the provided PIT", func() {
+					Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal("/_search"))
+					Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+					Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(expectedPageSize)))
+					Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("from")).To(Equal(strconv.Itoa(expectedFrom)))
+				})
+
+				When("the end of the search results has been reached", func() {
+					BeforeEach(func() {
+						expectedSearchResponse.Hits.Total.Value = fake.Number(0, expectedFrom+expectedPageSize-1)
+						transport.PreparedHttpResponses[0].Body = structToJsonBody(expectedSearchResponse)
+					})
+
+					It("should return an empty next page token", func() {
+						Expect(actualSearchResponse.NextPageToken).To(BeEmpty())
+					})
+				})
+
+				When("the provided page token is invalid", func() {
+					BeforeEach(func() {
+						expectedSearchRequest.Pagination.Token = fake.LetterN(10)
+					})
+
+					It("should return an error", func() {
+						Expect(actualSearchResponse).To(BeNil())
+						Expect(actualErr).To(HaveOccurred())
+					})
+				})
 			})
 		})
 	})

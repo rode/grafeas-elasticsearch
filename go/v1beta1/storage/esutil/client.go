@@ -299,8 +299,10 @@ func (c *client) Search(ctx context.Context, request *SearchRequest) (*SearchRes
 
 	response.Hits = searchResults.Hits
 	if request.Pagination != nil {
-		if searchFrom < response.Hits.Total.Value {
-			response.NextPageToken = CreatePageToken(pitId, searchFrom+request.Pagination.Size)
+		nextSearchFrom := searchFrom + request.Pagination.Size
+
+		if nextSearchFrom < response.Hits.Total.Value {
+			response.NextPageToken = CreatePageToken(pitId, nextSearchFrom)
 		}
 	}
 

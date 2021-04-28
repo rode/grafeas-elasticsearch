@@ -15,14 +15,10 @@
 package storage
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
-	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration"
 
-	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/google/uuid"
@@ -47,7 +43,7 @@ const sortField = "createTime"
 const pitKeepAlive = "5m"
 
 type ElasticsearchStorage struct {
-	client                *elasticsearch.Client
+	client                esutil.Client
 	config                *config.ElasticsearchConfig
 	filterer              filtering.Filterer
 	indexManager          esutil.IndexManager
@@ -57,7 +53,7 @@ type ElasticsearchStorage struct {
 
 func NewElasticsearchStorage(
 	logger *zap.Logger,
-	client *elasticsearch.Client,
+	client esutil.Client,
 	filterer filtering.Filterer,
 	config *config.ElasticsearchConfig,
 	indexManager esutil.IndexManager,
@@ -209,15 +205,15 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 
 	log.Debug("project document deleted")
 
-	res, err := es.client.Indices.Delete(
-		[]string{
-			es.indexManager.OccurrencesIndex(projectId),
-			es.indexManager.NotesIndex(projectId),
-		},
-		es.client.Indices.Delete.WithContext(ctx),
-	)
-	if err != nil || res.IsError() {
-		return createError(log, "error deleting elasticsearch indices", err)
+	indicesToDelete := []string{
+		es.indexManager.OccurrencesIndex(projectId),
+		es.indexManager.NotesIndex(projectId),
+	}
+	for _, index := range indicesToDelete {
+		err = es.indexManager.DeleteIndex(ctx, index)
+		if err != nil {
+			return createError(log, "error deleting elasticsearch indices", err)
+		}
 	}
 
 	log.Debug("project indices for notes / occurrences deleted")
@@ -317,63 +313,26 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	}
 	log.Debug("creating occurrences")
 
-	indexMetadata := &esutil.EsBulkQueryFragment{
-		Index: &esutil.EsBulkQueryIndexFragment{
-			Index: es.indexManager.OccurrencesAlias(projectId),
-		},
-	}
-
-	metadata, _ := json.Marshal(indexMetadata)
-	metadata = append(metadata, "\n"...)
-
-	// build the request body using newline delimited JSON (ndjson)
-	// each occurrence is represented by two JSON structures:
-	// the first is the metadata that represents the ES operation, in this case "index"
-	// the second is the source payload to index
-	// in total, this body will consist of (len(occurrences) * 2) JSON structures, separated by newlines, with a trailing newline at the end
-	var body bytes.Buffer
+	var bulkCreateRequestItems []*esutil.BulkCreateRequestItem
 	for _, occurrence := range occurrences {
 		occurrence.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, uuid.New().String())
 		if occurrence.CreateTime == nil {
 			occurrence.CreateTime = ptypes.TimestampNow()
 		}
 
-		data, err := protojson.Marshal(proto.MessageV2(occurrence))
-		if err != nil {
-			return nil, []error{
-				createError(log, "error marshaling occurrence", err),
-			}
-		}
-
-		dataBytes := append(data, "\n"...)
-		body.Grow(len(metadata) + len(dataBytes))
-		body.Write(metadata)
-		body.Write(dataBytes)
+		bulkCreateRequestItems = append(bulkCreateRequestItems, &esutil.BulkCreateRequestItem{
+			Message: proto.MessageV2(occurrence),
+		})
 	}
 
-	log.Debug("attempting ES bulk index", zap.String("payload", string(body.Bytes())))
-
-	res, err := es.client.Bulk(
-		bytes.NewReader(body.Bytes()),
-		es.client.Bulk.WithContext(ctx),
-		es.client.Bulk.WithRefresh(es.config.Refresh.String()),
-	)
+	response, err := es.client.BulkCreate(ctx, &esutil.BulkCreateRequest{
+		Index:   es.indexManager.OccurrencesAlias(projectId),
+		Refresh: string(es.config.Refresh),
+		Items:   bulkCreateRequestItems,
+	})
 	if err != nil {
 		return nil, []error{
-			createError(log, "failed while sending request to ES", err),
-		}
-	}
-	if res.IsError() {
-		return nil, []error{
-			createError(log, "unexpected response from ES", nil),
-		}
-	}
-
-	response := &esutil.EsBulkResponse{}
-	err = esutil.DecodeResponse(res.Body, response)
-	if err != nil {
-		return nil, []error{
-			createError(log, "error decoding ES response", nil),
+			createError(log, "error bulk creating documents in elasticsearch", err),
 		}
 	}
 
@@ -557,7 +516,9 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 // BatchCreateNotes batch creates the specified notes in memstore.
 func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId, uID string, notesWithNoteIds map[string]*pb.Note) ([]*pb.Note, []error) {
 	log := es.logger.Named("BatchCreateNotes").With(zap.String("projectId", projectId))
+
 	log.Debug("creating notes")
+
 	exists, err := es.doesProjectExist(ctx, log, projectId)
 	if err != nil {
 		return nil, []error{err}
@@ -567,14 +528,9 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		return nil, []error{status.Error(codes.FailedPrecondition, fmt.Sprintf("project with ID %s does not exist", projectId))}
 	}
 
-	searchMetadata, _ := json.Marshal(&esutil.EsMultiSearchQueryFragment{
-		Index: es.indexManager.NotesAlias(projectId),
-	})
-	searchMetadata = append(searchMetadata, "\n"...)
-
 	var (
-		notes             []*pb.Note
-		searchRequestBody bytes.Buffer
+		searches []*esutil.EsSearch
+		notes    []*pb.Note
 	)
 	for noteId, note := range notesWithNoteIds {
 		note.Name = fmt.Sprintf("projects/%s/notes/%s", projectId, noteId)
@@ -584,44 +540,22 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 
 		notes = append(notes, note)
 
-		searchBody := &esutil.EsSearch{
+		searches = append(searches, &esutil.EsSearch{
 			Query: &filtering.Query{
 				Term: &filtering.Term{
 					"name": note.Name,
 				},
 			},
-		}
-		data, _ := json.Marshal(searchBody)
-		dataBytes := append(data, "\n"...)
-
-		searchRequestBody.Grow(len(searchMetadata) + len(dataBytes))
-		searchRequestBody.Write(searchMetadata)
-		searchRequestBody.Write(dataBytes)
+		})
 	}
 
-	log.Debug("attempting ES multisearch", zap.String("payload", string(searchRequestBody.Bytes())))
-
-	res, err := es.client.Msearch(
-		bytes.NewReader(searchRequestBody.Bytes()),
-		es.client.Msearch.WithContext(ctx),
-	)
-
+	multiSearchResponse, err := es.client.MultiSearch(ctx, &esutil.MultiSearchRequest{
+		Index:    es.indexManager.NotesAlias(projectId),
+		Searches: searches,
+	})
 	if err != nil {
 		return nil, []error{
-			createError(log, "failed while sending request to ES", err),
-		}
-	}
-	if res.IsError() {
-		return nil, []error{
-			createError(log, "unexpected response from ES", nil, zap.Any("response", res.String()), zap.Int("status", res.StatusCode)),
-		}
-	}
-
-	searchResponse := &esutil.EsMultiSearchResponse{}
-	err = esutil.DecodeResponse(res.Body, searchResponse)
-	if err != nil {
-		return nil, []error{
-			createError(log, "error decoding ES response", nil),
+			createError(log, "error with multi search request to elasticsearch", err),
 		}
 	}
 
@@ -629,7 +563,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		notesToCreate []*pb.Note
 		errs          []error
 	)
-	for i, res := range searchResponse.Responses {
+	for i, res := range multiSearchResponse.Responses {
 		if res.Hits.Total.Value != 0 {
 			errs = append(errs, status.Errorf(codes.AlreadyExists, "note with the name %s already exists", notes[i].Name))
 		} else {
@@ -642,46 +576,20 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		return nil, errs
 	}
 
-	indexMetadata, _ := json.Marshal(&esutil.EsBulkQueryFragment{
-		Index: &esutil.EsBulkQueryIndexFragment{
-			Index: es.indexManager.NotesAlias(projectId),
-		},
-	})
-	indexMetadata = append(indexMetadata, "\n"...)
-
-	// build the request body using newline delimited JSON (ndjson)
-	// each note is represented by two JSON structures:
-	// the first is the metadata that represents the ES operation, in this case "index"
-	// the second is the source payload to index
-	// in total, this body will consist of (len(notes) * 2) JSON structures, separated by newlines, with a trailing newline at the end
-	var indexBody bytes.Buffer
+	var bulkCreateRequestItems []*esutil.BulkCreateRequestItem
 	for _, note := range notesToCreate {
-		data, _ := protojson.Marshal(proto.MessageV2(note))
-
-		dataBytes := append(data, "\n"...)
-		indexBody.Grow(len(indexMetadata) + len(dataBytes))
-		indexBody.Write(indexMetadata)
-		indexBody.Write(dataBytes)
+		bulkCreateRequestItems = append(bulkCreateRequestItems, &esutil.BulkCreateRequestItem{
+			Message: proto.MessageV2(note),
+		})
 	}
 
-	log.Debug("attempting ES bulk index", zap.String("payload", string(indexBody.Bytes())))
-
-	res, err = es.client.Bulk(
-		bytes.NewReader(indexBody.Bytes()),
-		es.client.Bulk.WithContext(ctx),
-		es.client.Bulk.WithRefresh(es.config.Refresh.String()),
-	)
+	bulkResponse, err := es.client.BulkCreate(ctx, &esutil.BulkCreateRequest{
+		Index:   es.indexManager.NotesAlias(projectId),
+		Refresh: es.config.Refresh.String(),
+		Items:   bulkCreateRequestItems,
+	})
 	if err != nil {
-		return nil, append(errs, createError(log, "failed while sending request to ES", err))
-	}
-	if res.IsError() {
-		return nil, append(errs, createError(log, "unexpected response from ES", nil, zap.Any("response", res.String()), zap.Int("status", res.StatusCode)))
-	}
-
-	bulkResponse := &esutil.EsBulkResponse{}
-	err = esutil.DecodeResponse(res.Body, bulkResponse)
-	if err != nil {
-		return nil, append(errs, createError(log, "error decoding ES response", nil))
+		return nil, append(errs, createError(log, "error bulk creating documents in elasticsearch", err))
 	}
 
 	// each indexing operation in this bulk request has its own status
@@ -748,128 +656,64 @@ func (es *ElasticsearchStorage) GetVulnerabilityOccurrencesSummary(ctx context.C
 }
 
 func (es *ElasticsearchStorage) genericGet(ctx context.Context, log *zap.Logger, search *esutil.EsSearch, index string, protoMessage interface{}) (string, error) {
-	encodedBody, requestJson := esutil.EncodeRequest(search)
-	log = log.With(zap.String("request", requestJson))
-
-	res, err := es.client.Search(
-		es.client.Search.WithContext(ctx),
-		es.client.Search.WithIndex(index),
-		es.client.Search.WithBody(encodedBody),
-	)
+	res, err := es.client.Search(ctx, &esutil.SearchRequest{
+		Index:  index,
+		Search: search,
+	})
 	if err != nil {
-		return "", createError(log, "error sending request to elasticsearch", err)
-	}
-	if res.IsError() {
-		return "", createError(log, "error searching elasticsearch for document", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
+		return "", createError(log, "error searching elasticsearch for document", err)
 	}
 
-	var searchResults esutil.EsSearchResponse
-	if err := esutil.DecodeResponse(res.Body, &searchResults); err != nil {
-		return "", createError(log, "error unmarshalling elasticsearch response", err)
-	}
-
-	if searchResults.Hits.Total.Value == 0 {
+	if res.Hits.Total.Value == 0 {
 		log.Debug("document not found", zap.Any("search", search))
 		return "", status.Error(codes.NotFound, fmt.Sprintf("%T not found", protoMessage))
 	}
 
-	return searchResults.Hits.Hits[0].ID, protojson.Unmarshal(searchResults.Hits.Hits[0].Source, proto.MessageV2(protoMessage))
+	return res.Hits.Hits[0].ID, protojson.Unmarshal(res.Hits.Hits[0].Source, proto.MessageV2(protoMessage))
 }
 
 func (es *ElasticsearchStorage) genericCreate(ctx context.Context, log *zap.Logger, index string, protoMessage interface{}) error {
-	str, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(proto.MessageV2(protoMessage))
+	_, err := es.client.Create(ctx, &esutil.CreateRequest{
+		Index:   index,
+		Message: proto.MessageV2(protoMessage),
+		Refresh: string(es.config.Refresh),
+	})
 	if err != nil {
-		return createError(log, fmt.Sprintf("error marshalling %T to json", protoMessage), err)
+		return createError(log, "error creating document in elasticsearch", err)
 	}
-
-	res, err := es.client.Index(
-		index,
-		bytes.NewReader(str),
-		es.client.Index.WithContext(ctx),
-		es.client.Index.WithRefresh(es.config.Refresh.String()),
-	)
-	if err != nil {
-		return createError(log, "error sending request to elasticsearch", err)
-	}
-
-	if res.IsError() {
-		return createError(log, "error indexing document in elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
-	}
-
-	esResponse := &esutil.EsIndexDocResponse{}
-	err = esutil.DecodeResponse(res.Body, esResponse)
-	if err != nil {
-		return createError(log, "error decoding elasticsearch response", err)
-	}
-
-	log.Debug("elasticsearch response", zap.Any("response", esResponse))
 
 	return nil
 }
 
 func (es *ElasticsearchStorage) genericUpdate(ctx context.Context, log *zap.Logger, index string, docID string, protoMessage interface{}) error {
-	str, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(proto.MessageV2(protoMessage))
+	err := es.client.Update(ctx, &esutil.UpdateRequest{
+		Index:      index,
+		DocumentId: docID,
+		Message:    proto.MessageV2(protoMessage),
+		Refresh:    string(es.config.Refresh),
+	})
 	if err != nil {
-		return createError(log, fmt.Sprintf("error marshalling %T to json", protoMessage), err)
+		return createError(log, "error updating document in elasticsearch", err)
 	}
-
-	res, err := es.client.Index(
-		index,
-		bytes.NewReader(str),
-		es.client.Index.WithDocumentID(docID),
-		es.client.Index.WithContext(ctx),
-		es.client.Index.WithRefresh(es.config.Refresh.String()),
-	)
-	if err != nil {
-		return createError(log, "error sending request to elasticsearch", err)
-	}
-
-	if res.IsError() {
-		return createError(log, "error indexing document in elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
-	}
-
-	esResponse := &esutil.EsIndexDocResponse{}
-	err = esutil.DecodeResponse(res.Body, esResponse)
-	if err != nil {
-		return createError(log, "error decoding elasticsearch response", err)
-	}
-
-	log.Debug("elasticsearch response", zap.Any("response", esResponse))
 
 	return nil
 }
 
 func (es *ElasticsearchStorage) genericDelete(ctx context.Context, log *zap.Logger, search *esutil.EsSearch, index string) error {
-	encodedBody, requestJson := esutil.EncodeRequest(search)
-	log = log.With(zap.String("request", requestJson))
-
-	res, err := es.client.DeleteByQuery(
-		[]string{index},
-		encodedBody,
-		es.client.DeleteByQuery.WithContext(ctx),
-		es.client.DeleteByQuery.WithRefresh(withRefreshBool(es.config.Refresh)),
-	)
+	err := es.client.Delete(ctx, &esutil.DeleteRequest{
+		Index:   index,
+		Search:  search,
+		Refresh: string(es.config.Refresh),
+	})
 	if err != nil {
-		return createError(log, "error sending request to elasticsearch", err)
-	}
-	if res.IsError() {
-		return createError(log, "received unexpected response from elasticsearch", nil)
-	}
-
-	var deletedResults esutil.EsDeleteResponse
-	if err = esutil.DecodeResponse(res.Body, &deletedResults); err != nil {
-		return createError(log, "error unmarshalling elasticsearch response", err)
-	}
-
-	if deletedResults.Deleted == 0 {
-		return createError(log, "elasticsearch returned zero deleted documents", nil, zap.Any("response", deletedResults))
+		return createError(log, "error deleting document in elasticsearch", err)
 	}
 
 	return nil
 }
 
 func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger, index, filter string, sort bool, pageToken string, pageSize int32) (*esutil.EsSearchResponseHits, string, error) {
-	body := &esutil.EsSearch{}
+	search := &esutil.EsSearch{}
 	if filter != "" {
 		log = log.With(zap.String("filter", filter))
 		filterQuery, err := es.filterer.ParseExpression(filter)
@@ -877,115 +721,28 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 			return nil, "", createError(log, "error while parsing filter expression", err)
 		}
 
-		body.Query = filterQuery
+		search.Query = filterQuery
 	}
 
 	if sort {
-		body.Sort = map[string]esutil.EsSortOrder{
+		search.Sort = map[string]esutil.EsSortOrder{
 			sortField: esutil.EsSortOrderDescending,
 		}
 	}
 
-	searchOptions := []func(*esapi.SearchRequest){
-		es.client.Search.WithContext(ctx),
-	}
-
-	var nextPageToken string
-	if pageToken != "" || pageSize != 0 { // handle pagination
-		next, extraSearchOptions, err := es.handlePagination(ctx, log, body, index, pageToken, pageSize)
-		if err != nil {
-			return nil, "", createError(log, "error while handling pagination", err)
-		}
-
-		nextPageToken = next
-		searchOptions = append(searchOptions, extraSearchOptions...)
-	} else {
-		searchOptions = append(searchOptions,
-			es.client.Search.WithIndex(index),
-			es.client.Search.WithSize(grafeasMaxPageSize),
-		)
-	}
-
-	encodedBody, requestJson := esutil.EncodeRequest(body)
-	log = log.With(zap.String("request", requestJson))
-	log.Debug("performing search")
-
-	res, err := es.client.Search(
-		append(searchOptions, es.client.Search.WithBody(encodedBody))...,
-	)
+	res, err := es.client.Search(ctx, &esutil.SearchRequest{
+		Index:  index,
+		Search: search,
+		Pagination: &esutil.SearchPaginationOptions{
+			Size:  int(pageSize),
+			Token: pageToken,
+		},
+	})
 	if err != nil {
-		return nil, "", createError(log, "error sending request to elasticsearch", err)
-	}
-	if res.IsError() {
-		return nil, "", createError(log, "unexpected response from elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
+		return nil, "", createError(log, "error listing documents in elasticsearch", err)
 	}
 
-	var searchResults esutil.EsSearchResponse
-	if err := esutil.DecodeResponse(res.Body, &searchResults); err != nil {
-		return nil, "", createError(log, "error decoding elasticsearch response", err)
-	}
-
-	if pageToken != "" || pageSize != 0 { // if request is paginated, check for last page
-		_, from, err := esutil.ParsePageToken(nextPageToken)
-		if err != nil {
-			return nil, "", createError(log, "error parsing page token", err)
-		}
-
-		if from >= searchResults.Hits.Total.Value {
-			nextPageToken = ""
-		}
-	}
-
-	return searchResults.Hits, nextPageToken, nil
-}
-
-func (es *ElasticsearchStorage) handlePagination(ctx context.Context, log *zap.Logger, body *esutil.EsSearch, index, pageToken string, pageSize int32) (string, []func(*esapi.SearchRequest), error) {
-	log = log.With(zap.String("pageToken", pageToken), zap.Int32("pageSize", pageSize))
-
-	var (
-		pit  string
-		from int
-		err  error
-	)
-
-	// if no pageToken is specified, we need to create a new PIT
-	if pageToken == "" {
-		res, err := es.client.OpenPointInTime(
-			es.client.OpenPointInTime.WithContext(ctx),
-			es.client.OpenPointInTime.WithIndex(index),
-			es.client.OpenPointInTime.WithKeepAlive(pitKeepAlive),
-		)
-		if err != nil {
-			return "", nil, createError(log, "error sending request to elasticsearch", err)
-		}
-		if res.IsError() {
-			return "", nil, createError(log, "unexpected response from elasticsearch", nil, zap.String("response", res.String()), zap.Int("status", res.StatusCode))
-		}
-
-		var pitResponse esutil.ESPitResponse
-		if err = esutil.DecodeResponse(res.Body, &pitResponse); err != nil {
-			return "", nil, createError(log, "error decoding elasticsearch response", err)
-		}
-
-		pit = pitResponse.Id
-		from = 0
-	} else {
-		// get the PIT from the provided pageToken
-		pit, from, err = esutil.ParsePageToken(pageToken)
-		if err != nil {
-			return "", nil, createError(log, "error parsing page token", err)
-		}
-	}
-
-	body.Pit = &esutil.EsSearchPit{
-		Id:        pit,
-		KeepAlive: pitKeepAlive,
-	}
-
-	return esutil.CreatePageToken(pit, from+int(pageSize)), []func(*esapi.SearchRequest){
-		es.client.Search.WithSize(int(pageSize)),
-		es.client.Search.WithFrom(from),
-	}, err
+	return res.Hits, res.NextPageToken, nil
 }
 
 // createError is a helper function that allows you to easily log an error and return a gRPC formatted error.

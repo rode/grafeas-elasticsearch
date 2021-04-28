@@ -138,7 +138,7 @@ func (c *client) Create(ctx context.Context, request *CreateRequest) (string, er
 		return "", err
 	}
 	if res.IsError() {
-		return "", errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+		return "", fmt.Errorf("unexpected response from elasticsearch: %s", res.String())
 	}
 
 	esResponse := EsIndexDocResponse{}
@@ -199,7 +199,7 @@ func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest) (*E
 		return nil, err
 	}
 	if res.IsError() {
-		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+		return nil, fmt.Errorf("unexpected response from elasticsearch: %s", res.String())
 	}
 
 	var response EsBulkResponse
@@ -246,7 +246,7 @@ func (c *client) Search(ctx context.Context, request *SearchRequest) (*SearchRes
 				return nil, err
 			}
 			if res.IsError() {
-				return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+				return nil, fmt.Errorf("unexpected response from elasticsearch: %s", res.String())
 			}
 
 			var pitResponse ESPitResponse
@@ -291,7 +291,7 @@ func (c *client) Search(ctx context.Context, request *SearchRequest) (*SearchRes
 		return nil, err
 	}
 	if res.IsError() {
-		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+		return nil, fmt.Errorf("unexpected response from elasticsearch: %s", res.String())
 	}
 
 	var searchResults EsSearchResponse
@@ -337,7 +337,7 @@ func (c *client) MultiSearch(ctx context.Context, request *MultiSearchRequest) (
 		return nil, err
 	}
 	if res.IsError() {
-		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+		return nil, fmt.Errorf("unexpected response from elasticsearch: %s", res.String())
 	}
 
 	var response EsMultiSearchResponse
@@ -367,7 +367,7 @@ func (c *client) MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMul
 		return nil, err
 	}
 	if res.IsError() {
-		return nil, errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+		return nil, fmt.Errorf("unexpected response from elasticsearch: %s", res.String())
 	}
 
 	var response EsMultiGetResponse
@@ -402,7 +402,7 @@ func (c *client) Update(ctx context.Context, request *UpdateRequest) error {
 		return err
 	}
 	if res.IsError() {
-		return errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+		return fmt.Errorf("unexpected response from elasticsearch: %s", res.String())
 	}
 
 	esResponse := EsIndexDocResponse{}
@@ -434,7 +434,7 @@ func (c *client) Delete(ctx context.Context, request *DeleteRequest) error {
 		return err
 	}
 	if res.IsError() {
-		return errors.New(fmt.Sprintf("unexpected response from elasticsearch: %s", res.String()))
+		return fmt.Errorf("unexpected response from elasticsearch: %s", res.String())
 	}
 
 	deletedResults := EsDeleteResponse{}

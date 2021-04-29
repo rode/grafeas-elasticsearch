@@ -19,7 +19,7 @@ You can run the Grafeas server by using one of our prebuilt Docker images:
 ```bash
 docker run \
   -p 8080:8080 \
-  -v ./config.yaml:/etc/grafeas/config.yaml \
+  -v ./local/docker-config.yaml:/etc/grafeas/config.yaml \
   ghcr.io/rode/grafeas-elasticsearch --config /etc/grafeas/config.yaml
 ```
 

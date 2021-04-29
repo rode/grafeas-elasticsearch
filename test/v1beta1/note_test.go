@@ -41,7 +41,7 @@ func TestNote(t *testing.T) {
 	_, err := util.CreateProject(s, projectName)
 	Expect(err).ToNot(HaveOccurred())
 
-	t.Run("filter on project with no notes", func(t *testing.T) {
+	t.Run("list on project with no notes", func(t *testing.T) {
 		newProjectName := util.RandomProjectName()
 		_, err := util.CreateProject(s, newProjectName)
 		Expect(err).ToNot(HaveOccurred())

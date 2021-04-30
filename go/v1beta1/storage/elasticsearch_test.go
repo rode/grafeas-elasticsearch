@@ -1703,12 +1703,21 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("creating a new Grafeas note", func() {
 		var (
-			actualNote       *pb.Note
+			actualErr  error
+			actualNote *pb.Note
+
 			expectedNote     *pb.Note
 			expectedNoteId   string
 			expectedNoteName string
-			expectedNoteESId string
-			actualErr        error
+
+			expectedProjectSearchResponse *esutil.SearchResponse
+			expectedProjectSearchError    error
+
+			expectedNoteSearchResponse *esutil.SearchResponse
+			expectedNoteSearchError    error
+
+			expectedNoteESId    string
+			expectedCreateError error
 		)
 
 		// BeforeEach configures the happy path for this context
@@ -1721,189 +1730,197 @@ var _ = Describe("elasticsearch storage", func() {
 			expectedNote = generateTestNote(expectedNoteName)
 			expectedNoteESId = fake.LetterN(10)
 
-			transport.PreparedHttpResponses = []*http.Response{
-				{
-					StatusCode: http.StatusOK,
-					Body:       createEsSearchResponse("project", fake.LetterN(10)),
-				},
-				{
-					StatusCode: http.StatusOK,
-					Body:       createGenericEsSearchResponse(), // happy path: a note with this ID does not exist (0 hits), so we create one
-				},
-				{
-					StatusCode: http.StatusCreated,
-					Body: structToJsonBody(&esutil.EsIndexDocResponse{
-						Id: expectedNoteESId,
-					}),
+			// happy path: project exists
+			expectedProject := generateTestProject(expectedProjectId)
+			expectedProjectJson, err := protojson.Marshal(proto.MessageV2(expectedProject))
+			Expect(err).ToNot(HaveOccurred())
+			expectedProjectSearchResponse = &esutil.SearchResponse{
+				Hits: &esutil.EsSearchResponseHits{
+					Total: &esutil.EsSearchResponseTotal{
+						Value: 1,
+					},
+					Hits: []*esutil.EsSearchResponseHit{
+						{
+							Source: expectedProjectJson,
+						},
+					},
 				},
 			}
+			expectedProjectSearchError = nil
+
+			// happy path: note does not exist (so it needs to be created)
+			expectedNoteSearchResponse = &esutil.SearchResponse{
+				Hits: &esutil.EsSearchResponseHits{
+					Total: &esutil.EsSearchResponseTotal{
+						Value: 0,
+					},
+				},
+			}
+			expectedNoteSearchError = nil
+
+			expectedCreateError = nil
 		})
 
 		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
-			note := deepCopyNote(expectedNote)
+			client.SearchReturnsOnCall(0, expectedProjectSearchResponse, expectedProjectSearchError)
+			client.SearchReturnsOnCall(1, expectedNoteSearchResponse, expectedNoteSearchError)
+			client.CreateReturns(expectedNoteESId, expectedCreateError)
 
-			actualNote, actualErr = elasticsearchStorage.CreateNote(context.Background(), expectedProjectId, expectedNoteId, "", note)
+			actualNote, actualErr = elasticsearchStorage.CreateNote(ctx, expectedProjectId, expectedNoteId, "", deepCopyNote(expectedNote))
 		})
 
 		It("should check that the occurrence's project exists", func() {
-			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
-			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectAlias)))
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-			Expect(err).ToNot(HaveOccurred())
+			// we expect two search calls because we search for the project and the note
+			Expect(client.SearchCallCount()).To(Equal(2))
 
-			searchBody := &esutil.EsSearch{}
-			err = json.Unmarshal(requestBody, searchBody)
-			expectedProject := &esutil.EsSearch{
-				Query: &filtering.Query{
-					Term: &filtering.Term{
-						"name": fmt.Sprintf("projects/%s", expectedProjectId),
-					},
-				},
-			}
-			Expect(searchBody).To(Equal(expectedProject))
+			_, searchRequest := client.SearchArgsForCall(0)
+			Expect(searchRequest.Index).To(Equal(expectedProjectAlias))
+			Expect((*searchRequest.Search.Query.Term)["name"]).To(Equal(fmt.Sprintf("projects/%s", expectedProjectId)))
 		})
 
 		It("should check elasticsearch to see if a note with the specified noteId already exists", func() {
-			Expect(transport.ReceivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedNotesAlias)))
-			Expect(transport.ReceivedHttpRequests[1].Method).To(Equal(http.MethodGet))
+			// we expect two search calls because we search for the project and the note
+			Expect(client.SearchCallCount()).To(Equal(2))
 
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[1].Body)
-			Expect(err).ToNot(HaveOccurred())
+			_, searchRequest := client.SearchArgsForCall(1)
+			Expect(searchRequest.Index).To(Equal(expectedNotesAlias))
+			Expect((*searchRequest.Search.Query.Term)["name"]).To(Equal(expectedNoteName))
+		})
 
-			searchBody := &esutil.EsSearch{}
-			err = json.Unmarshal(requestBody, searchBody)
-			Expect(err).ToNot(HaveOccurred())
+		It("should attempt to index the note as a document", func() {
+			Expect(client.CreateCallCount()).To(Equal(1))
 
-			Expect((*searchBody.Query.Term)["name"]).To(Equal(expectedNoteName))
+			_, createRequest := client.CreateArgsForCall(0)
+
+			Expect(createRequest.Index).To(Equal(expectedNotesAlias))
+
+			note := proto.MessageV1(createRequest.Message).(*pb.Note)
+			Expect(note).To(Equal(expectedNote))
+		})
+
+		It("should return the note that was created", func() {
+			Expect(actualErr).ToNot(HaveOccurred())
+
+			expectedNote.Name = actualNote.Name
+			Expect(actualNote).To(Equal(expectedNote))
+		})
+
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
+			BeforeEach(func() {
+				esConfig.Refresh = config.RefreshTrue
+			})
+
+			It("should immediately refresh the index", func() {
+				_, createRequest := client.CreateArgsForCall(0)
+
+				Expect(createRequest.Refresh).To(Equal("true"))
+			})
+		})
+
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshWaitFor), func() {
+			BeforeEach(func() {
+				esConfig.Refresh = config.RefreshWaitFor
+			})
+
+			It("should wait for refresh of index", func() {
+				_, createRequest := client.CreateArgsForCall(0)
+
+				Expect(createRequest.Refresh).To(Equal("wait_for"))
+			})
+		})
+
+		When(fmt.Sprintf("refresh configuration is %s", config.RefreshFalse), func() {
+			BeforeEach(func() {
+				esConfig.Refresh = config.RefreshFalse
+			})
+
+			It("should not wait or force refresh of index", func() {
+				_, createRequest := client.CreateArgsForCall(0)
+
+				Expect(createRequest.Refresh).To(Equal("false"))
+			})
 		})
 
 		When("the notes project doesn't exist", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[0].StatusCode = http.StatusNotFound
+				expectedProjectSearchResponse.Hits.Total.Value = 0
+				expectedProjectSearchResponse.Hits.Hits = []*esutil.EsSearchResponseHit{}
 			})
+
 			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.FailedPrecondition)
 				Expect(actualNote).To(BeNil())
-				Expect(actualErr).ToNot(BeNil())
+			})
+
+			It("should not attempt to search for the note or create the note", func() {
+				Expect(client.SearchCallCount()).To(Equal(1))
+				Expect(client.CreateCallCount()).To(Equal(0))
 			})
 		})
 
-		When("a note with the specified noteId does not exist", func() {
-			It("should attempt to index the note as a document", func() {
-				Expect(transport.ReceivedHttpRequests).To(HaveLen(3))
-
-				Expect(transport.ReceivedHttpRequests[2].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedNotesAlias)))
-
-				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[2].Body)
-				Expect(err).ToNot(HaveOccurred())
-
-				indexedNote := &pb.Note{}
-				err = protojson.Unmarshal(requestBody, proto.MessageV2(indexedNote))
-				Expect(err).ToNot(HaveOccurred())
-
-				Expect(indexedNote).To(BeEquivalentTo(expectedNote))
+		When("checking for the project fails", func() {
+			BeforeEach(func() {
+				expectedProjectSearchError = errors.New("failed searching for project")
 			})
 
-			When("indexing the document fails", func() {
-				BeforeEach(func() {
-					transport.PreparedHttpResponses[1] = &http.Response{
-						StatusCode: http.StatusInternalServerError,
-						Body: structToJsonBody(&esutil.EsIndexDocResponse{
-							Error: &esutil.EsIndexDocError{
-								Type:   fake.LetterN(10),
-								Reason: fake.LetterN(10),
-							},
-						}),
-					}
-				})
-
-				It("should return an error", func() {
-					Expect(actualNote).To(BeNil())
-					Expect(actualErr).To(HaveOccurred())
-				})
+			It("should return an error", func() {
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+				Expect(actualNote).To(BeNil())
 			})
 
-			When("indexing the document succeeds", func() {
-				It("should return the note that was created", func() {
-					Expect(actualErr).ToNot(HaveOccurred())
-
-					expectedNote.Name = actualNote.Name
-					Expect(actualNote).To(Equal(expectedNote))
-				})
-			})
-
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
-				BeforeEach(func() {
-					esConfig.Refresh = config.RefreshTrue
-				})
-
-				It("should immediately refresh the index", func() {
-					Expect(transport.ReceivedHttpRequests[2].URL.Query().Get("refresh")).To(Equal("true"))
-				})
-			})
-
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshWaitFor), func() {
-				BeforeEach(func() {
-					esConfig.Refresh = config.RefreshWaitFor
-				})
-
-				It("should wait for refresh of index", func() {
-					Expect(transport.ReceivedHttpRequests[2].URL.Query().Get("refresh")).To(Equal("wait_for"))
-				})
-			})
-
-			When(fmt.Sprintf("refresh configuration is %s", config.RefreshFalse), func() {
-				BeforeEach(func() {
-					esConfig.Refresh = config.RefreshFalse
-				})
-
-				It("should not wait or force refresh of index", func() {
-					Expect(transport.ReceivedHttpRequests[2].URL.Query().Get("refresh")).To(Equal("false"))
-				})
+			It("should not attempt to search for the note or create the note", func() {
+				Expect(client.SearchCallCount()).To(Equal(1))
+				Expect(client.CreateCallCount()).To(Equal(0))
 			})
 		})
 
 		When("a note with the specified noteId exists", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[1].Body = createGenericEsSearchResponse(&pb.Note{
-					Name: expectedNoteName,
-				})
+				expectedNoteJson, err := protojson.Marshal(proto.MessageV2(expectedNote))
+				Expect(err).ToNot(HaveOccurred())
+
+				expectedNoteSearchResponse.Hits.Total.Value = 1
+				expectedNoteSearchResponse.Hits.Hits = []*esutil.EsSearchResponseHit{
+					{
+						Source: expectedNoteJson,
+					},
+				}
 			})
 
 			It("should return an error", func() {
 				assertErrorHasGrpcStatusCode(actualErr, codes.AlreadyExists)
+				Expect(actualNote).To(BeNil())
 			})
 
 			It("should not attempt to index a note document", func() {
-				Expect(transport.ReceivedHttpRequests).To(HaveLen(2))
+				Expect(client.CreateCallCount()).To(Equal(0))
 			})
 		})
 
-		When("checking for the existence of the note fails", func() {
+		When("checking for the note fails", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[1].StatusCode = http.StatusInternalServerError
+				expectedNoteSearchError = errors.New("failed searching for note")
 			})
 
 			It("should return an error", func() {
 				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+				Expect(actualNote).To(BeNil())
 			})
 
 			It("should not attempt to index a note document", func() {
-				Expect(transport.ReceivedHttpRequests).To(HaveLen(2))
+				Expect(client.CreateCallCount()).To(Equal(0))
 			})
 		})
 
-		When("elasticsearch returns a bad response when checking if a note exists", func() {
+		When("creating the note fails", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[1].Body = ioutil.NopCloser(strings.NewReader("bad object"))
+				expectedCreateError = errors.New("failed creating note")
 			})
 
 			It("should return an error", func() {
 				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-			})
-
-			It("should not attempt to index a note document", func() {
-				Expect(transport.ReceivedHttpRequests).To(HaveLen(2))
+				Expect(actualNote).To(BeNil())
 			})
 		})
 	})

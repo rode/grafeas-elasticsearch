@@ -42,7 +42,6 @@ import (
 
 	prpb "github.com/grafeas/grafeas/proto/v1beta1/project_go_proto"
 
-	"github.com/Jeffail/gabs/v2"
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
 	"github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	pb "github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
@@ -2516,30 +2515,6 @@ var _ = Describe("elasticsearch storage", func() {
 	})
 })
 
-func createProjectEsSearchResponse(projects ...*prpb.Project) io.ReadCloser {
-	return createPaginatedProjectEsSearchResponse(len(projects), projects...)
-}
-
-func createPaginatedProjectEsSearchResponse(totalValue int, projects ...*prpb.Project) io.ReadCloser {
-	var messages []proto.Message
-	for _, p := range projects {
-		messages = append(messages, p)
-	}
-
-	return createPaginatedGenericEsSearchResponse(totalValue, messages...)
-}
-
-func createOccurrenceEsSearchResponse(occurrences ...*pb.Occurrence) io.ReadCloser {
-	return createPaginatedOccurrenceEsSearchResponse(len(occurrences), occurrences...)
-}
-func createPaginatedOccurrenceEsSearchResponse(totalValue int, occurrences ...*pb.Occurrence) io.ReadCloser {
-	var messages []proto.Message
-	for _, p := range occurrences {
-		messages = append(messages, p)
-	}
-
-	return createPaginatedGenericEsSearchResponse(totalValue, messages...)
-}
 func createNoteEsSearchResponse(notes ...*pb.Note) io.ReadCloser {
 	return createPaginatedNoteEsSearchResponse(len(notes), notes...)
 }
@@ -2579,127 +2554,6 @@ func createPaginatedGenericEsSearchResponse(totalValue int, messages ...proto.Me
 		},
 	}
 	responseBody, err := json.Marshal(response)
-	Expect(err).ToNot(HaveOccurred())
-
-	return ioutil.NopCloser(bytes.NewReader(responseBody))
-}
-
-func createEsSearchResponse(objectType string, hitNames ...string) io.ReadCloser {
-	var occurrenceHits []*esutil.EsSearchResponseHit
-
-	for _, hit := range hitNames {
-		switch objectType {
-		case "project":
-			rawGrafeasObject, err := json.Marshal(generateTestProject(hit))
-			Expect(err).ToNot(HaveOccurred())
-			occurrenceHits = append(occurrenceHits, &esutil.EsSearchResponseHit{
-				Source: rawGrafeasObject,
-			})
-		case "occurrence":
-			rawGrafeasObject, err := json.Marshal(generateTestOccurrence(hit))
-			Expect(err).ToNot(HaveOccurred())
-			occurrenceHits = append(occurrenceHits, &esutil.EsSearchResponseHit{
-				Source: rawGrafeasObject,
-			})
-		case "note":
-			rawGrafeasObject, err := json.Marshal(generateTestNote(hit))
-			Expect(err).ToNot(HaveOccurred())
-			occurrenceHits = append(occurrenceHits, &esutil.EsSearchResponseHit{
-				Source: rawGrafeasObject,
-			})
-		}
-	}
-
-	response := &esutil.EsSearchResponse{
-		Took: fake.Number(1, 10),
-		Hits: &esutil.EsSearchResponseHits{
-			Total: &esutil.EsSearchResponseTotal{
-				Value: len(hitNames),
-			},
-			Hits: occurrenceHits,
-		},
-	}
-	responseBody, err := json.Marshal(response)
-	Expect(err).ToNot(HaveOccurred())
-
-	return ioutil.NopCloser(bytes.NewReader(responseBody))
-}
-
-func createEsBulkOccurrenceIndexResponse(occurrences []*pb.Occurrence, errs []error) io.ReadCloser {
-	var (
-		responseItems     []*esutil.EsBulkResponseItem
-		responseHasErrors = false
-	)
-	for i := range occurrences {
-		var (
-			responseErr  *esutil.EsIndexDocError
-			responseCode = http.StatusCreated
-		)
-		if errs[i] != nil {
-			responseErr = &esutil.EsIndexDocError{
-				Type:   fake.LetterN(10),
-				Reason: fake.LetterN(10),
-			}
-			responseCode = http.StatusInternalServerError
-			responseHasErrors = true
-		}
-
-		responseItems = append(responseItems, &esutil.EsBulkResponseItem{
-			Index: &esutil.EsIndexDocResponse{
-				Id:     fake.LetterN(10),
-				Status: responseCode,
-				Error:  responseErr,
-			},
-		})
-	}
-
-	response := &esutil.EsBulkResponse{
-		Items:  responseItems,
-		Errors: responseHasErrors,
-	}
-
-	responseBody, err := json.Marshal(response)
-	Expect(err).ToNot(HaveOccurred())
-
-	return ioutil.NopCloser(bytes.NewReader(responseBody))
-}
-
-func createEsBulkNoteIndexResponse(notesThatCreatedSuccessfully map[string]*pb.Note) io.ReadCloser {
-	var responseItems []*esutil.EsBulkResponseItem
-	for range notesThatCreatedSuccessfully {
-		responseItems = append(responseItems, &esutil.EsBulkResponseItem{
-			Index: &esutil.EsIndexDocResponse{
-				Id:     fake.LetterN(10),
-				Status: http.StatusCreated,
-			},
-		})
-	}
-
-	response := &esutil.EsBulkResponse{
-		Items:  responseItems,
-		Errors: false,
-	}
-
-	responseBody, err := json.Marshal(response)
-	Expect(err).ToNot(HaveOccurred())
-
-	return ioutil.NopCloser(bytes.NewReader(responseBody))
-}
-
-func createEsMultiSearchNoteResponse(notes map[string]*pb.Note) io.ReadCloser {
-	multiSearchResponse := &esutil.EsMultiSearchResponse{}
-
-	for range notes {
-		multiSearchResponse.Responses = append(multiSearchResponse.Responses, &esutil.EsMultiSearchResponseHitsSummary{
-			Hits: &esutil.EsMultiSearchResponseHits{
-				Total: &esutil.EsSearchResponseTotal{
-					Value: 0,
-				},
-			},
-		})
-	}
-
-	responseBody, err := json.Marshal(multiSearchResponse)
 	Expect(err).ToNot(HaveOccurred())
 
 	return ioutil.NopCloser(bytes.NewReader(responseBody))
@@ -2779,75 +2633,12 @@ func structToJsonBody(i interface{}) io.ReadCloser {
 	return ioutil.NopCloser(strings.NewReader(string(b)))
 }
 
-func assertJsonHasValues(body io.ReadCloser, values map[string]interface{}) {
-	requestBody, err := ioutil.ReadAll(body)
-	Expect(err).ToNot(HaveOccurred())
-
-	parsed, err := gabs.ParseJSON(requestBody)
-	Expect(err).ToNot(HaveOccurred())
-
-	for k, v := range values {
-		Expect(parsed.ExistsP(k)).To(BeTrue(), "expected jsonpath %s to exist", k)
-
-		switch v.(type) {
-		case string:
-			Expect(parsed.Path(k).Data().(string)).To(Equal(v.(string)))
-		case bool:
-			Expect(parsed.Path(k).Data().(bool)).To(Equal(v.(bool)))
-		case int:
-			Expect(parsed.Path(k).Data().(int)).To(Equal(v.(int)))
-		default:
-			Fail("assertJsonHasValues encountered unexpected type")
-		}
-	}
-}
-
 func assertErrorHasGrpcStatusCode(err error, code codes.Code) {
 	Expect(err).To(HaveOccurred())
 	s, ok := status.FromError(err)
 
 	Expect(ok).To(BeTrue(), "expected error to have been produced from the grpc/status package")
 	Expect(s.Code()).To(Equal(code))
-}
-
-// parseEsBulkIndexRequest parses a request body in ndjson format
-// each line of the body is assumed to be properly formatted JSON
-// every odd line is assumed to be a regular JSON structure that can be unmarshalled via json.Unmarshal
-// every even line is assumed to be a JSON structure representing a protobuf message, and will be unmarshalled using protojson.Unmarshal
-func parseEsBulkIndexRequest(body io.ReadCloser, structs []interface{}) {
-	buf := new(bytes.Buffer)
-	_, err := buf.ReadFrom(body)
-	Expect(err).ToNot(HaveOccurred())
-
-	requestPayload := strings.TrimSuffix(buf.String(), "\n") // _bulk requests need to end in a newline
-	jsonPayloads := strings.Split(requestPayload, "\n")
-	Expect(jsonPayloads).To(HaveLen(len(structs)))
-
-	for i, s := range structs {
-		if i%2 == 0 { // regular JSON
-			err = json.Unmarshal([]byte(jsonPayloads[i]), s)
-		} else { // protobuf JSON
-			err = protojson.Unmarshal([]byte(jsonPayloads[i]), proto.MessageV2(s))
-		}
-
-		Expect(err).ToNot(HaveOccurred())
-	}
-}
-
-func parseEsMsearchIndexRequest(body io.ReadCloser, structs []interface{}) {
-	buf := new(bytes.Buffer)
-	_, err := buf.ReadFrom(body)
-	Expect(err).ToNot(HaveOccurred())
-
-	requestPayload := strings.TrimSuffix(buf.String(), "\n") // _bulk requests need to end in a newline
-	jsonPayloads := strings.Split(requestPayload, "\n")
-	Expect(jsonPayloads).To(HaveLen(len(structs)))
-
-	for i, s := range structs {
-		err = json.Unmarshal([]byte(jsonPayloads[i]), s)
-
-		Expect(err).ToNot(HaveOccurred())
-	}
 }
 
 func deepCopyOccurrences(occs []*pb.Occurrence) []*pb.Occurrence {
@@ -2890,11 +2681,4 @@ func deepCopyNote(note *pb.Note) *pb.Note {
 	Expect(err).ToNot(HaveOccurred())
 
 	return result
-}
-
-func ioReadCloserToByteSlice(r io.ReadCloser) []byte {
-	builder := new(strings.Builder)
-	_, err := io.Copy(builder, r)
-	Expect(err).ToNot(HaveOccurred())
-	return []byte(builder.String())
 }

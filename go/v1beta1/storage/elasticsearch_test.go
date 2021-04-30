@@ -15,14 +15,9 @@
 package storage
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"io/ioutil"
-	"net/http"
 	"strings"
 
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil/esutilfakes"
@@ -51,7 +46,6 @@ import (
 var _ = Describe("elasticsearch storage", func() {
 	var (
 		elasticsearchStorage *ElasticsearchStorage
-		transport            *esutil.MockEsTransport
 		ctx                  context.Context
 
 		expectedProjectId    string
@@ -86,7 +80,6 @@ var _ = Describe("elasticsearch storage", func() {
 		indexManager = mocks.NewMockIndexManager(mockCtrl)
 		client = &esutilfakes.FakeClient{}
 		orchestrator = mocks.NewMockOrchestrator(mockCtrl)
-		transport = &esutil.MockEsTransport{}
 		esConfig = &config.ElasticsearchConfig{
 			URL:     fake.URL(),
 			Refresh: config.RefreshTrue,
@@ -583,6 +576,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 			It("should return an error", func() {
 				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+				Expect(actualProject).To(BeNil())
 			})
 		})
 	})
@@ -2044,6 +2038,27 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 
+		When("all notes already exist", func() {
+			BeforeEach(func() {
+				for _, response := range expectedNoteMultiSearchResponse.Responses {
+					response.Hits.Total.Value = 1
+				}
+			})
+
+			It("should not attempt to create any notes", func() {
+				Expect(client.BulkCreateCallCount()).To(Equal(0))
+			})
+
+			It("should return an error for every note", func() {
+				Expect(actualNotes).To(BeNil())
+				Expect(actualErrs).To(HaveLen(len(expectedNotes)))
+
+				for _, err := range actualErrs {
+					assertErrorHasGrpcStatusCode(err, codes.AlreadyExists)
+				}
+			})
+		})
+
 		When("a note fails to create", func() {
 			var (
 				nameOfNoteThatFailedToCreate string
@@ -2096,64 +2111,68 @@ var _ = Describe("elasticsearch storage", func() {
 
 	Context("GetNote", func() {
 		var (
-			actualErr        error
-			actualNote       *pb.Note
+			actualErr  error
+			actualNote *pb.Note
+
+			expectedNote     *pb.Note
 			expectedNoteId   string
 			expectedNoteName string
+
+			expectedSearchResponse *esutil.SearchResponse
+			expectedSearchError    error
 		)
 
 		BeforeEach(func() {
 			expectedNoteId = fake.LetterN(10)
 			expectedNoteName = fmt.Sprintf("projects/%s/notes/%s", expectedProjectId, expectedNoteId)
-			transport.PreparedHttpResponses = []*http.Response{
-				{
-					StatusCode: http.StatusOK,
-					Body: createGenericEsSearchResponse(&pb.Note{
-						Name: expectedNoteName,
-					}),
+			expectedNote = generateTestNote(expectedNoteName)
+
+			noteJson, err := protojson.Marshal(proto.MessageV2(expectedNote))
+			Expect(err).ToNot(HaveOccurred())
+
+			expectedSearchResponse = &esutil.SearchResponse{
+				Hits: &esutil.EsSearchResponseHits{
+					Total: &esutil.EsSearchResponseTotal{
+						Value: 1,
+					},
+					Hits: []*esutil.EsSearchResponseHit{
+						{
+							Source: noteJson,
+						},
+					},
 				},
 			}
+			expectedSearchError = nil
 		})
 
 		JustBeforeEach(func() {
+			client.SearchReturns(expectedSearchResponse, expectedSearchError)
+
 			actualNote, actualErr = elasticsearchStorage.GetNote(ctx, expectedProjectId, expectedNoteId)
 		})
 
 		It("should query elasticsearch for the specified note", func() {
-			Expect(transport.ReceivedHttpRequests).To(HaveLen(1))
+			Expect(client.SearchCallCount()).To(Equal(1))
 
-			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedNotesAlias)))
-			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+			_, searchRequest := client.SearchArgsForCall(0)
 
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(searchRequest.Index).To(Equal(expectedNotesAlias))
 
-			searchBody := &esutil.EsSearch{}
-			err = json.Unmarshal(requestBody, searchBody)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(searchRequest.Pagination).To(BeNil())
+			Expect(searchRequest.Search.Sort).To(BeNil())
 
-			Expect((*searchBody.Query.Term)["name"]).To(Equal(expectedNoteName))
+			Expect((*searchRequest.Search.Query.Term)["name"]).To(Equal(expectedNoteName))
 		})
 
-		When("elasticsearch successfully returns a note document", func() {
-			It("should return the Grafeas note", func() {
-				Expect(actualNote).ToNot(BeNil())
-				Expect(actualNote.Name).To(Equal(expectedNoteName))
-			})
-
-			It("should return without an error", func() {
-				Expect(actualErr).ToNot(HaveOccurred())
-			})
+		It("should return the note and no error", func() {
+			Expect(actualNote).To(Equal(expectedNote))
+			Expect(actualErr).ToNot(HaveOccurred())
 		})
 
 		When("elasticsearch can not find the specified note document", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body:       createGenericEsSearchResponse(),
-					},
-				}
+				expectedSearchResponse.Hits.Total.Value = 0
+				expectedSearchResponse.Hits.Hits = []*esutil.EsSearchResponseHit{}
 			})
 
 			It("should return a not found error", func() {
@@ -2161,32 +2180,14 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 
-		When("elasticsearch returns a bad object", func() {
-			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body:       ioutil.NopCloser(strings.NewReader(fake.LetterN(10))),
-					},
-				}
-			})
-
-			It("should return an error", func() {
-				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-			})
-		})
-
 		When("elasticsearch returns an error", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusInternalServerError,
-					},
-				}
+				expectedSearchError = errors.New("failed search")
 			})
 
 			It("should return an error", func() {
 				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+				Expect(actualNote).To(BeNil())
 			})
 		})
 	})
@@ -2431,37 +2432,6 @@ var _ = Describe("elasticsearch storage", func() {
 	})
 })
 
-func createGenericEsSearchResponse(messages ...proto.Message) io.ReadCloser {
-	return createPaginatedGenericEsSearchResponse(len(messages), messages...)
-}
-
-func createPaginatedGenericEsSearchResponse(totalValue int, messages ...proto.Message) io.ReadCloser {
-	var hits []*esutil.EsSearchResponseHit
-
-	for _, m := range messages {
-		raw, err := protojson.Marshal(proto.MessageV2(m))
-		Expect(err).ToNot(HaveOccurred())
-
-		hits = append(hits, &esutil.EsSearchResponseHit{
-			Source: raw,
-		})
-	}
-
-	response := &esutil.EsSearchResponse{
-		Took: fake.Number(1, 10),
-		Hits: &esutil.EsSearchResponseHits{
-			Total: &esutil.EsSearchResponseTotal{
-				Value: totalValue,
-			},
-			Hits: hits,
-		},
-	}
-	responseBody, err := json.Marshal(response)
-	Expect(err).ToNot(HaveOccurred())
-
-	return ioutil.NopCloser(bytes.NewReader(responseBody))
-}
-
 func generateTestProject(name string) *prpb.Project {
 	return &prpb.Project{
 		Name: fmt.Sprintf("projects/%s", name),
@@ -2527,13 +2497,6 @@ func convertSliceOfNotesToMap(notes []*pb.Note) map[string]*pb.Note {
 	}
 
 	return result
-}
-
-func structToJsonBody(i interface{}) io.ReadCloser {
-	b, err := json.Marshal(i)
-	Expect(err).ToNot(HaveOccurred())
-
-	return ioutil.NopCloser(strings.NewReader(string(b)))
 }
 
 func assertErrorHasGrpcStatusCode(err error, code codes.Code) {

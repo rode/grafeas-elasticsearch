@@ -751,12 +751,8 @@ func (es *ElasticsearchStorage) genericList(ctx context.Context, log *zap.Logger
 
 // createError is a helper function that allows you to easily log an error and return a gRPC formatted error.
 func createError(log *zap.Logger, message string, err error, fields ...zap.Field) error {
-	if err == nil {
-		log.Error(message, fields...)
-		return status.Errorf(codes.Internal, "%s", message)
-	}
-
 	log.Error(message, append(fields, zap.Error(err))...)
+
 	return status.Errorf(codes.Internal, "%s: %s", message, err)
 }
 

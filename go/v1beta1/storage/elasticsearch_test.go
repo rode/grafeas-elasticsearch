@@ -23,7 +23,6 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil/esutilfakes"
@@ -177,7 +176,7 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("creating a new Grafeas project", func() {
+	Context("CreateProject", func() {
 		var (
 			actualErr       error
 			actualProject   *prpb.Project
@@ -364,7 +363,7 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("listing Grafeas projects", func() {
+	Context("ListProjects", func() {
 		var (
 			actualErr           error
 			actualProjects      []*prpb.Project
@@ -512,7 +511,7 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("retrieving a Grafeas project", func() {
+	Context("GetProject", func() {
 		var (
 			actualErr       error
 			actualProject   *prpb.Project
@@ -588,7 +587,7 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("deleting a Grafeas project", func() {
+	Context("DeleteProject", func() {
 		var (
 			actualErr error
 
@@ -2095,7 +2094,7 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("retrieving a Grafeas note", func() {
+	Context("GetNote", func() {
 		var (
 			actualErr        error
 			actualNote       *pb.Note
@@ -2340,174 +2339,6 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("listing Grafeas notes with pagination", func() {
-		var (
-			actualErr           error
-			actualNotes         []*pb.Note
-			actualNextPageToken string
-			expectedNotes       []*pb.Note
-			expectedPageToken   string
-			expectedPageSize    int32
-			expectedPitId       string
-			expectedFrom        int
-		)
-
-		BeforeEach(func() {
-			expectedNotes = generateTestNotes(fake.Number(2, 5), expectedProjectId)
-			expectedPageSize = int32(fake.Number(5, 20))
-			expectedFrom = fake.Number(int(expectedPageSize), 100)
-			expectedPitId = fake.LetterN(20)
-			transport.PreparedHttpResponses = []*http.Response{
-				{
-					StatusCode: http.StatusOK,
-					Body: createPaginatedNoteEsSearchResponse(
-						fake.Number(1000, 10000),
-						expectedNotes...,
-					),
-				},
-			}
-		})
-
-		JustBeforeEach(func() {
-			actualNotes, actualNextPageToken, actualErr = elasticsearchStorage.ListNotes(ctx, expectedProjectId, "", expectedPageToken, expectedPageSize)
-		})
-
-		When("a page token is not specified", func() {
-			BeforeEach(func() {
-				transport.PreparedHttpResponses = append([]*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body: structToJsonBody(&esutil.ESPitResponse{
-							Id: expectedPitId,
-						}),
-					},
-				}, transport.PreparedHttpResponses...)
-			})
-
-			It("should create a PIT in elasticsearch", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_pit", expectedNotesAlias)))
-				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodPost))
-				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("keep_alive")).To(Equal(pitKeepAlive))
-			})
-
-			It("should query elasticsearch for notes using the PIT id", func() {
-				Expect(transport.ReceivedHttpRequests[1].URL.Path).To(Equal("/_search"))
-				Expect(transport.ReceivedHttpRequests[1].Method).To(Equal(http.MethodGet))
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("size")).To(Equal(strconv.Itoa(int(expectedPageSize))))
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("from")).To(Equal(strconv.Itoa(0)))
-
-				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[1].Body)
-				Expect(err).ToNot(HaveOccurred())
-
-				searchBody := &esutil.EsSearch{}
-				err = json.Unmarshal(requestBody, searchBody)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(searchBody.Query).To(BeNil())
-				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
-				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
-				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
-			})
-
-			It("should return the Grafeas note(s) and the new page token", func() {
-				Expect(actualNotes).ToNot(BeNil())
-				Expect(actualNotes).To(Equal(expectedNotes))
-				Expect(actualErr).ToNot(HaveOccurred())
-
-				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(pitId).To(Equal(expectedPitId))
-				Expect(from).To(BeEquivalentTo(expectedPageSize))
-			})
-
-			When("creating a PIT in elasticsearch fails", func() {
-				BeforeEach(func() {
-					transport.PreparedHttpResponses[0].StatusCode = http.StatusInternalServerError
-				})
-
-				It("should return an error", func() {
-					assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-					Expect(actualNextPageToken).To(BeEmpty())
-				})
-			})
-		})
-
-		When("a valid page token is specified", func() {
-			BeforeEach(func() {
-				expectedPageToken = esutil.CreatePageToken(expectedPitId, expectedFrom)
-			})
-
-			It("should query elasticsearch for notes using the PIT id", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal("/_search"))
-				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
-				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(int(expectedPageSize))))
-				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("from")).To(Equal(strconv.Itoa(expectedFrom)))
-
-				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-				Expect(err).ToNot(HaveOccurred())
-
-				searchBody := &esutil.EsSearch{}
-				err = json.Unmarshal(requestBody, searchBody)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(searchBody.Query).To(BeNil())
-				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
-				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
-				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
-			})
-
-			It("should return the Grafeas note(s) and the new page token", func() {
-				Expect(actualNotes).ToNot(BeNil())
-				Expect(actualNotes).To(Equal(expectedNotes))
-				Expect(actualErr).ToNot(HaveOccurred())
-
-				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(pitId).To(Equal(expectedPitId))
-				Expect(from).To(BeEquivalentTo(int(expectedPageSize) + expectedFrom))
-			})
-
-			When("getting the last page of results", func() {
-				BeforeEach(func() {
-					transport.PreparedHttpResponses[0].Body = createPaginatedNoteEsSearchResponse(fake.Number(1, int(expectedPageSize)) + expectedFrom - 1)
-				})
-
-				It("should return an empty next page token", func() {
-					Expect(actualNextPageToken).To(Equal(""))
-					Expect(actualErr).ToNot(HaveOccurred())
-				})
-			})
-		})
-
-		When("an invalid page token is specified (bad format)", func() {
-			BeforeEach(func() {
-				expectedPageToken = fake.LetterN(50)
-			})
-
-			It("should not query elasticsearch", func() {
-				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
-			})
-
-			It("should return an error", func() {
-				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-				Expect(actualNextPageToken).To(BeEmpty())
-			})
-		})
-
-		When("an invalid page token is specified (bad from)", func() {
-			BeforeEach(func() {
-				expectedPageToken = fmt.Sprintf("%sfoo", esutil.CreatePageToken(expectedPitId, expectedFrom))
-			})
-
-			It("should not query elasticsearch", func() {
-				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
-			})
-
-			It("should return an error", func() {
-				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-				Expect(actualNextPageToken).To(BeEmpty())
-			})
-		})
-	})
-
 	Context("DeleteNote", func() {
 		var (
 			actualErr        error
@@ -2599,19 +2430,6 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 })
-
-func createNoteEsSearchResponse(notes ...*pb.Note) io.ReadCloser {
-	return createPaginatedNoteEsSearchResponse(len(notes), notes...)
-}
-
-func createPaginatedNoteEsSearchResponse(totalValue int, notes ...*pb.Note) io.ReadCloser {
-	var messages []proto.Message
-	for _, p := range notes {
-		messages = append(messages, p)
-	}
-
-	return createPaginatedGenericEsSearchResponse(totalValue, messages...)
-}
 
 func createGenericEsSearchResponse(messages ...proto.Message) io.ReadCloser {
 	return createPaginatedGenericEsSearchResponse(len(messages), messages...)

@@ -86,7 +86,9 @@ type IndexNameParts struct {
 	ProjectId    string
 }
 
-func NewEsIndexManager(logger *zap.Logger, client *elasticsearch.Client) IndexManager {
+// TODO: return IndexManager interface instead of *EsIndexManager
+// right now the tests depend on being able to manipulate internals of the EsIndexManager
+func NewEsIndexManager(logger *zap.Logger, client *elasticsearch.Client) *EsIndexManager {
 	return &EsIndexManager{
 		client: client,
 		logger: logger,

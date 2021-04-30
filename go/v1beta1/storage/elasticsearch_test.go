@@ -20,12 +20,13 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil/esutilfakes"
 	"io"
 	"io/ioutil"
 	"net/http"
 	"strconv"
 	"strings"
+
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil/esutilfakes"
 
 	"github.com/golang/mock/gomock"
 	"github.com/golang/protobuf/proto"
@@ -703,45 +704,55 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("retrieving a Grafeas occurrence", func() {
+	Context("GetOccurrence", func() {
 		var (
 			actualErr              error
 			actualOccurrence       *pb.Occurrence
 			expectedOccurrenceId   string
 			expectedOccurrenceName string
+			searchResponse         *esutil.SearchResponse
+			searchError            error
 		)
 
 		BeforeEach(func() {
 			expectedOccurrenceId = fake.LetterN(10)
 			expectedOccurrenceName = fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)
-			transport.PreparedHttpResponses = []*http.Response{
-				{
-					StatusCode: http.StatusOK,
-					Body: createGenericEsSearchResponse(&pb.Occurrence{
-						Name: expectedOccurrenceName,
-					}),
+
+			expectedOccurrence := generateTestOccurrence(expectedOccurrenceName)
+			occurrenceJson, err := protojson.Marshal(proto.MessageV2(expectedOccurrence))
+			Expect(err).NotTo(HaveOccurred())
+
+			searchResponse = &esutil.SearchResponse{
+				Hits: &esutil.EsSearchResponseHits{
+					Total: &esutil.EsSearchResponseTotal{
+						Value: 1,
+					},
+					Hits: []*esutil.EsSearchResponseHit{
+						{
+							Source: occurrenceJson,
+						},
+					},
 				},
 			}
+			searchError = nil
 		})
 
 		JustBeforeEach(func() {
+			client.SearchReturns(searchResponse, searchError)
+
 			actualOccurrence, actualErr = elasticsearchStorage.GetOccurrence(ctx, expectedProjectId, expectedOccurrenceId)
 		})
 
 		It("should query elasticsearch for the specified occurrence", func() {
-			Expect(transport.ReceivedHttpRequests).To(HaveLen(1))
+			Expect(client.SearchCallCount()).To(Equal(1))
 
-			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedOccurrencesAlias)))
-			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+			_, request := client.SearchArgsForCall(0)
 
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(request.Index).To(Equal(expectedOccurrencesAlias))
 
-			searchBody := &esutil.EsSearch{}
-			err = json.Unmarshal(requestBody, searchBody)
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect((*searchBody.Query.Term)["name"]).To(Equal(expectedOccurrenceName))
+			Expect((*request.Search.Query.Term)["name"]).To(Equal(expectedOccurrenceName))
+			Expect(request.Pagination).To(BeNil())
+			Expect(request.Search.Sort).To(BeNil())
 		})
 
 		When("elasticsearch successfully returns an occurrence document", func() {
@@ -757,12 +768,8 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch can not find the specified occurrence document", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body:       createGenericEsSearchResponse(),
-					},
-				}
+				searchResponse.Hits.Total.Value = 0
+				searchResponse.Hits.Hits = []*esutil.EsSearchResponseHit{}
 			})
 
 			It("should return a not found error", func() {
@@ -770,28 +777,9 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 
-		When("elasticsearch returns a bad object", func() {
-			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body:       ioutil.NopCloser(strings.NewReader(fake.LetterN(10))),
-					},
-				}
-			})
-
-			It("should return an error", func() {
-				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-			})
-		})
-
 		When("elasticsearch returns an error", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusInternalServerError,
-					},
-				}
+				searchError = errors.New("failed search")
 			})
 
 			It("should return an error", func() {
@@ -800,74 +788,70 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("creating a new Grafeas occurrence", func() {
+	Context("CreateOccurrence", func() {
 		var (
-			actualOccurrence       *pb.Occurrence
-			expectedOccurrence     *pb.Occurrence
-			expectedOccurrenceESId string
-			actualErr              error
+			actualOccurrence   *pb.Occurrence
+			expectedOccurrence *pb.Occurrence
+			actualErr          error
+
+			expectedSearchResponse *esutil.SearchResponse
+			expectedSearchError    error
+
+			expectedCreateResponseId string
+			expectedCreateError      error
 		)
 
-		// BeforeEach configures the happy path for this context
-		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
-			expectedOccurrenceESId = fake.LetterN(10)
 			expectedOccurrence = generateTestOccurrence("")
 
-			transport.PreparedHttpResponses = []*http.Response{
-				{
-					StatusCode: http.StatusOK,
-					Body:       createEsSearchResponse("project", fake.LetterN(10)),
-				},
-				{
-					StatusCode: http.StatusCreated,
-					Body: structToJsonBody(&esutil.EsIndexDocResponse{
-						Id: expectedOccurrenceESId,
-					}),
+			expectedProject := generateTestProject(expectedProjectId)
+			projectJson, err := protojson.Marshal(proto.MessageV2(expectedProject))
+			Expect(err).ToNot(HaveOccurred())
+
+			expectedSearchResponse = &esutil.SearchResponse{
+				Hits: &esutil.EsSearchResponseHits{
+					Total: &esutil.EsSearchResponseTotal{
+						Value: 1,
+					},
+					Hits: []*esutil.EsSearchResponseHit{
+						{
+							Source: projectJson,
+						},
+					},
 				},
 			}
+			expectedSearchError = nil
+
+			expectedCreateResponseId = fake.LetterN(10)
+			expectedCreateError = nil
 		})
 
-		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
 			occurrence := deepCopyOccurrence(expectedOccurrence)
+			client.SearchReturns(expectedSearchResponse, expectedSearchError)
+			client.CreateReturns(expectedCreateResponseId, expectedCreateError)
 
-			transport.PreparedHttpResponses[1].Body = structToJsonBody(&esutil.EsIndexDocResponse{
-				Id: expectedOccurrenceESId,
-			})
 			actualOccurrence, actualErr = elasticsearchStorage.CreateOccurrence(context.Background(), expectedProjectId, "", occurrence)
 		})
 
 		It("should check that the occurrence's project exists", func() {
-			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
-			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectAlias)))
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(client.SearchCallCount()).To(Equal(1))
 
-			searchBody := &esutil.EsSearch{}
-			err = json.Unmarshal(requestBody, searchBody)
-			expectedProject := &esutil.EsSearch{
-				Query: &filtering.Query{
-					Term: &filtering.Term{
-						"name": fmt.Sprintf("projects/%s", expectedProjectId),
-					},
-				},
-			}
-			Expect(searchBody).To(Equal(expectedProject))
+			_, searchRequest := client.SearchArgsForCall(0)
+			Expect(searchRequest.Index).To(Equal(expectedProjectAlias))
+			Expect((*searchRequest.Search.Query.Term)["name"]).To(Equal("projects/" + expectedProjectId))
+			Expect(searchRequest.Pagination).To(BeNil())
+			Expect(searchRequest.Search.Sort).To(BeNil())
 		})
 
 		It("should attempt to index the occurrence as a document", func() {
-			Expect(transport.ReceivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedOccurrencesAlias)))
+			Expect(client.CreateCallCount()).To(Equal(1))
 
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[1].Body)
-			Expect(err).ToNot(HaveOccurred())
+			_, createRequest := client.CreateArgsForCall(0)
+			Expect(createRequest.Index).To(Equal(expectedOccurrencesAlias))
 
-			indexedOccurrence := &pb.Occurrence{}
-			err = protojson.Unmarshal(requestBody, proto.MessageV2(indexedOccurrence))
-			Expect(err).ToNot(HaveOccurred())
-
-			expectedOccurrence.Name = actualOccurrence.Name
-			Expect(indexedOccurrence).To(Equal(expectedOccurrence))
+			occurrence := proto.MessageV1(createRequest.Message).(*grafeas_go_proto.Occurrence)
+			Expect(occurrence.Name).To(ContainSubstring("projects/" + expectedProjectId + "/occurrences/"))
 		})
 
 		When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
@@ -876,7 +860,10 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should immediately refresh the index", func() {
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
+				Expect(client.CreateCallCount()).To(Equal(1))
+
+				_, createRequest := client.CreateArgsForCall(0)
+				Expect(createRequest.Refresh).To(Equal("true"))
 			})
 		})
 
@@ -886,7 +873,10 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should wait for refresh of index", func() {
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
+				Expect(client.CreateCallCount()).To(Equal(1))
+
+				_, createRequest := client.CreateArgsForCall(0)
+				Expect(createRequest.Refresh).To(Equal("wait_for"))
 			})
 		})
 
@@ -896,36 +886,33 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not wait or force refresh of index", func() {
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
+				Expect(client.CreateCallCount()).To(Equal(1))
+
+				_, createRequest := client.CreateArgsForCall(0)
+				Expect(createRequest.Refresh).To(Equal("false"))
 			})
 		})
 
-		When("the occurence's project doesn't exist", func() {
+		When("the occurrence's project doesn't exist", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[0].StatusCode = http.StatusNotFound
+				expectedSearchResponse.Hits.Total.Value = 0
+				expectedSearchResponse.Hits.Hits = []*esutil.EsSearchResponseHit{}
 			})
+
 			It("should return an error", func() {
 				Expect(actualOccurrence).To(BeNil())
-				Expect(actualErr).NotTo(BeNil())
+				assertErrorHasGrpcStatusCode(actualErr, codes.FailedPrecondition)
 			})
 		})
 
 		When("indexing the document fails", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[1] = &http.Response{
-					StatusCode: http.StatusInternalServerError,
-					Body: structToJsonBody(&esutil.EsIndexDocResponse{
-						Error: &esutil.EsIndexDocError{
-							Type:   fake.LetterN(10),
-							Reason: fake.LetterN(10),
-						},
-					}),
-				}
+				expectedCreateError = errors.New("create failed")
 			})
 
 			It("should return an error", func() {
 				Expect(actualOccurrence).To(BeNil())
-				Expect(actualErr).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
 			})
 		})
 
@@ -939,82 +926,86 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("creating a batch of Grafeas occurrences", func() {
+	Context("BatchCreateOccurrences", func() {
 		var (
-			expectedErrs        []error
 			actualErrs          []error
 			actualOccurrences   []*pb.Occurrence
 			expectedOccurrences []*pb.Occurrence
+
+			expectedSearchResponse *esutil.SearchResponse
+			expectedSearchError    error
+
+			expectedBulkCreateResponse *esutil.EsBulkResponse
+			expectedBulkCreateError    error
 		)
 
-		// BeforeEach configures the happy path for this context
-		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
+			expectedProject := generateTestProject(expectedProjectId)
+			projectJson, err := protojson.Marshal(proto.MessageV2(expectedProject))
+			Expect(err).ToNot(HaveOccurred())
+
+			expectedSearchResponse = &esutil.SearchResponse{
+				Hits: &esutil.EsSearchResponseHits{
+					Total: &esutil.EsSearchResponseTotal{
+						Value: 1,
+					},
+					Hits: []*esutil.EsSearchResponseHit{
+						{
+							Source: projectJson,
+						},
+					},
+				},
+			}
+			expectedSearchError = nil
+
 			expectedOccurrences = generateTestOccurrences(fake.Number(2, 5))
+			var expectedBulkResponseItems []*esutil.EsBulkResponseItem
 			for i := 0; i < len(expectedOccurrences); i++ {
-				expectedErrs = append(expectedErrs, nil)
+				expectedBulkResponseItems = append(expectedBulkResponseItems, &esutil.EsBulkResponseItem{
+					Index: &esutil.EsIndexDocResponse{
+						Error: nil,
+					},
+				})
 			}
 
-			transport.PreparedHttpResponses = []*http.Response{
-				{
-					StatusCode: http.StatusOK,
-					Body:       createEsSearchResponse("project", fake.LetterN(10)),
-				},
-				{
-					StatusCode: http.StatusOK,
-					Body:       createEsBulkOccurrenceIndexResponse(expectedOccurrences, expectedErrs),
-				},
+			expectedBulkCreateResponse = &esutil.EsBulkResponse{
+				Items:  expectedBulkResponseItems,
+				Errors: false,
 			}
 		})
 
-		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
 			occurrences := deepCopyOccurrences(expectedOccurrences)
 
-			transport.PreparedHttpResponses[1].Body = createEsBulkOccurrenceIndexResponse(occurrences, expectedErrs)
+			client.SearchReturns(expectedSearchResponse, expectedSearchError)
+			client.BulkCreateReturns(expectedBulkCreateResponse, expectedBulkCreateError)
+
 			actualOccurrences, actualErrs = elasticsearchStorage.BatchCreateOccurrences(context.Background(), expectedProjectId, "", occurrences)
 		})
 
-		// this test parses the ndjson request body and ensures that it was formatted correctly
 		It("should send a bulk request to ES to index each occurrence", func() {
-			var expectedPayloads []interface{}
+			Expect(client.BulkCreateCallCount()).To(Equal(1))
 
-			for i := 0; i < len(expectedOccurrences); i++ {
-				expectedPayloads = append(expectedPayloads, &esutil.EsBulkQueryFragment{}, &pb.Occurrence{})
-			}
+			_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+			Expect(bulkCreateRequest.Index).To(Equal(expectedOccurrencesAlias))
 
-			parseEsBulkIndexRequest(transport.ReceivedHttpRequests[1].Body, expectedPayloads)
+			for i, bulkCreateRequestItem := range bulkCreateRequest.Items {
+				occurrence := proto.MessageV1(bulkCreateRequestItem.Message).(*grafeas_go_proto.Occurrence)
+				expectedOccurrence := expectedOccurrences[i]
+				expectedOccurrence.Name = occurrence.Name
 
-			for i, payload := range expectedPayloads {
-				if i%2 == 0 { // index metadata
-					metadata := payload.(*esutil.EsBulkQueryFragment)
-					Expect(metadata.Index.Index).To(Equal(expectedOccurrencesAlias))
-				} else { // occurrence
-					occurrence := payload.(*pb.Occurrence)
-					expectedOccurrence := expectedOccurrences[(i-1)/2]
-					expectedOccurrence.Name = occurrence.Name
-
-					Expect(occurrence).To(Equal(expectedOccurrence))
-				}
+				Expect(occurrence).To(Equal(expectedOccurrence))
 			}
 		})
 
 		It("should check that the occurrence's project exists", func() {
-			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
-			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedProjectAlias)))
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(client.SearchCallCount()).To(Equal(1))
 
-			searchBody := &esutil.EsSearch{}
-			err = json.Unmarshal(requestBody, searchBody)
-			expectedProject := &esutil.EsSearch{
-				Query: &filtering.Query{
-					Term: &filtering.Term{
-						"name": fmt.Sprintf("projects/%s", expectedProjectId),
-					},
-				},
-			}
-			Expect(searchBody).To(Equal(expectedProject))
+			_, searchRequest := client.SearchArgsForCall(0)
+			Expect(searchRequest.Index).To(Equal(expectedProjectAlias))
+			Expect((*searchRequest.Search.Query.Term)["name"]).To(Equal("projects/" + expectedProjectId))
+			Expect(searchRequest.Pagination).To(BeNil())
+			Expect(searchRequest.Search.Sort).To(BeNil())
 		})
 
 		When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
@@ -1023,7 +1014,10 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should immediately refresh the index", func() {
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
+				Expect(client.BulkCreateCallCount()).To(Equal(1))
+
+				_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+				Expect(bulkCreateRequest.Refresh).To(Equal("true"))
 			})
 		})
 
@@ -1033,7 +1027,10 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should wait for refresh of index", func() {
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
+				Expect(client.BulkCreateCallCount()).To(Equal(1))
+
+				_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+				Expect(bulkCreateRequest.Refresh).To(Equal("wait_for"))
 			})
 		})
 
@@ -1043,7 +1040,10 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not wait or force refresh of index", func() {
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
+				Expect(client.BulkCreateCallCount()).To(Equal(1))
+
+				_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+				Expect(bulkCreateRequest.Refresh).To(Equal("false"))
 			})
 		})
 
@@ -1059,25 +1059,28 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 
-		When("the occurence's project doesn't exist", func() {
+		When("the occurrence's project doesn't exist", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[0].StatusCode = http.StatusNotFound
+				expectedSearchResponse.Hits.Total.Value = 0
+				expectedSearchResponse.Hits.Hits = []*esutil.EsSearchResponseHit{}
 			})
+
 			It("should return an error", func() {
 				Expect(actualOccurrences).To(BeNil())
 				Expect(actualErrs).To(HaveLen(1))
+				assertErrorHasGrpcStatusCode(actualErrs[0], codes.FailedPrecondition)
 			})
 		})
 
 		When("the bulk request completely fails", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[1].StatusCode = http.StatusInternalServerError
+				expectedBulkCreateError = errors.New("bulk create failed")
 			})
 
 			It("should return a single error and no occurrences", func() {
 				Expect(actualOccurrences).To(BeNil())
 				Expect(actualErrs).To(HaveLen(1))
-				Expect(actualErrs[0]).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(actualErrs[0], codes.Internal)
 			})
 		})
 
@@ -1086,13 +1089,9 @@ var _ = Describe("elasticsearch storage", func() {
 
 			BeforeEach(func() {
 				randomErrorIndex = fake.Number(0, len(expectedOccurrences)-1)
-				expectedErrs = []error{}
-				for i := 0; i < len(expectedOccurrences); i++ {
-					if i == randomErrorIndex {
-						expectedErrs = append(expectedErrs, errors.New(""))
-					} else {
-						expectedErrs = append(expectedErrs, nil)
-					}
+				expectedBulkCreateResponse.Items[randomErrorIndex].Index.Error = &esutil.EsIndexDocError{
+					Type:   "error",
+					Reason: "error",
 				}
 			})
 
@@ -1111,12 +1110,12 @@ var _ = Describe("elasticsearch storage", func() {
 
 				// assert that we got a single error back
 				Expect(actualErrs).To(HaveLen(1))
-				Expect(actualErrs[0]).To(HaveOccurred())
+				assertErrorHasGrpcStatusCode(actualErrs[0], codes.Internal)
 			})
 		})
 	})
 
-	Context("updating a Grafeas occurrence", func() {
+	Context("UpdateOccurrence", func() {
 		var (
 			currentOccurrence *pb.Occurrence
 
@@ -1124,14 +1123,19 @@ var _ = Describe("elasticsearch storage", func() {
 			occurrencePatchData    *pb.Occurrence
 			expectedOccurrenceId   string
 			expectedOccurrenceName string
+			expectedDocumentId     string
 			fieldMask              *fieldmaskpb.FieldMask
 			actualErr              error
 			actualOccurrence       *pb.Occurrence
+
+			expectedSearchResponse *esutil.SearchResponse
+			expectedSearchError    error
+
+			expectedUpdateError error
 		)
 
-		// BeforeEach configures the happy path for this context
-		// Variables configured here may be overridden in nested BeforeEach blocks
 		BeforeEach(func() {
+			expectedDocumentId = fake.LetterN(10)
 			expectedOccurrenceId = fake.LetterN(10)
 			expectedOccurrenceName = fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)
 			currentOccurrence = generateTestOccurrence("")
@@ -1141,53 +1145,59 @@ var _ = Describe("elasticsearch storage", func() {
 				},
 			}
 			fieldMask = &fieldmaskpb.FieldMask{
-				Paths: []string{"Resource.Uri"},
+				Paths: []string{"resource.uri"},
 			}
 			expectedOccurrence = currentOccurrence
 			expectedOccurrence.Resource.Uri = "updatedvalue"
 
-			transport.PreparedHttpResponses = []*http.Response{
-				{
-					StatusCode: http.StatusOK,
-					Body:       createGenericEsSearchResponse(currentOccurrence),
-				},
-				{
-					StatusCode: http.StatusCreated,
-					Body: structToJsonBody(&esutil.EsIndexDocResponse{
-						Result: "updated",
-					}),
+			occurrenceJson, err := protojson.Marshal(proto.MessageV2(expectedOccurrence))
+			Expect(err).ToNot(HaveOccurred())
+
+			expectedSearchResponse = &esutil.SearchResponse{
+				Hits: &esutil.EsSearchResponseHits{
+					Total: &esutil.EsSearchResponseTotal{
+						Value: 1,
+					},
+					Hits: []*esutil.EsSearchResponseHit{
+						{
+							ID:     expectedDocumentId,
+							Source: occurrenceJson,
+						},
+					},
 				},
 			}
+			expectedSearchError = nil
+			expectedUpdateError = nil
 		})
 
-		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
-			// actualOccurrence, actualErr = elasticsearchStorage.UpdateOccurrence(context.Background(), expectedProjectId, "", occurrence, nil)
+			client.SearchReturns(expectedSearchResponse, expectedSearchError)
+			client.UpdateReturns(expectedUpdateError)
 			actualOccurrence, actualErr = elasticsearchStorage.UpdateOccurrence(context.Background(), expectedProjectId, expectedOccurrenceId, occurrencePatchData, fieldMask)
 		})
 
-		It("should have sent a request to elasticsearch to retreive the occurrence document", func() {
-			Expect(transport.ReceivedHttpRequests).To(HaveLen(2))
-			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
-			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedOccurrencesAlias)))
+		It("should have sent a request to elasticsearch to retrieve the occurrence document", func() {
+			Expect(client.SearchCallCount()).To(Equal(1))
 
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-			Expect(err).ToNot(HaveOccurred())
+			_, searchRequest := client.SearchArgsForCall(0)
 
-			searchBody := &esutil.EsSearch{}
-			err = json.Unmarshal(requestBody, searchBody)
-			Expect(err).ToNot(HaveOccurred())
+			Expect(searchRequest.Index).To(Equal(expectedOccurrencesAlias))
 
-			Expect((*searchBody.Query.Term)["name"]).To(Equal(expectedOccurrenceName))
+			Expect((*searchRequest.Search.Query.Term)["name"]).To(Equal(expectedOccurrenceName))
+			Expect(searchRequest.Pagination).To(BeNil())
+			Expect(searchRequest.Search.Sort).To(BeNil())
 		})
 
 		It("should have sent a request to elasticsearch to update the occurrence document", func() {
-			Expect(transport.ReceivedHttpRequests).To(HaveLen(2))
-			Expect(transport.ReceivedHttpRequests[1].Method).To(Equal(http.MethodPost))
-			Expect(transport.ReceivedHttpRequests[1].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedOccurrencesAlias)))
+			Expect(client.UpdateCallCount()).To(Equal(1))
 
-			_, err := ioutil.ReadAll(transport.ReceivedHttpRequests[1].Body)
-			Expect(err).ToNot(HaveOccurred())
+			_, updateRequest := client.UpdateArgsForCall(0)
+
+			Expect(updateRequest.Index).To(Equal(expectedOccurrencesAlias))
+			Expect(updateRequest.DocumentId).To(Equal(expectedDocumentId))
+
+			occurrence := proto.MessageV1(updateRequest.Message).(*grafeas_go_proto.Occurrence)
+			Expect(occurrence.Resource.Uri).To(Equal("updatedvalue"))
 		})
 
 		When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
@@ -1196,7 +1206,10 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should immediately refresh the index", func() {
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("true"))
+				Expect(client.UpdateCallCount()).To(Equal(1))
+
+				_, updateRequest := client.UpdateArgsForCall(0)
+				Expect(updateRequest.Refresh).To(Equal("true"))
 			})
 		})
 
@@ -1206,7 +1219,10 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should immediately refresh the index", func() {
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("wait_for"))
+				Expect(client.UpdateCallCount()).To(Equal(1))
+
+				_, updateRequest := client.UpdateArgsForCall(0)
+				Expect(updateRequest.Refresh).To(Equal("wait_for"))
 			})
 		})
 
@@ -1216,17 +1232,14 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not wait or force refresh of index", func() {
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("refresh")).To(Equal("false"))
+				Expect(client.UpdateCallCount()).To(Equal(1))
+
+				_, updateRequest := client.UpdateArgsForCall(0)
+				Expect(updateRequest.Refresh).To(Equal("false"))
 			})
 		})
 
 		When("elasticsearch successfully updates the occurrence document", func() {
-			BeforeEach(func() {
-				transport.PreparedHttpResponses[1].Body = structToJsonBody(&esutil.EsIndexDocResponse{
-					Result: "updated",
-				})
-			})
-
 			It("should not return an error", func() {
 				Expect(actualErr).ToNot(HaveOccurred())
 			})
@@ -1240,12 +1253,8 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("the occurrence does not exist", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body:       createGenericEsSearchResponse(),
-					},
-				}
+				expectedSearchResponse.Hits.Total.Value = 0
+				expectedSearchResponse.Hits.Hits = []*esutil.EsSearchResponseHit{}
 			})
 
 			It("should return a not found error", func() {
@@ -1255,7 +1264,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch fails to update the occurrence document", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+				expectedUpdateError = errors.New("update failed")
 			})
 
 			It("should return an error", func() {
@@ -1266,7 +1275,7 @@ var _ = Describe("elasticsearch storage", func() {
 		When("using a badly formatted field mask", func() {
 			BeforeEach(func() {
 				fieldMask = &fieldmaskpb.FieldMask{
-					Paths: []string{"Resource..bro"},
+					Paths: []string{"resource..bro"},
 				}
 			})
 			It("should return an error", func() {
@@ -1275,47 +1284,36 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("deleting a Grafeas occurrence", func() {
+	Context("DeleteOccurrence", func() {
 		var (
 			actualErr              error
 			expectedOccurrenceId   string
 			expectedOccurrenceName string
+
+			expectedDeleteError error
 		)
 
 		BeforeEach(func() {
 			expectedOccurrenceId = fake.LetterN(10)
 			expectedOccurrenceName = fmt.Sprintf("projects/%s/occurrences/%s", expectedProjectId, expectedOccurrenceId)
 
-			transport.PreparedHttpResponses = []*http.Response{
-				{
-					StatusCode: http.StatusOK,
-					Body: structToJsonBody(&esutil.EsDeleteResponse{
-						Deleted: 1,
-					}),
-				},
-				{
-					StatusCode: http.StatusOK,
-				},
-			}
+			expectedDeleteError = nil
 		})
 
 		JustBeforeEach(func() {
+			client.DeleteReturns(expectedDeleteError)
+
 			actualErr = elasticsearchStorage.DeleteOccurrence(ctx, expectedProjectId, expectedOccurrenceId)
 		})
 
 		It("should have sent a request to elasticsearch to delete the occurrence document", func() {
-			Expect(transport.ReceivedHttpRequests).To(HaveLen(1))
-			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodPost))
-			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_delete_by_query", expectedOccurrencesAlias)))
+			Expect(client.DeleteCallCount()).To(Equal(1))
 
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-			Expect(err).ToNot(HaveOccurred())
+			_, deleteRequest := client.DeleteArgsForCall(0)
 
-			searchBody := &esutil.EsSearch{}
-			err = json.Unmarshal(requestBody, searchBody)
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect((*searchBody.Query.Term)["name"]).To(Equal(expectedOccurrenceName))
+			Expect(deleteRequest.Index).To(Equal(expectedOccurrencesAlias))
+			Expect((*deleteRequest.Search.Query.Term)["name"]).To(Equal(expectedOccurrenceName))
+			Expect(deleteRequest.Search.Sort).To(BeNil())
 		})
 
 		When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
@@ -1324,7 +1322,11 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should immediately refresh the index", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
+				Expect(client.DeleteCallCount()).To(Equal(1))
+
+				_, deleteRequest := client.DeleteArgsForCall(0)
+
+				Expect(deleteRequest.Refresh).To(Equal("true"))
 			})
 		})
 
@@ -1334,7 +1336,11 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should immediately refresh the index", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
+				Expect(client.DeleteCallCount()).To(Equal(1))
+
+				_, deleteRequest := client.DeleteArgsForCall(0)
+
+				Expect(deleteRequest.Refresh).To(Equal("wait_for"))
 			})
 		})
 
@@ -1344,37 +1350,23 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not wait or force refresh of index", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("false"))
+				Expect(client.DeleteCallCount()).To(Equal(1))
+
+				_, deleteRequest := client.DeleteArgsForCall(0)
+
+				Expect(deleteRequest.Refresh).To(Equal("false"))
 			})
 		})
 
 		When("elasticsearch successfully deletes the occurrence document", func() {
-			BeforeEach(func() {
-				transport.PreparedHttpResponses[0].Body = structToJsonBody(&esutil.EsDeleteResponse{
-					Deleted: 1,
-				})
-			})
-
 			It("should not return an error", func() {
 				Expect(actualErr).ToNot(HaveOccurred())
 			})
 		})
 
-		When("the occurrence does not exist", func() {
-			BeforeEach(func() {
-				transport.PreparedHttpResponses[0].Body = structToJsonBody(&esutil.EsDeleteResponse{
-					Deleted: 0,
-				})
-			})
-
-			It("should return an error", func() {
-				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-			})
-		})
-
 		When("deleting the occurrence document fails", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+				expectedDeleteError = errors.New("delete failed")
 			})
 
 			It("should return an error", func() {
@@ -1383,46 +1375,72 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("listing Grafeas occurrences", func() {
+	Context("ListOccurrences", func() {
 		var (
 			actualErr           error
+			actualNextPageToken string
 			actualOccurrences   []*pb.Occurrence
-			expectedOccurrences []*pb.Occurrence
-			expectedFilter      string
-			expectedQuery       *filtering.Query
+
+			expectedOccurrences   []*pb.Occurrence
+			expectedFilter        string
+			expectedQuery         *filtering.Query
+			expectedPageSize      int
+			expectedPageToken     string
+			expectedNextPageToken string
+
+			expectedSearchResponse *esutil.SearchResponse
+			expectedSearchError    error
 		)
 
 		BeforeEach(func() {
 			expectedQuery = &filtering.Query{}
 			expectedFilter = ""
 			expectedOccurrences = generateTestOccurrences(fake.Number(2, 5))
-			transport.PreparedHttpResponses = []*http.Response{
-				{
-					StatusCode: http.StatusOK,
-					Body: createOccurrenceEsSearchResponse(
-						expectedOccurrences...,
-					),
-				},
+			expectedPageSize = fake.Number(10, 20)
+			expectedPageToken = fake.LetterN(10)
+
+			var expectedSearchResponseHits []*esutil.EsSearchResponseHit
+			for _, occurrence := range expectedOccurrences {
+				json, err := protojson.Marshal(proto.MessageV2(occurrence))
+				Expect(err).NotTo(HaveOccurred())
+
+				expectedSearchResponseHits = append(expectedSearchResponseHits, &esutil.EsSearchResponseHit{
+					Source: json,
+				})
 			}
+			expectedNextPageToken = fake.LetterN(10)
+			expectedSearchResponse = &esutil.SearchResponse{
+				Hits: &esutil.EsSearchResponseHits{
+					Total: &esutil.EsSearchResponseTotal{
+						Value: len(expectedOccurrences),
+					},
+					Hits: expectedSearchResponseHits,
+				},
+				NextPageToken: expectedNextPageToken,
+			}
+
+			expectedSearchError = nil
 		})
 
 		JustBeforeEach(func() {
-			actualOccurrences, _, actualErr = elasticsearchStorage.ListOccurrences(ctx, expectedProjectId, expectedFilter, "", 0)
+			client.SearchReturns(expectedSearchResponse, expectedSearchError)
+			actualOccurrences, actualNextPageToken, actualErr = elasticsearchStorage.ListOccurrences(ctx, expectedProjectId, expectedFilter, expectedPageToken, int32(expectedPageSize))
 		})
 
 		It("should query elasticsearch for occurrences", func() {
-			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedOccurrencesAlias)))
-			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
-			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(grafeasMaxPageSize)))
+			Expect(client.SearchCallCount()).To(Equal(1))
 
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-			Expect(err).ToNot(HaveOccurred())
+			_, searchRequest := client.SearchArgsForCall(0)
 
-			searchBody := &esutil.EsSearch{}
-			err = json.Unmarshal(requestBody, searchBody)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(searchBody.Query).To(BeNil())
-			Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
+			Expect(searchRequest.Index).To(Equal(expectedOccurrencesAlias))
+
+			Expect(searchRequest.Pagination).ToNot(BeNil())
+			Expect(searchRequest.Pagination.Size).To(Equal(expectedPageSize))
+			Expect(searchRequest.Pagination.Token).To(Equal(expectedPageToken))
+
+			Expect(searchRequest.Search.Sort).NotTo(BeNil())
+			Expect(searchRequest.Search.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
+			Expect(searchRequest.Search.Query).To(BeNil())
 		})
 
 		When("a valid filter is specified", func() {
@@ -1441,16 +1459,11 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should send the parsed query to elasticsearch", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedOccurrencesAlias)))
-				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+				Expect(client.SearchCallCount()).To(Equal(1))
 
-				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-				Expect(err).ToNot(HaveOccurred())
+				_, searchRequest := client.SearchArgsForCall(0)
 
-				searchBody := &esutil.EsSearch{}
-				err = json.Unmarshal(requestBody, searchBody)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(searchBody.Query).To(Equal(expectedQuery))
+				Expect(searchRequest.Search.Query).To(Equal(expectedQuery))
 			})
 		})
 
@@ -1465,11 +1478,13 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not send a request to elasticsearch", func() {
-				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
+				Expect(client.SearchCallCount()).To(Equal(0))
 			})
 
 			It("should return an error", func() {
 				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
+				Expect(actualOccurrences).To(BeNil())
+				Expect(actualNextPageToken).To(BeEmpty())
 			})
 		})
 
@@ -1486,12 +1501,8 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("elasticsearch returns zero hits", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body:       createGenericEsSearchResponse(),
-					},
-				}
+				expectedSearchResponse.Hits.Total.Value = 0
+				expectedSearchResponse.Hits.Hits = []*esutil.EsSearchResponseHit{}
 			})
 
 			It("should return an empty slice of grafeas occurrences", func() {
@@ -1503,200 +1514,13 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 
-		When("elasticsearch returns a bad object", func() {
-			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body:       ioutil.NopCloser(strings.NewReader("bad object")),
-					},
-				}
-			})
-
-			It("should return an error", func() {
-				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-			})
-		})
-
 		When("returns an unexpected response", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusInternalServerError,
-					},
-				}
+				expectedSearchError = errors.New("search error")
 			})
 
 			It("should return an error", func() {
 				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-			})
-		})
-	})
-
-	Context("listing Grafeas occurrences with pagination", func() {
-		var (
-			actualErr           error
-			actualOccurrences   []*pb.Occurrence
-			actualNextPageToken string
-			expectedOccurrences []*pb.Occurrence
-			expectedPageToken   string
-			expectedPageSize    int32
-			expectedPitId       string
-			expectedFrom        int
-		)
-
-		BeforeEach(func() {
-			expectedOccurrences = generateTestOccurrences(fake.Number(2, 5))
-			expectedPageSize = int32(fake.Number(5, 20))
-			expectedFrom = fake.Number(int(expectedPageSize), 100)
-			expectedPitId = fake.LetterN(20)
-			transport.PreparedHttpResponses = []*http.Response{
-				{
-					StatusCode: http.StatusOK,
-					Body: createPaginatedOccurrenceEsSearchResponse(
-						fake.Number(1000, 10000),
-						expectedOccurrences...,
-					),
-				},
-			}
-		})
-
-		JustBeforeEach(func() {
-			actualOccurrences, actualNextPageToken, actualErr = elasticsearchStorage.ListOccurrences(ctx, expectedProjectId, "", expectedPageToken, expectedPageSize)
-		})
-
-		When("a page token is not specified", func() {
-			BeforeEach(func() {
-				transport.PreparedHttpResponses = append([]*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body: structToJsonBody(&esutil.ESPitResponse{
-							Id: expectedPitId,
-						}),
-					},
-				}, transport.PreparedHttpResponses...)
-			})
-
-			It("should create a PIT in elasticsearch", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_pit", expectedOccurrencesAlias)))
-				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodPost))
-				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("keep_alive")).To(Equal(pitKeepAlive))
-			})
-
-			It("should query elasticsearch for occurrences using the PIT id", func() {
-				Expect(transport.ReceivedHttpRequests[1].URL.Path).To(Equal("/_search"))
-				Expect(transport.ReceivedHttpRequests[1].Method).To(Equal(http.MethodGet))
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("size")).To(Equal(strconv.Itoa(int(expectedPageSize))))
-				Expect(transport.ReceivedHttpRequests[1].URL.Query().Get("from")).To(Equal(strconv.Itoa(0)))
-
-				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[1].Body)
-				Expect(err).ToNot(HaveOccurred())
-
-				searchBody := &esutil.EsSearch{}
-				err = json.Unmarshal(requestBody, searchBody)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(searchBody.Query).To(BeNil())
-				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
-				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
-				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
-			})
-
-			It("should return the Grafeas occurrence(s) and the new page token", func() {
-				Expect(actualOccurrences).ToNot(BeNil())
-				Expect(actualOccurrences).To(Equal(expectedOccurrences))
-				Expect(actualErr).ToNot(HaveOccurred())
-
-				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(pitId).To(Equal(expectedPitId))
-				Expect(from).To(BeEquivalentTo(expectedPageSize))
-			})
-
-			When("creating a PIT in elasticsearch fails", func() {
-				BeforeEach(func() {
-					transport.PreparedHttpResponses[0].StatusCode = http.StatusInternalServerError
-				})
-
-				It("should return an error", func() {
-					assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-					Expect(actualNextPageToken).To(BeEmpty())
-				})
-			})
-		})
-
-		When("a valid page token is specified", func() {
-			BeforeEach(func() {
-				expectedPageToken = esutil.CreatePageToken(expectedPitId, expectedFrom)
-			})
-
-			It("should query elasticsearch for occurrences using the PIT id", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal("/_search"))
-				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
-				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(int(expectedPageSize))))
-				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("from")).To(Equal(strconv.Itoa(expectedFrom)))
-
-				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-				Expect(err).ToNot(HaveOccurred())
-
-				searchBody := &esutil.EsSearch{}
-				err = json.Unmarshal(requestBody, searchBody)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(searchBody.Query).To(BeNil())
-				Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
-				Expect(searchBody.Pit.Id).To(Equal(expectedPitId))
-				Expect(searchBody.Pit.KeepAlive).To(Equal(pitKeepAlive))
-			})
-
-			It("should return the Grafeas occurrence(s) and the new page token", func() {
-				Expect(actualOccurrences).ToNot(BeNil())
-				Expect(actualOccurrences).To(Equal(expectedOccurrences))
-				Expect(actualErr).ToNot(HaveOccurred())
-
-				pitId, from, err := esutil.ParsePageToken(actualNextPageToken)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(pitId).To(Equal(expectedPitId))
-				Expect(from).To(BeEquivalentTo(int(expectedPageSize) + expectedFrom))
-			})
-
-			When("getting the last page of results", func() {
-				BeforeEach(func() {
-					transport.PreparedHttpResponses[0].Body = createPaginatedOccurrenceEsSearchResponse(fake.Number(1, int(expectedPageSize)) + expectedFrom - 1)
-				})
-
-				It("should return an empty next page token", func() {
-					Expect(actualNextPageToken).To(Equal(""))
-					Expect(actualErr).ToNot(HaveOccurred())
-				})
-			})
-		})
-
-		When("an invalid page token is specified (bad format)", func() {
-			BeforeEach(func() {
-				expectedPageToken = fake.LetterN(50)
-			})
-
-			It("should not query elasticsearch", func() {
-				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
-			})
-
-			It("should return an error", func() {
-				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-				Expect(actualNextPageToken).To(BeEmpty())
-			})
-		})
-
-		When("an invalid page token is specified (bad from)", func() {
-			BeforeEach(func() {
-				expectedPageToken = fmt.Sprintf("%sfoo", esutil.CreatePageToken(expectedPitId, expectedFrom))
-			})
-
-			It("should not query elasticsearch", func() {
-				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
-			})
-
-			It("should return an error", func() {
-				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-				Expect(actualNextPageToken).To(BeEmpty())
 			})
 		})
 	})

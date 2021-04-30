@@ -48,6 +48,20 @@ func (mr *MockIndexManagerMockRecorder) CreateIndex(arg0, arg1, arg2 interface{}
 	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "CreateIndex", reflect.TypeOf((*MockIndexManager)(nil).CreateIndex), arg0, arg1, arg2)
 }
 
+// DeleteIndex mocks base method
+func (m *MockIndexManager) DeleteIndex(arg0 context.Context, arg1 string) error {
+	m.ctrl.T.Helper()
+	ret := m.ctrl.Call(m, "DeleteIndex", arg0, arg1)
+	ret0, _ := ret[0].(error)
+	return ret0
+}
+
+// DeleteIndex indicates an expected call of DeleteIndex
+func (mr *MockIndexManagerMockRecorder) DeleteIndex(arg0, arg1 interface{}) *gomock.Call {
+	mr.mock.ctrl.T.Helper()
+	return mr.mock.ctrl.RecordCallWithMethodType(mr.mock, "DeleteIndex", reflect.TypeOf((*MockIndexManager)(nil).DeleteIndex), arg0, arg1)
+}
+
 // GetAliasForIndex mocks base method
 func (m *MockIndexManager) GetAliasForIndex(arg0 string) string {
 	m.ctrl.T.Helper()

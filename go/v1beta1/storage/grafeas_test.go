@@ -16,16 +16,14 @@ package storage
 
 import (
 	"fmt"
+	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil/esutilfakes"
 
-	"github.com/elastic/go-elasticsearch/v7"
-	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"github.com/golang/mock/gomock"
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	"github.com/rode/grafeas-elasticsearch/go/config"
 	"github.com/rode/grafeas-elasticsearch/go/mocks"
-	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil"
 )
 
 var _ = Describe("Grafeas integration", func() {
@@ -34,6 +32,7 @@ var _ = Describe("Grafeas integration", func() {
 		mockCtrl                *gomock.Controller
 		filterer                *mocks.MockFilterer
 		indexManager            *mocks.MockIndexManager
+		client                  *esutilfakes.FakeClient
 		esConfig                *config.ElasticsearchConfig
 		newElasticsearchStorage newElasticsearchStorageFunc
 		orchestrator            *mocks.MockOrchestrator
@@ -43,6 +42,7 @@ var _ = Describe("Grafeas integration", func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		filterer = mocks.NewMockFilterer(mockCtrl)
 		indexManager = mocks.NewMockIndexManager(mockCtrl)
+		client = &esutilfakes.FakeClient{}
 		esConfig = &config.ElasticsearchConfig{
 			URL:     fake.URL(),
 			Refresh: config.RefreshTrue,
@@ -51,10 +51,8 @@ var _ = Describe("Grafeas integration", func() {
 
 	JustBeforeEach(func() {
 		orchestrator = mocks.NewMockOrchestrator(mockCtrl)
-		transport := &esutil.MockEsTransport{}
-		mockEsClient := &elasticsearch.Client{Transport: transport, API: esapi.New(transport)}
 
-		elasticsearchStorage = NewElasticsearchStorage(logger, mockEsClient, filterer, esConfig, indexManager, orchestrator)
+		elasticsearchStorage = NewElasticsearchStorage(logger, client, filterer, esConfig, indexManager, orchestrator)
 	})
 
 	AfterEach(func() {

@@ -1,8 +1,13 @@
 {
-  "version": "v1beta2",
+  "version": "v1beta3",
   "mappings": {
     "_meta": {
       "type": "grafeas"
+    },
+    "properties": {
+      "createTime": {
+        "type": "date"
+      }
     },
     "dynamic_templates": [
       {

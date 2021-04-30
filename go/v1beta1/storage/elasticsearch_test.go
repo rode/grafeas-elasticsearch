@@ -971,6 +971,7 @@ var _ = Describe("elasticsearch storage", func() {
 				Items:  expectedBulkResponseItems,
 				Errors: false,
 			}
+			expectedBulkCreateError = nil
 		})
 
 		JustBeforeEach(func() {

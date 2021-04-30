@@ -1834,8 +1834,14 @@ var _ = Describe("elasticsearch storage", func() {
 		// JustBeforeEach actually invokes the system under test
 		JustBeforeEach(func() {
 			client.SearchReturnsOnCall(0, expectedProjectSearchResponse, expectedProjectSearchError)
-			client.MultiSearchReturns(expectedNoteMultiSearchResponse, expectedNoteMultiSearchError)
-			client.BulkCreateReturns(expectedBulkCreateResponse, expectedBulkCreateError)
+
+			if client.MultiSearchStub == nil {
+				client.MultiSearchReturns(expectedNoteMultiSearchResponse, expectedNoteMultiSearchError)
+			}
+
+			if client.BulkCreateStub == nil {
+				client.BulkCreateReturns(expectedBulkCreateResponse, expectedBulkCreateError)
+			}
 
 			actualNotes, actualErrs = elasticsearchStorage.BatchCreateNotes(context.Background(), expectedProjectId, "", deepCopyNotes(expectedNotesWithNoteIds))
 		})
@@ -1985,14 +1991,36 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 
-		FWhen("a note already exists", func() {
+		When("a note already exists", func() {
 			var (
-				indexOfNoteThatAlreadyExists int
+				nameOfNoteThatAlreadyExists string
 			)
 			BeforeEach(func() {
-				indexOfNoteThatAlreadyExists = fake.Number(0, len(expectedNotes)-1)
-				fmt.Printf("len: %d, index %d", len(expectedNotes), indexOfNoteThatAlreadyExists)
-				expectedNoteMultiSearchResponse.Responses[indexOfNoteThatAlreadyExists].Hits.Total.Value = 1
+				randomIndex := fake.Number(0, len(expectedNotes)-1)
+				nameOfNoteThatAlreadyExists = expectedNotes[randomIndex].Name
+
+				// this is required due to the non-deterministic ordering of maps
+				client.MultiSearchStub = func(ctx context.Context, request *esutil.MultiSearchRequest) (*esutil.EsMultiSearchResponse, error) {
+					var responses []*esutil.EsMultiSearchResponseHitsSummary
+					for _, search := range request.Searches {
+						response := &esutil.EsMultiSearchResponseHitsSummary{
+							Hits: &esutil.EsMultiSearchResponseHits{
+								Total: &esutil.EsSearchResponseTotal{
+									Value: 0,
+								},
+							},
+						}
+						if (*search.Query.Term)["name"] == nameOfNoteThatAlreadyExists {
+							response.Hits.Total.Value = 1
+						}
+
+						responses = append(responses, response)
+					}
+
+					return &esutil.EsMultiSearchResponse{
+						Responses: responses,
+					}, nil
+				}
 			})
 
 			It("should not include that note in the bulkcreate request", func() {
@@ -2003,7 +2031,65 @@ var _ = Describe("elasticsearch storage", func() {
 				Expect(bulkCreateRequest.Items).To(HaveLen(len(expectedNotes) - 1))
 				for _, item := range bulkCreateRequest.Items {
 					note := proto.MessageV1(item.Message).(*pb.Note)
-					Expect(note.Name).ToNot(Equal(expectedNotes[indexOfNoteThatAlreadyExists].Name))
+					Expect(note.Name).ToNot(Equal(nameOfNoteThatAlreadyExists))
+				}
+			})
+
+			It("should return an error for the note that wasn't created, and a list of notes that were created", func() {
+				Expect(actualErrs).To(HaveLen(1))
+				assertErrorHasGrpcStatusCode(actualErrs[0], codes.AlreadyExists)
+
+				for _, note := range actualNotes {
+					Expect(note.Name).ToNot(Equal(nameOfNoteThatAlreadyExists))
+				}
+			})
+		})
+
+		When("a note fails to create", func() {
+			var (
+				nameOfNoteThatFailedToCreate string
+			)
+
+			BeforeEach(func() {
+				randomIndex := fake.Number(0, len(expectedNotes)-1)
+				nameOfNoteThatFailedToCreate = expectedNotes[randomIndex].Name
+
+				// this is required due to the non-deterministic ordering of maps
+				client.BulkCreateStub = func(ctx context.Context, request *esutil.BulkCreateRequest) (*esutil.EsBulkResponse, error) {
+					var responses []*esutil.EsBulkResponseItem
+					for _, item := range request.Items {
+						response := &esutil.EsBulkResponseItem{
+							Index: &esutil.EsIndexDocResponse{
+								Id:    fake.LetterN(10),
+								Error: nil,
+							},
+						}
+
+						note := proto.MessageV1(item.Message).(*pb.Note)
+						if note.Name == nameOfNoteThatFailedToCreate {
+							response.Index.Id = ""
+							response.Index.Error = &esutil.EsIndexDocError{
+								Type:   fake.LetterN(10),
+								Reason: fake.LetterN(10),
+							}
+						}
+
+						responses = append(responses, response)
+					}
+
+					return &esutil.EsBulkResponse{
+						Items:  responses,
+						Errors: true,
+					}, nil
+				}
+			})
+
+			It("should return an error for the note that failed to create, and a list of notes that were created", func() {
+				Expect(actualErrs).To(HaveLen(1))
+				assertErrorHasGrpcStatusCode(actualErrs[0], codes.Internal)
+
+				for _, note := range actualNotes {
+					Expect(note.Name).ToNot(Equal(nameOfNoteThatFailedToCreate))
 				}
 			})
 		})
@@ -2106,46 +2192,78 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("listing Grafeas notes", func() {
+	Context("ListNotes", func() {
 		var (
-			actualErr      error
-			actualNotes    []*pb.Note
-			expectedNotes  []*pb.Note
-			expectedFilter string
-			expectedQuery  *filtering.Query
+			actualErr           error
+			actualNotes         []*pb.Note
+			actualNextPageToken string
+
+			expectedNotes         []*pb.Note
+			expectedFilter        string
+			expectedQuery         *filtering.Query
+			expectedPageSize      int
+			expectedPageToken     string
+			expectedNextPageToken string
+
+			expectedSearchResponse *esutil.SearchResponse
+			expectedSearchError    error
 		)
 
 		BeforeEach(func() {
 			expectedQuery = &filtering.Query{}
 			expectedFilter = ""
 			expectedNotes = generateTestNotes(fake.Number(2, 5), expectedProjectId)
-			transport.PreparedHttpResponses = []*http.Response{
-				{
-					StatusCode: http.StatusOK,
-					Body: createNoteEsSearchResponse(
-						expectedNotes...,
-					),
-				},
+			expectedPageSize = fake.Number(10, 20)
+			expectedPageToken = fake.LetterN(10)
+
+			var expectedSearchResponseHits []*esutil.EsSearchResponseHit
+			for _, note := range expectedNotes {
+				json, err := protojson.Marshal(proto.MessageV2(note))
+				Expect(err).ToNot(HaveOccurred())
+
+				expectedSearchResponseHits = append(expectedSearchResponseHits, &esutil.EsSearchResponseHit{
+					Source: json,
+				})
 			}
+			expectedNextPageToken = fake.LetterN(10)
+			expectedSearchResponse = &esutil.SearchResponse{
+				Hits: &esutil.EsSearchResponseHits{
+					Total: &esutil.EsSearchResponseTotal{
+						Value: len(expectedNotes),
+					},
+					Hits: expectedSearchResponseHits,
+				},
+				NextPageToken: expectedNextPageToken,
+			}
+			expectedSearchError = nil
 		})
 
 		JustBeforeEach(func() {
-			actualNotes, _, actualErr = elasticsearchStorage.ListNotes(ctx, expectedProjectId, expectedFilter, "", 0)
+			client.SearchReturns(expectedSearchResponse, expectedSearchError)
+
+			actualNotes, actualNextPageToken, actualErr = elasticsearchStorage.ListNotes(ctx, expectedProjectId, expectedFilter, expectedPageToken, int32(expectedPageSize))
 		})
 
 		It("should query elasticsearch for notes", func() {
-			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedNotesAlias)))
-			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
-			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(grafeasMaxPageSize)))
+			Expect(client.SearchCallCount()).To(Equal(1))
 
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-			Expect(err).ToNot(HaveOccurred())
+			_, searchRequest := client.SearchArgsForCall(0)
 
-			searchBody := &esutil.EsSearch{}
-			err = json.Unmarshal(requestBody, searchBody)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(searchBody.Query).To(BeNil())
-			Expect(searchBody.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
+			Expect(searchRequest.Index).To(Equal(expectedNotesAlias))
+
+			Expect(searchRequest.Pagination).ToNot(BeNil())
+			Expect(searchRequest.Pagination.Size).To(Equal(expectedPageSize))
+			Expect(searchRequest.Pagination.Token).To(Equal(expectedPageToken))
+
+			Expect(searchRequest.Search.Sort[sortField]).To(Equal(esutil.EsSortOrderDescending))
+
+			Expect(searchRequest.Search.Query).To(BeNil())
+		})
+
+		It("should return the notes and the next page token", func() {
+			Expect(actualErr).ToNot(HaveOccurred())
+			Expect(actualNotes).To(Equal(expectedNotes))
+			Expect(actualNextPageToken).To(Equal(expectedNextPageToken))
 		})
 
 		When("a valid filter is specified", func() {
@@ -2164,16 +2282,11 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should send the parsed query to elasticsearch", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedNotesAlias)))
-				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+				Expect(client.SearchCallCount()).To(Equal(1))
 
-				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-				Expect(err).ToNot(HaveOccurred())
+				_, searchRequest := client.SearchArgsForCall(0)
 
-				searchBody := &esutil.EsSearch{}
-				err = json.Unmarshal(requestBody, searchBody)
-				Expect(err).ToNot(HaveOccurred())
-				Expect(searchBody.Query).To(Equal(expectedQuery))
+				Expect(searchRequest.Search.Query).To(Equal(expectedQuery))
 			})
 		})
 
@@ -2188,70 +2301,41 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not send a request to elasticsearch", func() {
-				Expect(transport.ReceivedHttpRequests).To(HaveLen(0))
+				Expect(client.SearchCallCount()).To(Equal(0))
 			})
 
 			It("should return an error", func() {
+				Expect(actualErr).To(HaveOccurred())
+				Expect(actualNotes).To(BeNil())
+				Expect(actualNextPageToken).To(BeEmpty())
+
 				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
 			})
 		})
 
-		When("elasticsearch successfully returns note(s)", func() {
-			It("should return the Grafeas note(s)", func() {
-				Expect(actualNotes).ToNot(BeNil())
-				Expect(actualNotes).To(Equal(expectedNotes))
+		When("the elasticsearch request fails", func() {
+			BeforeEach(func() {
+				expectedSearchError = errors.New("search failed")
 			})
 
-			It("should return without an error", func() {
-				Expect(actualErr).ToNot(HaveOccurred())
+			It("should return an error", func() {
+				Expect(actualErr).To(HaveOccurred())
+				Expect(actualNotes).To(BeNil())
+				Expect(actualNextPageToken).To(BeEmpty())
+
+				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
 			})
 		})
 
 		When("elasticsearch returns zero hits", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body:       createGenericEsSearchResponse(),
-					},
-				}
+				expectedSearchResponse.Hits.Total.Value = 0
+				expectedSearchResponse.Hits.Hits = []*esutil.EsSearchResponseHit{}
 			})
 
-			It("should return an empty slice of notes", func() {
+			It("should return an empty array of grafeas notes and no error", func() {
 				Expect(actualNotes).To(BeNil())
-			})
-
-			It("should not return an error", func() {
 				Expect(actualErr).ToNot(HaveOccurred())
-			})
-		})
-
-		When("elasticsearch returns a bad object", func() {
-			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusOK,
-						Body:       ioutil.NopCloser(strings.NewReader("bad object")),
-					},
-				}
-			})
-
-			It("should return an error", func() {
-				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-			})
-		})
-
-		When("returns an unexpected response", func() {
-			BeforeEach(func() {
-				transport.PreparedHttpResponses = []*http.Response{
-					{
-						StatusCode: http.StatusInternalServerError,
-					},
-				}
-			})
-
-			It("should return an error", func() {
-				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
 			})
 		})
 	})

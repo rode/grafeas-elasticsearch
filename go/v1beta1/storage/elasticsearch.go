@@ -595,14 +595,14 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	}
 
 	var (
-		notesToCreate []pb.Note
+		notesToCreate []*pb.Note
 		errs          []error
 	)
 	for i, res := range multiSearchResponse.Responses {
 		if res.Hits.Total.Value != 0 {
 			errs = append(errs, status.Errorf(codes.AlreadyExists, "note with the name %s already exists", notes[i].Name))
 		} else {
-			notesToCreate = append(notesToCreate, *notes[i])
+			notesToCreate = append(notesToCreate, notes[i])
 		}
 	}
 
@@ -614,7 +614,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	var bulkCreateRequestItems []*esutil.BulkCreateRequestItem
 	for _, note := range notesToCreate {
 		bulkCreateRequestItems = append(bulkCreateRequestItems, &esutil.BulkCreateRequestItem{
-			Message: proto.MessageV2(&note),
+			Message: proto.MessageV2(note),
 		})
 	}
 
@@ -637,7 +637,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 			continue
 		}
 
-		createdNotes = append(createdNotes, &note)
+		createdNotes = append(createdNotes, note)
 		log.Debug(fmt.Sprintf("note %s created", note.Name))
 	}
 

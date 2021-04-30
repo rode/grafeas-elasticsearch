@@ -1985,7 +1985,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 
-		FWhen("a note already exists", func() {
+		When("a note already exists", func() {
 			var (
 				indexOfNoteThatAlreadyExists int
 			)
@@ -2424,47 +2424,36 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 	})
 
-	Context("deleting a Grafeas note", func() {
+	Context("DeleteNote", func() {
 		var (
 			actualErr        error
 			expectedNoteId   string
 			expectedNoteName string
+
+			expectedDeleteError error
 		)
 
 		BeforeEach(func() {
 			expectedNoteId = fake.LetterN(10)
 			expectedNoteName = fmt.Sprintf("projects/%s/notes/%s", expectedProjectId, expectedNoteId)
 
-			transport.PreparedHttpResponses = []*http.Response{
-				{
-					StatusCode: http.StatusOK,
-					Body: structToJsonBody(&esutil.EsDeleteResponse{
-						Deleted: 1,
-					}),
-				},
-				{
-					StatusCode: http.StatusOK,
-				},
-			}
+			expectedDeleteError = nil
 		})
 
 		JustBeforeEach(func() {
+			client.DeleteReturns(expectedDeleteError)
+
 			actualErr = elasticsearchStorage.DeleteNote(ctx, expectedProjectId, expectedNoteId)
 		})
 
 		It("should have sent a request to elasticsearch to delete the note document", func() {
-			Expect(transport.ReceivedHttpRequests).To(HaveLen(1))
-			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodPost))
-			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_delete_by_query", expectedNotesAlias)))
+			Expect(client.DeleteCallCount()).To(Equal(1))
 
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
-			Expect(err).ToNot(HaveOccurred())
+			_, deleteRequest := client.DeleteArgsForCall(0)
 
-			searchBody := &esutil.EsSearch{}
-			err = json.Unmarshal(requestBody, searchBody)
-			Expect(err).ToNot(HaveOccurred())
-
-			Expect((*searchBody.Query.Term)["name"]).To(Equal(expectedNoteName))
+			Expect(deleteRequest.Index).To(Equal(expectedNotesAlias))
+			Expect((*deleteRequest.Search.Query.Term)["name"]).To(Equal(expectedNoteName))
+			Expect(deleteRequest.Search.Sort).To(BeNil())
 		})
 
 		When(fmt.Sprintf("refresh configuration is %s", config.RefreshTrue), func() {
@@ -2473,7 +2462,11 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should immediately refresh the index", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
+				Expect(client.DeleteCallCount()).To(Equal(1))
+
+				_, deleteRequest := client.DeleteArgsForCall(0)
+
+				Expect(deleteRequest.Refresh).To(Equal("true"))
 			})
 		})
 
@@ -2483,7 +2476,11 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should immediately refresh the index", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
+				Expect(client.DeleteCallCount()).To(Equal(1))
+
+				_, deleteRequest := client.DeleteArgsForCall(0)
+
+				Expect(deleteRequest.Refresh).To(Equal("wait_for"))
 			})
 		})
 
@@ -2493,37 +2490,23 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not wait or force refresh of index", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("false"))
+				Expect(client.DeleteCallCount()).To(Equal(1))
+
+				_, deleteRequest := client.DeleteArgsForCall(0)
+
+				Expect(deleteRequest.Refresh).To(Equal("false"))
 			})
 		})
 
 		When("elasticsearch successfully deletes the note document", func() {
-			BeforeEach(func() {
-				transport.PreparedHttpResponses[0].Body = structToJsonBody(&esutil.EsDeleteResponse{
-					Deleted: 1,
-				})
-			})
-
 			It("should not return an error", func() {
 				Expect(actualErr).ToNot(HaveOccurred())
 			})
 		})
 
-		When("the note does not exist", func() {
-			BeforeEach(func() {
-				transport.PreparedHttpResponses[0].Body = structToJsonBody(&esutil.EsDeleteResponse{
-					Deleted: 0,
-				})
-			})
-
-			It("should return an error", func() {
-				assertErrorHasGrpcStatusCode(actualErr, codes.Internal)
-			})
-		})
-
 		When("deleting the note document fails", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[0].StatusCode = http.StatusInternalServerError
+				expectedDeleteError = errors.New("delete failed")
 			})
 
 			It("should return an error", func() {

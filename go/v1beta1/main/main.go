@@ -50,7 +50,7 @@ func main() {
 		migrator := migration.NewEsMigrator(logger.Named("EsMigrator"), esClient, indexManager)
 		migrationOrchestrator := migration.NewEsMigrationOrchestrator(logger.Named("EsMigrationOrchestrator"), migrator)
 
-		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esClient, filtering.NewFilterer(), c, indexManager, migrationOrchestrator), nil
+		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esutil.NewClient(logger, esClient), filtering.NewFilterer(), c, indexManager, migrationOrchestrator), nil
 	}, logger)
 
 	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", registerStorageTypeProvider)

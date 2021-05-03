@@ -45,6 +45,7 @@ const (
 type IndexManager interface {
 	LoadMappings(mappingsDir string) error
 	CreateIndex(ctx context.Context, info *IndexInfo, checkExists bool) error
+	DeleteIndex(ctx context.Context, index string) error
 
 	ProjectsIndex() string
 	ProjectsAlias() string
@@ -85,6 +86,8 @@ type IndexNameParts struct {
 	ProjectId    string
 }
 
+// TODO: return IndexManager interface instead of *EsIndexManager
+// right now the tests depend on being able to manipulate internals of the EsIndexManager
 func NewEsIndexManager(logger *zap.Logger, client *elasticsearch.Client) *EsIndexManager {
 	return &EsIndexManager{
 		client: client,
@@ -200,6 +203,25 @@ func (em *EsIndexManager) CreateIndex(ctx context.Context, info *IndexInfo, chec
 	}
 
 	log.Info("index created", zap.String("index", info.Index))
+
+	return nil
+}
+
+func (em *EsIndexManager) DeleteIndex(ctx context.Context, index string) error {
+	log := em.logger.Named("DeleteIndex").With(zap.String("index", index))
+
+	res, err := em.client.Indices.Delete(
+		[]string{index},
+		em.client.Indices.Delete.WithContext(ctx),
+	)
+	if err != nil {
+		return err
+	}
+	if res.IsError() {
+		return fmt.Errorf("unexpected response from elasticsearch: %s", res.String())
+	}
+
+	log.Debug("index deleted")
 
 	return nil
 }

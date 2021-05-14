@@ -326,6 +326,8 @@ github.com/prometheus/tsdb v0.7.1 h1:YZcsG11NqnK4czYLrWd9mpEuAJIHVQLwdrleYfszMAA
 github.com/prometheus/tsdb v0.7.1/go.mod h1:qhTCs0VvXwvX/y3TZrWD7rabWM+ijKTux40TwIPHuXU=
 github.com/rode/es-index-manager v0.0.0-20210513143852-8b606ba498a6 h1:WOmbHb/ONhn8aov5wGXFexoWJ4ySVVlQ4+sesRKNm2M=
 github.com/rode/es-index-manager v0.0.0-20210513143852-8b606ba498a6/go.mod h1:QsnfBo0VUWWfOkXUHUdiWSiJghajbVwHjCA+OMqO0E8=
+github.com/rode/es-index-manager v0.1.0 h1:1zSzkzcTDjMNOxwyCjCfFsuNJV6FshSSF7WBRQuOmMc=
+github.com/rode/es-index-manager v0.1.0/go.mod h1:QsnfBo0VUWWfOkXUHUdiWSiJghajbVwHjCA+OMqO0E8=
 github.com/rogpeppe/fastuuid v0.0.0-20150106093220-6724a57986af h1:gu+uRPtBe88sKxUCEXRoeCvVG90TJmwhiqRpvdhQFng=
 github.com/rogpeppe/fastuuid v0.0.0-20150106093220-6724a57986af/go.mod h1:XWv6SoW27p1b0cqNHllgS5HIMJraePCO15w5zCzIWYg=
 github.com/rogpeppe/go-internal v1.3.0 h1:RR9dF3JtopPvtkroDZuVD7qquD0bnHlKSqaQhgwt8yk=

@@ -49,6 +49,20 @@ type FakeClient struct {
 	deleteReturnsOnCall map[int]struct {
 		result1 error
 	}
+	GetStub        func(context.Context, *esutil.GetRequest) (*esutil.EsGetResponse, error)
+	getMutex       sync.RWMutex
+	getArgsForCall []struct {
+		arg1 context.Context
+		arg2 *esutil.GetRequest
+	}
+	getReturns struct {
+		result1 *esutil.EsGetResponse
+		result2 error
+	}
+	getReturnsOnCall map[int]struct {
+		result1 *esutil.EsGetResponse
+		result2 error
+	}
 	MultiGetStub        func(context.Context, *esutil.MultiGetRequest) (*esutil.EsMultiGetResponse, error)
 	multiGetMutex       sync.RWMutex
 	multiGetArgsForCall []struct {
@@ -297,6 +311,71 @@ func (fake *FakeClient) DeleteReturnsOnCall(i int, result1 error) {
 	fake.deleteReturnsOnCall[i] = struct {
 		result1 error
 	}{result1}
+}
+
+func (fake *FakeClient) Get(arg1 context.Context, arg2 *esutil.GetRequest) (*esutil.EsGetResponse, error) {
+	fake.getMutex.Lock()
+	ret, specificReturn := fake.getReturnsOnCall[len(fake.getArgsForCall)]
+	fake.getArgsForCall = append(fake.getArgsForCall, struct {
+		arg1 context.Context
+		arg2 *esutil.GetRequest
+	}{arg1, arg2})
+	stub := fake.GetStub
+	fakeReturns := fake.getReturns
+	fake.recordInvocation("Get", []interface{}{arg1, arg2})
+	fake.getMutex.Unlock()
+	if stub != nil {
+		return stub(arg1, arg2)
+	}
+	if specificReturn {
+		return ret.result1, ret.result2
+	}
+	return fakeReturns.result1, fakeReturns.result2
+}
+
+func (fake *FakeClient) GetCallCount() int {
+	fake.getMutex.RLock()
+	defer fake.getMutex.RUnlock()
+	return len(fake.getArgsForCall)
+}
+
+func (fake *FakeClient) GetCalls(stub func(context.Context, *esutil.GetRequest) (*esutil.EsGetResponse, error)) {
+	fake.getMutex.Lock()
+	defer fake.getMutex.Unlock()
+	fake.GetStub = stub
+}
+
+func (fake *FakeClient) GetArgsForCall(i int) (context.Context, *esutil.GetRequest) {
+	fake.getMutex.RLock()
+	defer fake.getMutex.RUnlock()
+	argsForCall := fake.getArgsForCall[i]
+	return argsForCall.arg1, argsForCall.arg2
+}
+
+func (fake *FakeClient) GetReturns(result1 *esutil.EsGetResponse, result2 error) {
+	fake.getMutex.Lock()
+	defer fake.getMutex.Unlock()
+	fake.GetStub = nil
+	fake.getReturns = struct {
+		result1 *esutil.EsGetResponse
+		result2 error
+	}{result1, result2}
+}
+
+func (fake *FakeClient) GetReturnsOnCall(i int, result1 *esutil.EsGetResponse, result2 error) {
+	fake.getMutex.Lock()
+	defer fake.getMutex.Unlock()
+	fake.GetStub = nil
+	if fake.getReturnsOnCall == nil {
+		fake.getReturnsOnCall = make(map[int]struct {
+			result1 *esutil.EsGetResponse
+			result2 error
+		})
+	}
+	fake.getReturnsOnCall[i] = struct {
+		result1 *esutil.EsGetResponse
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeClient) MultiGet(arg1 context.Context, arg2 *esutil.MultiGetRequest) (*esutil.EsMultiGetResponse, error) {
@@ -565,6 +644,8 @@ func (fake *FakeClient) Invocations() map[string][][]interface{} {
 	defer fake.createMutex.RUnlock()
 	fake.deleteMutex.RLock()
 	defer fake.deleteMutex.RUnlock()
+	fake.getMutex.RLock()
+	defer fake.getMutex.RUnlock()
 	fake.multiGetMutex.RLock()
 	defer fake.multiGetMutex.RUnlock()
 	fake.multiSearchMutex.RLock()

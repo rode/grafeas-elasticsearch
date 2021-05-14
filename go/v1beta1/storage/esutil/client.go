@@ -25,6 +25,8 @@ import (
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"net/http"
+	"net/url"
 )
 
 type CreateRequest struct {
@@ -48,6 +50,11 @@ type BulkCreateRequestItem struct {
 type MultiSearchRequest struct {
 	Index    string
 	Searches []*EsSearch
+}
+
+type GetRequest struct {
+	Index      string
+	DocumentId string
 }
 
 type MultiGetRequest struct {
@@ -93,6 +100,7 @@ type Client interface {
 	BulkCreate(ctx context.Context, request *BulkCreateRequest) (*EsBulkResponse, error)
 	Search(ctx context.Context, request *SearchRequest) (*SearchResponse, error)
 	MultiSearch(ctx context.Context, request *MultiSearchRequest) (*EsMultiSearchResponse, error)
+	Get(ctx context.Context, request *GetRequest) (*EsGetResponse, error)
 	MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error)
 	Update(ctx context.Context, request *UpdateRequest) error
 	Delete(ctx context.Context, request *DeleteRequest) error
@@ -341,6 +349,31 @@ func (c *client) MultiSearch(ctx context.Context, request *MultiSearchRequest) (
 	}
 
 	var response EsMultiSearchResponse
+	if err = DecodeResponse(res.Body, &response); err != nil {
+		return nil, err
+	}
+
+	log.Debug("elasticsearch response", zap.Any("response", response))
+
+	return &response, nil
+}
+
+func (c *client) Get(ctx context.Context, request *GetRequest) (*EsGetResponse, error) {
+	log := c.logger.Named("Get").With(zap.String("index", request.Index), zap.String("documentId", request.DocumentId))
+
+	res, err := c.esClient.Get(
+		request.Index,
+		url.QueryEscape(request.DocumentId),
+		c.esClient.Get.WithContext(ctx),
+	)
+	if err != nil {
+		return nil, err
+	}
+	if res.IsError() && res.StatusCode != http.StatusNotFound {
+		return nil, fmt.Errorf("unexpected response from elasticsearch: %s", res.String())
+	}
+
+	var response EsGetResponse
 	if err = DecodeResponse(res.Body, &response); err != nil {
 		return nil, err
 	}

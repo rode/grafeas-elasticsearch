@@ -249,17 +249,18 @@ type ESMeta struct {
 	Type string `json:"type,omitempty"`
 }
 
+type EsGetResponse struct {
+	Id     string          `json:"_id"`
+	Found  bool            `json:"found"`
+	Source json.RawMessage `json:"_source"`
+}
+
 type EsMultiGetRequest struct {
 	IDs []string `json:"ids"`
 }
 
-type EsMultiGetDocument struct {
-	ID    string `json:"_id"`
-	Found bool   `json:"found"`
-}
-
 type EsMultiGetResponse struct {
-	Docs []*EsMultiGetDocument `json:"docs"`
+	Docs []*EsGetResponse `json:"docs"`
 }
 
 // response for index creation

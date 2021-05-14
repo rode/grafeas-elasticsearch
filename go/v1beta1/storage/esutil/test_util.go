@@ -15,13 +15,11 @@
 package esutil
 
 import (
-	"bytes"
 	"encoding/json"
-	. "github.com/onsi/gomega"
-	"io"
 	"io/ioutil"
 	"net/http"
-	"strings"
+
+	. "github.com/onsi/gomega"
 )
 
 type TransportAction = func(req *http.Request) (*http.Response, error)
@@ -54,19 +52,6 @@ func (m *MockEsTransport) Perform(req *http.Request) (*http.Response, error) {
 
 	// return nil if we don't know what to do
 	return nil, nil
-}
-
-func CreateIndexOrAliasName(parts ...string) string {
-	withPrefix := append([]string{"grafeas"}, parts...)
-
-	return strings.Join(withPrefix, "-")
-}
-
-func CreateESBody(value interface{}) io.ReadCloser {
-	responseBody, err := json.Marshal(value)
-	Expect(err).To(BeNil())
-
-	return ioutil.NopCloser(bytes.NewReader(responseBody))
 }
 
 func ReadRequestBody(request *http.Request, target interface{}) {

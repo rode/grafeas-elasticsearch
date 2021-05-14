@@ -18,10 +18,11 @@ import (
 	"crypto/tls"
 	"encoding/json"
 	"fmt"
-	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration"
 	"log"
 	"net/http"
 	"os"
+
+	"github.com/rode/es-index-manager/indexmanager"
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/grafeas/grafeas/go/v1beta1/server"
@@ -46,11 +47,9 @@ func main() {
 			return nil, fmt.Errorf("failed to connect to Elasticsearch")
 		}
 
-		indexManager := esutil.NewEsIndexManager(logger.Named("EsIndexManager"), esClient)
-		migrator := migration.NewEsMigrator(logger.Named("EsMigrator"), esClient, indexManager)
-		migrationOrchestrator := migration.NewEsMigrationOrchestrator(logger.Named("EsMigrationOrchestrator"), migrator)
+		indexManager := indexmanager.NewIndexManager(logger.Named("IndexManager"), esClient, &indexmanager.Config{MappingsPath: "mappings", IndexPrefix: "grafeas"})
 
-		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esutil.NewClient(logger, esClient), filtering.NewFilterer(), c, indexManager, migrationOrchestrator), nil
+		return storage.NewElasticsearchStorage(logger.Named("ElasticsearchStore"), esutil.NewClient(logger, esClient), filtering.NewFilterer(), c, indexManager), nil
 	}, logger)
 
 	err = grafeasStorage.RegisterStorageTypeProvider("elasticsearch", registerStorageTypeProvider)

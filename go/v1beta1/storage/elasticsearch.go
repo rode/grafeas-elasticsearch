@@ -17,11 +17,11 @@ package storage
 import (
 	"context"
 	"fmt"
-	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration"
 
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/google/uuid"
+	"github.com/rode/es-index-manager/indexmanager"
 	"github.com/rode/grafeas-elasticsearch/go/config"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
@@ -38,17 +38,19 @@ import (
 	"google.golang.org/protobuf/types/known/fieldmaskpb"
 )
 
-const grafeasMaxPageSize = 1000
-const sortField = "createTime"
-const pitKeepAlive = "5m"
+const (
+	projectDocumentKind     = "projects"
+	occurrencesDocumentKind = "occurrences"
+	notesDocumentKind       = "notes"
+	sortField               = "createTime"
+)
 
 type ElasticsearchStorage struct {
-	client                esutil.Client
-	config                *config.ElasticsearchConfig
-	filterer              filtering.Filterer
-	indexManager          esutil.IndexManager
-	logger                *zap.Logger
-	migrationOrchestrator migration.Orchestrator
+	client       esutil.Client
+	config       *config.ElasticsearchConfig
+	filterer     filtering.Filterer
+	indexManager indexmanager.IndexManager
+	logger       *zap.Logger
 }
 
 func NewElasticsearchStorage(
@@ -56,33 +58,22 @@ func NewElasticsearchStorage(
 	client esutil.Client,
 	filterer filtering.Filterer,
 	config *config.ElasticsearchConfig,
-	indexManager esutil.IndexManager,
-	migrationOrchestrator migration.Orchestrator) *ElasticsearchStorage {
+	indexManager indexmanager.IndexManager) *ElasticsearchStorage {
 	return &ElasticsearchStorage{
 		client,
 		config,
 		filterer,
 		indexManager,
 		logger,
-		migrationOrchestrator,
 	}
 }
 
 func (es *ElasticsearchStorage) Initialize(ctx context.Context) error {
-	const mappingsDir = "mappings"
-	if err := es.indexManager.LoadMappings(mappingsDir); err != nil {
+	if err := es.indexManager.Initialize(ctx); err != nil {
 		return err
 	}
 
-	if err := es.indexManager.CreateIndex(ctx, &esutil.IndexInfo{
-		DocumentKind: esutil.ProjectDocumentKind,
-		Index:        es.indexManager.ProjectsIndex(),
-		Alias:        es.indexManager.ProjectsAlias(),
-	}, true); err != nil {
-		return err
-	}
-
-	return es.migrationOrchestrator.RunMigrations(ctx)
+	return es.indexManager.CreateIndex(ctx, es.projectsIndex(), es.projectsAlias(), projectDocumentKind)
 }
 
 // CreateProject creates a project document within the project index, along with two indices that can be used
@@ -103,7 +94,7 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 	project.Name = projectName
 
 	_, err = es.client.Create(ctx, &esutil.CreateRequest{
-		Index:   es.indexManager.ProjectsAlias(),
+		Index:   es.projectsAlias(),
 		Message: proto.MessageV2(project),
 		Refresh: string(es.config.Refresh),
 	})
@@ -111,22 +102,26 @@ func (es *ElasticsearchStorage) CreateProject(ctx context.Context, projectId str
 		return nil, createError(log, "error creating project in elasticsearch", err)
 	}
 
-	indicesToCreate := []*esutil.IndexInfo{
+	indicesToCreate := []struct {
+		documentKind string
+		indexName    string
+		aliasName    string
+	}{
 		{
-			DocumentKind: esutil.OccurrenceDocumentKind,
-			Index:        es.indexManager.OccurrencesIndex(projectId),
-			Alias:        es.indexManager.OccurrencesAlias(projectId),
+			documentKind: occurrencesDocumentKind,
+			indexName:    es.occurrencesIndex(projectId),
+			aliasName:    es.occurrencesAlias(projectId),
 		},
 		{
-			DocumentKind: esutil.NoteDocumentKind,
-			Index:        es.indexManager.NotesIndex(projectId),
-			Alias:        es.indexManager.NotesAlias(projectId),
+			documentKind: notesDocumentKind,
+			indexName:    es.notesIndex(projectId),
+			aliasName:    es.notesAlias(projectId),
 		},
 	}
 
 	// create indices for occurrences and notes
-	for _, indexToCreate := range indicesToCreate {
-		if err := es.indexManager.CreateIndex(ctx, indexToCreate, false); err != nil {
+	for _, settings := range indicesToCreate {
+		if err := es.indexManager.CreateIndex(ctx, settings.indexName, settings.aliasName, settings.documentKind); err != nil {
 			return nil, createError(log, "error creating index", err)
 		}
 	}
@@ -150,7 +145,7 @@ func (es *ElasticsearchStorage) GetProject(ctx context.Context, projectId string
 	}
 	project := &prpb.Project{}
 
-	_, err := es.genericGet(ctx, log, search, es.indexManager.ProjectsAlias(), project)
+	_, err := es.genericGet(ctx, log, search, es.projectsAlias(), project)
 	if err != nil {
 		return nil, err
 	}
@@ -164,7 +159,7 @@ func (es *ElasticsearchStorage) ListProjects(ctx context.Context, filter string,
 	var projects []*prpb.Project
 	log := es.logger.Named("ListProjects")
 
-	res, nextPageToken, err := es.genericList(ctx, log, es.indexManager.ProjectsAlias(), filter, false, pageToken, int32(pageSize))
+	res, nextPageToken, err := es.genericList(ctx, log, es.projectsAlias(), filter, false, pageToken, int32(pageSize))
 	if err != nil {
 		return nil, "", err
 	}
@@ -203,7 +198,7 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 	}
 
 	err := es.client.Delete(ctx, &esutil.DeleteRequest{
-		Index:   es.indexManager.ProjectsAlias(),
+		Index:   es.projectsAlias(),
 		Search:  search,
 		Refresh: es.config.Refresh.String(),
 	})
@@ -214,8 +209,8 @@ func (es *ElasticsearchStorage) DeleteProject(ctx context.Context, projectId str
 	log.Debug("project document deleted")
 
 	indicesToDelete := []string{
-		es.indexManager.OccurrencesIndex(projectId),
-		es.indexManager.NotesIndex(projectId),
+		es.occurrencesIndex(projectId),
+		es.notesIndex(projectId),
 	}
 	for _, index := range indicesToDelete {
 		err = es.indexManager.DeleteIndex(ctx, index)
@@ -243,7 +238,7 @@ func (es *ElasticsearchStorage) GetOccurrence(ctx context.Context, projectId, oc
 	}
 	occurrence := &pb.Occurrence{}
 
-	_, err := es.genericGet(ctx, log, search, es.indexManager.OccurrencesAlias(projectId), occurrence)
+	_, err := es.genericGet(ctx, log, search, es.occurrencesAlias(projectId), occurrence)
 	if err != nil {
 		return nil, err
 	}
@@ -257,7 +252,7 @@ func (es *ElasticsearchStorage) ListOccurrences(ctx context.Context, projectId, 
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("ListOccurrences").With(zap.String("project", projectName))
 
-	res, nextPageToken, err := es.genericList(ctx, log, es.indexManager.OccurrencesAlias(projectId), filter, true, pageToken, pageSize)
+	res, nextPageToken, err := es.genericList(ctx, log, es.occurrencesAlias(projectId), filter, true, pageToken, pageSize)
 	if err != nil {
 		return nil, "", err
 	}
@@ -300,7 +295,7 @@ func (es *ElasticsearchStorage) CreateOccurrence(ctx context.Context, projectId,
 	occurrence.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, uuid.New().String())
 
 	_, err = es.client.Create(ctx, &esutil.CreateRequest{
-		Index:   es.indexManager.OccurrencesAlias(projectId),
+		Index:   es.occurrencesAlias(projectId),
 		Message: proto.MessageV2(occurrence),
 		Refresh: string(es.config.Refresh),
 	})
@@ -339,7 +334,7 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	}
 
 	response, err := es.client.BulkCreate(ctx, &esutil.BulkCreateRequest{
-		Index:   es.indexManager.OccurrencesAlias(projectId),
+		Index:   es.occurrencesAlias(projectId),
 		Refresh: string(es.config.Refresh),
 		Items:   bulkCreateRequestItems,
 	})
@@ -391,7 +386,7 @@ func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, projectId,
 
 	occurrence := &pb.Occurrence{}
 
-	targetDocumentID, err := es.genericGet(ctx, log, search, es.indexManager.OccurrencesAlias(projectId), occurrence)
+	targetDocumentID, err := es.genericGet(ctx, log, search, es.occurrencesAlias(projectId), occurrence)
 
 	if err != nil {
 		return nil, err
@@ -410,7 +405,7 @@ func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, projectId,
 	fieldmask_utils.StructToStruct(m, o, occurrence)
 
 	err = es.client.Update(ctx, &esutil.UpdateRequest{
-		Index:      es.indexManager.OccurrencesAlias(projectId),
+		Index:      es.occurrencesAlias(projectId),
 		DocumentId: targetDocumentID,
 		Message:    proto.MessageV2(occurrence),
 		Refresh:    es.config.Refresh.String(),
@@ -438,7 +433,7 @@ func (es *ElasticsearchStorage) DeleteOccurrence(ctx context.Context, projectId,
 	}
 
 	err := es.client.Delete(ctx, &esutil.DeleteRequest{
-		Index:   es.indexManager.OccurrencesAlias(projectId),
+		Index:   es.occurrencesAlias(projectId),
 		Search:  search,
 		Refresh: es.config.Refresh.String(),
 	})
@@ -463,7 +458,7 @@ func (es *ElasticsearchStorage) GetNote(ctx context.Context, projectId, noteId s
 	}
 	note := &pb.Note{}
 
-	_, err := es.genericGet(ctx, log, search, es.indexManager.NotesAlias(projectId), note)
+	_, err := es.genericGet(ctx, log, search, es.notesAlias(projectId), note)
 	if err != nil {
 		return nil, err
 	}
@@ -477,7 +472,7 @@ func (es *ElasticsearchStorage) ListNotes(ctx context.Context, projectId, filter
 	projectName := fmt.Sprintf("projects/%s", projectId)
 	log := es.logger.Named("ListNotes").With(zap.String("project", projectName))
 
-	res, nextPageToken, err := es.genericList(ctx, log, es.indexManager.NotesAlias(projectId), filter, true, pageToken, pageSize)
+	res, nextPageToken, err := es.genericList(ctx, log, es.notesAlias(projectId), filter, true, pageToken, pageSize)
 	if err != nil {
 		return nil, "", err
 	}
@@ -523,7 +518,7 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 			},
 		},
 	}
-	_, err = es.genericGet(ctx, log, search, es.indexManager.NotesAlias(projectId), &pb.Note{})
+	_, err = es.genericGet(ctx, log, search, es.notesAlias(projectId), &pb.Note{})
 	if err == nil { // note exists
 		log.Debug("note already exists")
 		return nil, status.Error(codes.AlreadyExists, fmt.Sprintf("note with name %s already exists", noteName))
@@ -537,7 +532,7 @@ func (es *ElasticsearchStorage) CreateNote(ctx context.Context, projectId, noteI
 	note.Name = noteName
 
 	_, err = es.client.Create(ctx, &esutil.CreateRequest{
-		Index:   es.indexManager.NotesAlias(projectId),
+		Index:   es.notesAlias(projectId),
 		Message: proto.MessageV2(note),
 		Refresh: string(es.config.Refresh),
 	})
@@ -585,7 +580,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	}
 
 	multiSearchResponse, err := es.client.MultiSearch(ctx, &esutil.MultiSearchRequest{
-		Index:    es.indexManager.NotesAlias(projectId),
+		Index:    es.notesAlias(projectId),
 		Searches: searches,
 	})
 	if err != nil {
@@ -619,7 +614,7 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	}
 
 	bulkResponse, err := es.client.BulkCreate(ctx, &esutil.BulkCreateRequest{
-		Index:   es.indexManager.NotesAlias(projectId),
+		Index:   es.notesAlias(projectId),
 		Refresh: es.config.Refresh.String(),
 		Items:   bulkCreateRequestItems,
 	})
@@ -673,7 +668,7 @@ func (es *ElasticsearchStorage) DeleteNote(ctx context.Context, projectId, noteI
 	}
 
 	err := es.client.Delete(ctx, &esutil.DeleteRequest{
-		Index:   es.indexManager.NotesAlias(projectId),
+		Index:   es.notesAlias(projectId),
 		Search:  search,
 		Refresh: es.config.Refresh.String(),
 	})
@@ -767,11 +762,35 @@ func (es *ElasticsearchStorage) doesProjectExist(ctx context.Context, log *zap.L
 		},
 	}
 
-	_, err := es.genericGet(ctx, log, search, es.indexManager.ProjectsAlias(), &prpb.Project{})
+	_, err := es.genericGet(ctx, log, search, es.projectsAlias(), &prpb.Project{})
 	if err == nil { // project exists
 		return true, nil
 	} else if status.Code(err) != codes.NotFound { // unexpected error (we expect a not found error here)
 		return false, err
 	}
 	return false, nil
+}
+
+func (es *ElasticsearchStorage) projectsIndex() string {
+	return es.indexManager.IndexName(projectDocumentKind, "")
+}
+
+func (es *ElasticsearchStorage) projectsAlias() string {
+	return es.indexManager.AliasName(projectDocumentKind, "")
+}
+
+func (es *ElasticsearchStorage) notesIndex(projectId string) string {
+	return es.indexManager.IndexName(notesDocumentKind, projectId)
+}
+
+func (es *ElasticsearchStorage) notesAlias(projectId string) string {
+	return es.indexManager.AliasName(notesDocumentKind, projectId)
+}
+
+func (es *ElasticsearchStorage) occurrencesIndex(projectId string) string {
+	return es.indexManager.IndexName(occurrencesDocumentKind, projectId)
+}
+
+func (es *ElasticsearchStorage) occurrencesAlias(projectId string) string {
+	return es.indexManager.AliasName(occurrencesDocumentKind, projectId)
 }

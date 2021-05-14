@@ -16,7 +16,7 @@ package esutil
 
 import (
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	. "github.com/onsi/gomega"
@@ -55,7 +55,7 @@ func (m *MockEsTransport) Perform(req *http.Request) (*http.Response, error) {
 }
 
 func ReadRequestBody(request *http.Request, target interface{}) {
-	rawBody, err := ioutil.ReadAll(request.Body)
+	rawBody, err := io.ReadAll(request.Body)
 	Expect(err).ToNot(HaveOccurred())
 
 	Expect(json.Unmarshal(rawBody, target)).ToNot(HaveOccurred())

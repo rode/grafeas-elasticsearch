@@ -4,12 +4,12 @@ on: push
 jobs:
   check:
     runs-on: ubuntu-latest
-    container: golang:1.15
+    container: golang:1.16
     steps:
       - uses: actions/checkout@v2
 
       - name: Download dependencies
-        run: go mod tidy
+        run: go mod download
 
       - name: Run unit tests
         run: |
@@ -27,7 +27,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v2
         with:
-          go-version: '1.15'
+          go-version: '1.16'
       - name: Start services
         run: docker-compose up -d --build elasticsearch server
       - name: Run integration tests
@@ -37,7 +37,7 @@ jobs:
         run : docker-compose down
   license-check:
     runs-on: ubuntu-latest
-    container: golang:1.15
+    container: golang:1.16
     steps:
     - uses: actions/checkout@v2
     - name: Download License Utility

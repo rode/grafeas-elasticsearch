@@ -162,13 +162,14 @@ type EsMultiGetRequest struct {
 	IDs []string `json:"ids"`
 }
 
-type EsMultiGetDocument struct {
-	ID    string `json:"_id"`
-	Found bool   `json:"found"`
+type EsGetResponse struct {
+	Id     string          `json:"_id"`
+	Found  bool            `json:"found"`
+	Source json.RawMessage `json:"_source"`
 }
 
 type EsMultiGetResponse struct {
-	Docs []*EsMultiGetDocument `json:"docs"`
+	Docs []*EsGetResponse `json:"docs"`
 }
 
 // response for index creation

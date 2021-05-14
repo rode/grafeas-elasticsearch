@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -605,6 +606,97 @@ var _ = Describe("elasticsearch client", func() {
 		})
 	})
 
+	Context("Get", func() {
+		var (
+			expectedDocumentId string
+			expectedIndex      string
+
+			expectedGetRequest  *GetRequest
+			expectedGetResponse *EsGetResponse
+
+			actualGetResponse *EsGetResponse
+			actualErr         error
+		)
+
+		BeforeEach(func() {
+			expectedDocumentId = fake.LetterN(10)
+			expectedIndex = fake.LetterN(10)
+
+			expectedGetRequest = &GetRequest{
+				Index:      expectedIndex,
+				DocumentId: expectedDocumentId,
+			}
+
+			expectedOccurrence := createRandomOccurrence()
+			expectedOccurrenceJson, _ := protojson.Marshal(protov1.MessageV2(expectedOccurrence))
+
+			expectedGetResponse = &EsGetResponse{
+				Id:     expectedDocumentId,
+				Found:  true,
+				Source: expectedOccurrenceJson,
+			}
+
+			transport.PreparedHttpResponses = []*http.Response{
+				{
+					StatusCode: http.StatusOK,
+					Body:       structToJsonBody(expectedGetResponse),
+				},
+			}
+		})
+
+		JustBeforeEach(func() {
+			actualGetResponse, actualErr = client.Get(ctx, expectedGetRequest)
+		})
+
+		It("should send the get request to ES", func() {
+			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc/%s", expectedIndex, expectedDocumentId)))
+		})
+
+		It("should return the response and no error", func() {
+			Expect(actualErr).ToNot(HaveOccurred())
+			Expect(actualGetResponse).To(Equal(expectedGetResponse))
+		})
+
+		When("the get operation fails", func() {
+			BeforeEach(func() {
+				transport.PreparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusInternalServerError,
+					},
+				}
+			})
+
+			It("should return an error", func() {
+				Expect(actualErr).To(HaveOccurred())
+				Expect(actualGetResponse).To(BeNil())
+			})
+		})
+
+		When("the get operation can't find the document", func() {
+			BeforeEach(func() {
+				transport.PreparedHttpResponses[0].StatusCode = http.StatusNotFound
+			})
+
+			It("should return the response and no error", func() {
+				Expect(actualErr).ToNot(HaveOccurred())
+				Expect(actualGetResponse).To(Equal(expectedGetResponse))
+			})
+		})
+
+		When("the document id is a url", func() {
+			BeforeEach(func() {
+				expectedDocumentId = fake.URL()
+				expectedGetRequest.DocumentId = expectedDocumentId
+			})
+
+			It("should query escape the document id", func() {
+				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+				Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.QueryEscape(expectedDocumentId)))
+			})
+		})
+	})
+
 	Context("MultiGet", func() {
 		var (
 			expectedDocumentIds      []string
@@ -625,12 +717,13 @@ var _ = Describe("elasticsearch client", func() {
 			}
 
 			expectedMultiGetResponse = &EsMultiGetResponse{
-				Docs: []*EsMultiGetDocument{},
+				Docs: []*EsGetResponse{},
 			}
 			for _, id := range expectedDocumentIds {
-				expectedMultiGetResponse.Docs = append(expectedMultiGetResponse.Docs, &EsMultiGetDocument{
-					ID:    id,
-					Found: fake.Bool(),
+				expectedMultiGetResponse.Docs = append(expectedMultiGetResponse.Docs, &EsGetResponse{
+					Id:     id,
+					Found:  fake.Bool(),
+					Source: []byte("null"),
 				})
 			}
 
@@ -662,8 +755,10 @@ var _ = Describe("elasticsearch client", func() {
 
 		When("the multiget operation fails", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[0] = &http.Response{
-					StatusCode: http.StatusInternalServerError,
+				transport.PreparedHttpResponses = []*http.Response{
+					{
+						StatusCode: http.StatusInternalServerError,
+					},
 				}
 			})
 

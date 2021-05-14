@@ -1,6 +1,6 @@
 module github.com/rode/grafeas-elasticsearch
 
-go 1.15
+go 1.16
 
 require (
 	github.com/brianvoe/gofakeit/v6 v6.4.1

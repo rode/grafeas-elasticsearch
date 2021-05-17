@@ -1,4 +1,4 @@
-FROM golang:1.15 as builder
+FROM golang:1.16 as builder
 
 WORKDIR /workspace
 
@@ -8,9 +8,10 @@ RUN go mod download
 COPY go/ go/
 
 WORKDIR /workspace/go/v1beta1/main
-RUN GO111MODULE=on CGO_ENABLED=0 go build -o grafeas-server .
+RUN CGO_ENABLED=0 go build -o grafeas-server .
 
 FROM alpine:latest
+LABEL org.opencontainers.image.source=https://github.com/rode/grafeas-elasticsearch
 WORKDIR /
 COPY --from=builder /workspace/go/v1beta1/main/grafeas-server /grafeas-server
 COPY mappings/ mappings/

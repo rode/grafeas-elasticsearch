@@ -19,6 +19,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strconv"
+	"strings"
+
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	protov1 "github.com/golang/protobuf/proto"
@@ -30,12 +36,6 @@ import (
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-	"io"
-	"io/ioutil"
-	"net/http"
-	"net/url"
-	"strconv"
-	"strings"
 )
 
 var _ = Describe("elasticsearch client", func() {
@@ -95,7 +95,7 @@ var _ = Describe("elasticsearch client", func() {
 		It("should index the document in ES", func() {
 			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedCreateRequest.Index)))
 
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
+			requestBody, err := io.ReadAll(transport.ReceivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
 			indexedMessage := &pb.Occurrence{}
@@ -655,7 +655,9 @@ var _ = Describe("elasticsearch client", func() {
 
 		It("should return the response and no error", func() {
 			Expect(actualErr).ToNot(HaveOccurred())
-			Expect(actualGetResponse).To(Equal(expectedGetResponse))
+			Expect(actualGetResponse.Id).To(Equal(expectedDocumentId))
+			Expect(actualGetResponse.Found).To(BeTrue())
+			Expect(actualGetResponse.Source).To(MatchJSON(expectedGetResponse.Source))
 		})
 
 		When("the get operation fails", func() {
@@ -675,12 +677,22 @@ var _ = Describe("elasticsearch client", func() {
 
 		When("the get operation can't find the document", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[0].StatusCode = http.StatusNotFound
+				expectedGetResponse.Found = false
+				expectedGetResponse.Source = nil
+				transport.PreparedHttpResponses[0] = &http.Response{
+					Body:       structToJsonBody(expectedGetResponse),
+					StatusCode: http.StatusNotFound,
+				}
 			})
 
 			It("should return the response and no error", func() {
 				Expect(actualErr).ToNot(HaveOccurred())
-				Expect(actualGetResponse).To(Equal(expectedGetResponse))
+				Expect(actualGetResponse.Found).To(BeFalse())
+				Expect(actualGetResponse.Id).To(Equal(expectedDocumentId))
+
+				actualJson, err := actualGetResponse.Source.MarshalJSON()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(actualJson).To(Equal([]byte("null")))
 			})
 		})
 
@@ -808,7 +820,7 @@ var _ = Describe("elasticsearch client", func() {
 		It("should index (update) the document in ES", func() {
 			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc/%s", expectedUpdateRequest.Index, expectedUpdateRequest.DocumentId)))
 
-			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
+			requestBody, err := io.ReadAll(transport.ReceivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
 
 			indexedMessage := &pb.Occurrence{}
@@ -1005,7 +1017,7 @@ func structToJsonBody(i interface{}) io.ReadCloser {
 	b, err := json.Marshal(i)
 	Expect(err).ToNot(HaveOccurred())
 
-	return ioutil.NopCloser(strings.NewReader(string(b)))
+	return io.NopCloser(strings.NewReader(string(b)))
 }
 
 // helper functions for _bulk requests

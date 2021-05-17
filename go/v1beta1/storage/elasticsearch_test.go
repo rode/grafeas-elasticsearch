@@ -25,6 +25,7 @@ import (
 	"github.com/golang/mock/gomock"
 	"github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
+	immocks "github.com/rode/es-index-manager/mocks"
 	"github.com/rode/grafeas-elasticsearch/go/config"
 	"github.com/rode/grafeas-elasticsearch/go/mocks"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil"
@@ -59,10 +60,9 @@ var _ = Describe("elasticsearch storage", func() {
 
 		mockCtrl     *gomock.Controller
 		filterer     *mocks.MockFilterer
-		indexManager *mocks.MockIndexManager
 		client       *esutilfakes.FakeClient
+		indexManager *immocks.FakeIndexManager
 		esConfig     *config.ElasticsearchConfig
-		orchestrator *mocks.MockOrchestrator
 	)
 
 	BeforeEach(func() {
@@ -77,23 +77,36 @@ var _ = Describe("elasticsearch storage", func() {
 
 		mockCtrl = gomock.NewController(GinkgoT())
 		filterer = mocks.NewMockFilterer(mockCtrl)
-		indexManager = mocks.NewMockIndexManager(mockCtrl)
+
+		indexManager = &immocks.FakeIndexManager{}
 		client = &esutilfakes.FakeClient{}
-		orchestrator = mocks.NewMockOrchestrator(mockCtrl)
 		esConfig = &config.ElasticsearchConfig{
 			URL:     fake.URL(),
 			Refresh: config.RefreshTrue,
 		}
 
-		indexManager.EXPECT().ProjectsAlias().Return(expectedProjectAlias).AnyTimes()
-		indexManager.EXPECT().OccurrencesIndex(expectedProjectId).Return(expectedOccurrencesIndex).AnyTimes()
-		indexManager.EXPECT().OccurrencesAlias(expectedProjectId).Return(expectedOccurrencesAlias).AnyTimes()
-		indexManager.EXPECT().NotesIndex(expectedProjectId).Return(expectedNotesIndex).AnyTimes()
-		indexManager.EXPECT().NotesAlias(expectedProjectId).Return(expectedNotesAlias).AnyTimes()
+		indexKey := func(documentKind, inner string) string {
+			return fmt.Sprintf("%s-%s", documentKind, inner)
+		}
+		// stub index and alias calls with expected names
+		indexManager.AliasNameCalls(func(documentKind string, inner string) string {
+			return map[string]string{
+				indexKey(projectDocumentKind, ""):                    expectedProjectAlias,
+				indexKey(occurrencesDocumentKind, expectedProjectId): expectedOccurrencesAlias,
+				indexKey(notesDocumentKind, expectedProjectId):       expectedNotesAlias,
+			}[indexKey(documentKind, inner)]
+		})
+
+		indexManager.IndexNameCalls(func(documentKind string, inner string) string {
+			return map[string]string{
+				indexKey(occurrencesDocumentKind, expectedProjectId): expectedOccurrencesIndex,
+				indexKey(notesDocumentKind, expectedProjectId):       expectedNotesIndex,
+			}[indexKey(documentKind, inner)]
+		})
 	})
 
 	JustBeforeEach(func() {
-		elasticsearchStorage = NewElasticsearchStorage(logger, client, filterer, esConfig, indexManager, orchestrator)
+		elasticsearchStorage = NewElasticsearchStorage(logger, client, filterer, esConfig, indexManager)
 	})
 
 	AfterEach(func() {
@@ -109,7 +122,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		BeforeEach(func() {
 			expectedProjectsIndex = fake.LetterN(10)
-			indexManager.EXPECT().ProjectsIndex().Return(expectedProjectsIndex).AnyTimes()
+			indexManager.IndexNameReturns(expectedProjectsIndex)
 			expectedError = fmt.Errorf(fake.Word())
 		})
 
@@ -118,15 +131,18 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		Describe("successful initialization", func() {
-			BeforeEach(func() {
-				indexManager.EXPECT().LoadMappings("mappings").Times(1)
-				indexManager.EXPECT().CreateIndex(ctx, &esutil.IndexInfo{
-					DocumentKind: "projects",
-					Index:        expectedProjectsIndex,
-					Alias:        expectedProjectAlias,
-				}, true).Times(1)
+			It("should initialize the index manager", func() {
+				Expect(indexManager.InitializeCallCount()).To(Equal(1))
+			})
 
-				orchestrator.EXPECT().RunMigrations(ctx).Times(1)
+			It("should create the projects index", func() {
+				Expect(indexManager.CreateIndexCallCount()).To(Equal(1))
+
+				_, actualIndex, actualAlias, actualDocumentKind := indexManager.CreateIndexArgsForCall(0)
+
+				Expect(actualIndex).To(Equal(expectedProjectsIndex))
+				Expect(actualAlias).To(Equal(expectedProjectAlias))
+				Expect(actualDocumentKind).To(Equal(projectDocumentKind))
 			})
 
 			It("should not return an error", func() {
@@ -134,9 +150,9 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 		})
 
-		Describe("an error occurs while loading mappings", func() {
+		Describe("an error during the index manager initialization", func() {
 			BeforeEach(func() {
-				indexManager.EXPECT().LoadMappings(gomock.Any()).Return(expectedError)
+				indexManager.InitializeReturns(expectedError)
 			})
 
 			It("should return the error", func() {
@@ -146,21 +162,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		Describe("an error occurs while creating the projects index", func() {
 			BeforeEach(func() {
-				indexManager.EXPECT().LoadMappings(gomock.Any()).AnyTimes()
-				indexManager.EXPECT().CreateIndex(gomock.Any(), gomock.Any(), gomock.Any()).Return(expectedError)
-			})
-
-			It("should return the error", func() {
-				Expect(actualError).To(MatchError(expectedError))
-			})
-		})
-
-		Describe("an error occurs while running migrations", func() {
-			BeforeEach(func() {
-				indexManager.EXPECT().LoadMappings(gomock.Any()).AnyTimes()
-				indexManager.EXPECT().CreateIndex(gomock.Any(), gomock.Any(), gomock.Any()).AnyTimes()
-
-				orchestrator.EXPECT().RunMigrations(gomock.Any()).Return(expectedError)
+				indexManager.CreateIndexReturns(expectedError)
 			})
 
 			It("should return the error", func() {
@@ -217,10 +219,6 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		Describe("checking if the project document exists", func() {
-			BeforeEach(func() {
-				indexManager.EXPECT().CreateIndex(context.Background(), gomock.Any(), false).Times(2)
-			})
-
 			It("should check if the project document already exists", func() {
 				Expect(client.SearchCallCount()).To(Equal(1))
 
@@ -263,18 +261,24 @@ var _ = Describe("elasticsearch storage", func() {
 
 		When("the project does not exist", func() {
 			Describe("creating the project", func() {
-				BeforeEach(func() {
-					indexManager.EXPECT().CreateIndex(context.Background(), &esutil.IndexInfo{
-						Index:        expectedOccurrencesIndex,
-						Alias:        expectedOccurrencesAlias,
-						DocumentKind: esutil.OccurrenceDocumentKind,
-					}, false).Times(1)
+				It("should create an index for the occurrences", func() {
+					Expect(indexManager.CreateIndexCallCount()).To(Equal(2))
 
-					indexManager.EXPECT().CreateIndex(context.Background(), &esutil.IndexInfo{
-						Index:        expectedNotesIndex,
-						Alias:        expectedNotesAlias,
-						DocumentKind: esutil.NoteDocumentKind,
-					}, false).Times(1)
+					_, actualIndex, actualAlias, actualDocumentKind := indexManager.CreateIndexArgsForCall(0)
+
+					Expect(actualIndex).To(Equal(expectedOccurrencesIndex))
+					Expect(actualAlias).To(Equal(expectedOccurrencesAlias))
+					Expect(actualDocumentKind).To(Equal(occurrencesDocumentKind))
+				})
+
+				It("should create an index for the notes", func() {
+					Expect(indexManager.CreateIndexCallCount()).To(Equal(2))
+
+					_, actualIndex, actualAlias, actualDocumentKind := indexManager.CreateIndexArgsForCall(1)
+
+					Expect(actualIndex).To(Equal(expectedNotesIndex))
+					Expect(actualAlias).To(Equal(expectedNotesAlias))
+					Expect(actualDocumentKind).To(Equal(notesDocumentKind))
 				})
 
 				It("should create a new document for the project", func() {
@@ -333,8 +337,10 @@ var _ = Describe("elasticsearch storage", func() {
 			When("creating a new document fails", func() {
 				BeforeEach(func() {
 					expectedCreateError = errors.New("error creating project")
+				})
 
-					indexManager.EXPECT().CreateIndex(gomock.Any(), gomock.Any(), gomock.Any()).Times(0)
+				It("should not make any indices", func() {
+					Expect(indexManager.CreateIndexCallCount()).To(Equal(0))
 				})
 
 				It("should return an error", func() {
@@ -345,7 +351,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 			When("creating the indices fails", func() {
 				BeforeEach(func() {
-					indexManager.EXPECT().CreateIndex(gomock.Any(), gomock.Any(), gomock.Any()).Return(fmt.Errorf("foobar"))
+					indexManager.CreateIndexReturns(fmt.Errorf("foobar"))
 				})
 
 				It("should return an error", func() {
@@ -587,9 +593,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 			expectedDeleteDocumentError error
 
-			expectedDeleteIndexError  error
-			deleteOccurrenceIndexCall *gomock.Call
-			deleteNoteIndexCall       *gomock.Call
+			expectedDeleteIndexError error
 		)
 
 		BeforeEach(func() {
@@ -599,19 +603,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		JustBeforeEach(func() {
 			client.DeleteReturns(expectedDeleteDocumentError)
-
-			// expect occurrences and notes indices to be deleted on happy path
-			deleteOccurrenceIndexCall = indexManager.
-				EXPECT().
-				DeleteIndex(ctx, expectedOccurrencesIndex).
-				AnyTimes().
-				Return(expectedDeleteIndexError)
-
-			deleteNoteIndexCall = indexManager.
-				EXPECT().
-				DeleteIndex(ctx, expectedNotesIndex).
-				AnyTimes().
-				Return(expectedDeleteIndexError)
+			indexManager.DeleteIndexReturns(expectedDeleteIndexError)
 
 			actualErr = elasticsearchStorage.DeleteProject(ctx, expectedProjectId)
 		})
@@ -626,8 +618,12 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		It("should attempt to delete the indices for notes / occurrences", func() {
-			deleteOccurrenceIndexCall.Times(1)
-			deleteNoteIndexCall.Times(1)
+			Expect(indexManager.DeleteIndexCallCount()).To(Equal(2))
+			_, occurrencesIndex := indexManager.DeleteIndexArgsForCall(0)
+			Expect(occurrencesIndex).To(Equal(expectedOccurrencesIndex))
+
+			_, notesIndex := indexManager.DeleteIndexArgsForCall(1)
+			Expect(notesIndex).To(Equal(expectedNotesIndex))
 		})
 
 		It("should not return an error", func() {
@@ -690,8 +686,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not attempt to delete the indices for notes / occurrences", func() {
-				deleteOccurrenceIndexCall.Times(0)
-				deleteNoteIndexCall.Times(0)
+				Expect(indexManager.DeleteIndexCallCount()).To(Equal(0))
 			})
 		})
 	})

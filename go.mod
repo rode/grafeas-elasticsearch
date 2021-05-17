@@ -15,7 +15,7 @@ require (
 	github.com/onsi/ginkgo v1.16.2
 	github.com/onsi/gomega v1.12.0
 	github.com/pelletier/go-toml v1.7.0 // indirect
-	github.com/rode/es-index-manager v0.1.0
+	github.com/rode/es-index-manager v0.1.1
 	github.com/spf13/pflag v1.0.5 // indirect
 	github.com/spf13/viper v1.7.0 // indirect
 	github.com/stretchr/testify v1.6.1 // indirect

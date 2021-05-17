@@ -41,7 +41,7 @@ jobs:
     steps:
     - uses: actions/checkout@v2
     - name: Download License Utility
-      run: go get -u github.com/google/addlicense
+      run: go install github.com/google/addlicense@master
     - name: Check License Headers
       run: |
         shopt -s globstar

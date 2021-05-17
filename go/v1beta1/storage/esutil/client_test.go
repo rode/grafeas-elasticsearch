@@ -655,7 +655,9 @@ var _ = Describe("elasticsearch client", func() {
 
 		It("should return the response and no error", func() {
 			Expect(actualErr).ToNot(HaveOccurred())
-			Expect(actualGetResponse).To(Equal(expectedGetResponse))
+			Expect(actualGetResponse.Id).To(Equal(expectedDocumentId))
+			Expect(actualGetResponse.Found).To(BeTrue())
+			Expect(actualGetResponse.Source).To(MatchJSON(expectedGetResponse.Source))
 		})
 
 		When("the get operation fails", func() {
@@ -675,12 +677,22 @@ var _ = Describe("elasticsearch client", func() {
 
 		When("the get operation can't find the document", func() {
 			BeforeEach(func() {
-				transport.PreparedHttpResponses[0].StatusCode = http.StatusNotFound
+				expectedGetResponse.Found = false
+				expectedGetResponse.Source = nil
+				transport.PreparedHttpResponses[0] = &http.Response{
+					Body:       structToJsonBody(expectedGetResponse),
+					StatusCode: http.StatusNotFound,
+				}
 			})
 
 			It("should return the response and no error", func() {
 				Expect(actualErr).ToNot(HaveOccurred())
-				Expect(actualGetResponse).To(Equal(expectedGetResponse))
+				Expect(actualGetResponse.Found).To(BeFalse())
+				Expect(actualGetResponse.Id).To(Equal(expectedDocumentId))
+
+				actualJson, err := actualGetResponse.Source.MarshalJSON()
+				Expect(err).NotTo(HaveOccurred())
+				Expect(actualJson).To(Equal([]byte("null")))
 			})
 		})
 

@@ -9,17 +9,17 @@ import (
 )
 
 type FakeClient struct {
-	BulkCreateStub        func(context.Context, *esutil.BulkCreateRequest) (*esutil.EsBulkResponse, error)
-	bulkCreateMutex       sync.RWMutex
-	bulkCreateArgsForCall []struct {
+	BulkStub        func(context.Context, *esutil.BulkRequest) (*esutil.EsBulkResponse, error)
+	bulkMutex       sync.RWMutex
+	bulkArgsForCall []struct {
 		arg1 context.Context
-		arg2 *esutil.BulkCreateRequest
+		arg2 *esutil.BulkRequest
 	}
-	bulkCreateReturns struct {
+	bulkReturns struct {
 		result1 *esutil.EsBulkResponse
 		result2 error
 	}
-	bulkCreateReturnsOnCall map[int]struct {
+	bulkReturnsOnCall map[int]struct {
 		result1 *esutil.EsBulkResponse
 		result2 error
 	}
@@ -121,17 +121,17 @@ type FakeClient struct {
 	invocationsMutex sync.RWMutex
 }
 
-func (fake *FakeClient) BulkCreate(arg1 context.Context, arg2 *esutil.BulkCreateRequest) (*esutil.EsBulkResponse, error) {
-	fake.bulkCreateMutex.Lock()
-	ret, specificReturn := fake.bulkCreateReturnsOnCall[len(fake.bulkCreateArgsForCall)]
-	fake.bulkCreateArgsForCall = append(fake.bulkCreateArgsForCall, struct {
+func (fake *FakeClient) Bulk(arg1 context.Context, arg2 *esutil.BulkRequest) (*esutil.EsBulkResponse, error) {
+	fake.bulkMutex.Lock()
+	ret, specificReturn := fake.bulkReturnsOnCall[len(fake.bulkArgsForCall)]
+	fake.bulkArgsForCall = append(fake.bulkArgsForCall, struct {
 		arg1 context.Context
-		arg2 *esutil.BulkCreateRequest
+		arg2 *esutil.BulkRequest
 	}{arg1, arg2})
-	stub := fake.BulkCreateStub
-	fakeReturns := fake.bulkCreateReturns
-	fake.recordInvocation("BulkCreate", []interface{}{arg1, arg2})
-	fake.bulkCreateMutex.Unlock()
+	stub := fake.BulkStub
+	fakeReturns := fake.bulkReturns
+	fake.recordInvocation("Bulk", []interface{}{arg1, arg2})
+	fake.bulkMutex.Unlock()
 	if stub != nil {
 		return stub(arg1, arg2)
 	}
@@ -141,46 +141,46 @@ func (fake *FakeClient) BulkCreate(arg1 context.Context, arg2 *esutil.BulkCreate
 	return fakeReturns.result1, fakeReturns.result2
 }
 
-func (fake *FakeClient) BulkCreateCallCount() int {
-	fake.bulkCreateMutex.RLock()
-	defer fake.bulkCreateMutex.RUnlock()
-	return len(fake.bulkCreateArgsForCall)
+func (fake *FakeClient) BulkCallCount() int {
+	fake.bulkMutex.RLock()
+	defer fake.bulkMutex.RUnlock()
+	return len(fake.bulkArgsForCall)
 }
 
-func (fake *FakeClient) BulkCreateCalls(stub func(context.Context, *esutil.BulkCreateRequest) (*esutil.EsBulkResponse, error)) {
-	fake.bulkCreateMutex.Lock()
-	defer fake.bulkCreateMutex.Unlock()
-	fake.BulkCreateStub = stub
+func (fake *FakeClient) BulkCalls(stub func(context.Context, *esutil.BulkRequest) (*esutil.EsBulkResponse, error)) {
+	fake.bulkMutex.Lock()
+	defer fake.bulkMutex.Unlock()
+	fake.BulkStub = stub
 }
 
-func (fake *FakeClient) BulkCreateArgsForCall(i int) (context.Context, *esutil.BulkCreateRequest) {
-	fake.bulkCreateMutex.RLock()
-	defer fake.bulkCreateMutex.RUnlock()
-	argsForCall := fake.bulkCreateArgsForCall[i]
+func (fake *FakeClient) BulkArgsForCall(i int) (context.Context, *esutil.BulkRequest) {
+	fake.bulkMutex.RLock()
+	defer fake.bulkMutex.RUnlock()
+	argsForCall := fake.bulkArgsForCall[i]
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeClient) BulkCreateReturns(result1 *esutil.EsBulkResponse, result2 error) {
-	fake.bulkCreateMutex.Lock()
-	defer fake.bulkCreateMutex.Unlock()
-	fake.BulkCreateStub = nil
-	fake.bulkCreateReturns = struct {
+func (fake *FakeClient) BulkReturns(result1 *esutil.EsBulkResponse, result2 error) {
+	fake.bulkMutex.Lock()
+	defer fake.bulkMutex.Unlock()
+	fake.BulkStub = nil
+	fake.bulkReturns = struct {
 		result1 *esutil.EsBulkResponse
 		result2 error
 	}{result1, result2}
 }
 
-func (fake *FakeClient) BulkCreateReturnsOnCall(i int, result1 *esutil.EsBulkResponse, result2 error) {
-	fake.bulkCreateMutex.Lock()
-	defer fake.bulkCreateMutex.Unlock()
-	fake.BulkCreateStub = nil
-	if fake.bulkCreateReturnsOnCall == nil {
-		fake.bulkCreateReturnsOnCall = make(map[int]struct {
+func (fake *FakeClient) BulkReturnsOnCall(i int, result1 *esutil.EsBulkResponse, result2 error) {
+	fake.bulkMutex.Lock()
+	defer fake.bulkMutex.Unlock()
+	fake.BulkStub = nil
+	if fake.bulkReturnsOnCall == nil {
+		fake.bulkReturnsOnCall = make(map[int]struct {
 			result1 *esutil.EsBulkResponse
 			result2 error
 		})
 	}
-	fake.bulkCreateReturnsOnCall[i] = struct {
+	fake.bulkReturnsOnCall[i] = struct {
 		result1 *esutil.EsBulkResponse
 		result2 error
 	}{result1, result2}
@@ -638,8 +638,8 @@ func (fake *FakeClient) UpdateReturnsOnCall(i int, result1 error) {
 func (fake *FakeClient) Invocations() map[string][][]interface{} {
 	fake.invocationsMutex.RLock()
 	defer fake.invocationsMutex.RUnlock()
-	fake.bulkCreateMutex.RLock()
-	defer fake.bulkCreateMutex.RUnlock()
+	fake.bulkMutex.RLock()
+	defer fake.bulkMutex.RUnlock()
 	fake.createMutex.RLock()
 	defer fake.createMutex.RUnlock()
 	fake.deleteMutex.RLock()

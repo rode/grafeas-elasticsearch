@@ -16,8 +16,10 @@ package esutil
 
 import (
 	"encoding/json"
-
+	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/proto"
 )
 
 // Elasticsearch /_search response
@@ -103,16 +105,14 @@ type EsDeleteResponse struct {
 // Elasticsearch /_bulk query fragments
 
 type EsBulkQueryFragment struct {
-	Index  *EsBulkQueryIndexFragment  `json:"index,omitempty"`
-	Create *EsBulkQueryCreateFragment `json:"create,omitempty"`
+	Index  *EsBulkQueryOperationFragment `json:"index,omitempty"`
+	Create *EsBulkQueryOperationFragment `json:"create,omitempty"`
 }
 
-type EsBulkQueryIndexFragment struct {
-	Index string `json:"_index"`
-}
-
-type EsBulkQueryCreateFragment struct {
-	Id string `json:"_id"`
+type EsBulkQueryOperationFragment struct {
+	Id      string `json:"_id,omitempty"`
+	Index   string `json:"_index,omitempty"`
+	Routing string `json:"routing,omitempty"`
 }
 
 // Elasticsearch /_bulk response
@@ -268,4 +268,46 @@ type EsIndexResponse struct {
 	Acknowledged       bool   `json:"acknowledged"`
 	ShardsAcknowledged bool   `json:"shards_acknowledged"`
 	Index              string `json:"index"`
+}
+
+type EsJoin struct {
+	// Field represents the name of the join field
+	Field string
+	// Name represents the name of the document, as specified within the index mapping
+	Name string
+	// Parent represents the ID of this resource's parent. Omit this if this document has no parent.
+	Parent string
+}
+
+// EsDocWithJoin makes it possible to add a "join" field to the source JSON without having to modify the underlying protobuf message.
+// The "join" field is used as described here: https://www.elastic.co/guide/en/elasticsearch/reference/7.10/parent-join.html.
+// When marshaled to JSON, the "join" field will be merged with the protobuf JSON as a patch.
+type EsDocWithJoin struct {
+	Join    *EsJoin
+	Message proto.Message
+}
+
+func (e *EsDocWithJoin) MarshalJSON() ([]byte, error) {
+	joinField := map[string]string{
+		"name": e.Join.Name,
+	}
+	if e.Join.Parent != "" {
+		joinField["parent"] = e.Join.Parent
+	}
+
+	patch := map[string]interface{}{
+		e.Join.Field: joinField,
+	}
+
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return nil, err
+	}
+
+	messageBytes, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(e.Message)
+	if err != nil {
+		return nil, err
+	}
+
+	return jsonpatch.MergePatch(messageBytes, patchBytes)
 }

@@ -326,22 +326,23 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	}
 	log.Debug("creating occurrences")
 
-	var bulkCreateRequestItems []*esutil.BulkCreateRequestItem
+	var bulkRequestItems []*esutil.BulkRequestItem
 	for _, occurrence := range occurrences {
 		occurrence.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, uuid.New().String())
 		if occurrence.CreateTime == nil {
 			occurrence.CreateTime = ptypes.TimestampNow()
 		}
 
-		bulkCreateRequestItems = append(bulkCreateRequestItems, &esutil.BulkCreateRequestItem{
-			Message: proto.MessageV2(occurrence),
+		bulkRequestItems = append(bulkRequestItems, &esutil.BulkRequestItem{
+			Operation: esutil.BULK_CREATE,
+			Message:   proto.MessageV2(occurrence),
 		})
 	}
 
-	response, err := es.client.BulkCreate(ctx, &esutil.BulkCreateRequest{
+	response, err := es.client.Bulk(ctx, &esutil.BulkRequest{
 		Index:   es.indexManager.OccurrencesAlias(projectId),
 		Refresh: string(es.config.Refresh),
-		Items:   bulkCreateRequestItems,
+		Items:   bulkRequestItems,
 	})
 	if err != nil {
 		return nil, []error{
@@ -611,17 +612,18 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		return nil, errs
 	}
 
-	var bulkCreateRequestItems []*esutil.BulkCreateRequestItem
+	var bulkRequestItems []*esutil.BulkRequestItem
 	for _, note := range notesToCreate {
-		bulkCreateRequestItems = append(bulkCreateRequestItems, &esutil.BulkCreateRequestItem{
-			Message: proto.MessageV2(note),
+		bulkRequestItems = append(bulkRequestItems, &esutil.BulkRequestItem{
+			Operation: esutil.BULK_CREATE,
+			Message:   proto.MessageV2(note),
 		})
 	}
 
-	bulkResponse, err := es.client.BulkCreate(ctx, &esutil.BulkCreateRequest{
+	bulkResponse, err := es.client.Bulk(ctx, &esutil.BulkRequest{
 		Index:   es.indexManager.NotesAlias(projectId),
 		Refresh: es.config.Refresh.String(),
-		Items:   bulkCreateRequestItems,
+		Items:   bulkRequestItems,
 	})
 	if err != nil {
 		return nil, append(errs, createError(log, "error bulk creating documents in elasticsearch", err))

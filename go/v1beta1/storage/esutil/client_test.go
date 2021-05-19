@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
+	jsonpatch "github.com/evanphx/json-patch"
 	protov1 "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
@@ -153,11 +154,11 @@ var _ = Describe("elasticsearch client", func() {
 		})
 	})
 
-	Context("BulkCreate", func() {
+	Context("Bulk", func() {
 		var (
-			expectedBulkCreateRequest  *BulkCreateRequest
+			expectedBulkCreateRequest  *BulkRequest
 			expectedBulkCreateResponse *EsBulkResponse
-			expectedBulkItems          []*BulkCreateRequestItem
+			expectedBulkItems          []*BulkRequestItem
 			expectedOccurrences        []*pb.Occurrence
 			expectedIndex              string
 			expectedErrs               []error
@@ -169,16 +170,17 @@ var _ = Describe("elasticsearch client", func() {
 		BeforeEach(func() {
 			expectedIndex = fake.LetterN(10)
 			expectedOccurrences = createRandomOccurrences(fake.Number(2, 5))
-			expectedBulkItems = []*BulkCreateRequestItem{}
+			expectedBulkItems = []*BulkRequestItem{}
 			for _, o := range expectedOccurrences {
-				expectedBulkItems = append(expectedBulkItems, &BulkCreateRequestItem{
-					Message: protov1.MessageV2(o),
+				expectedBulkItems = append(expectedBulkItems, &BulkRequestItem{
+					Message:   protov1.MessageV2(o),
+					Operation: BULK_INDEX,
 				})
 				expectedErrs = append(expectedErrs, nil)
 			}
 
 			expectedBulkCreateResponse = createEsBulkOccurrenceIndexResponse(expectedOccurrences, expectedErrs)
-			expectedBulkCreateRequest = &BulkCreateRequest{
+			expectedBulkCreateRequest = &BulkRequest{
 				Index: expectedIndex,
 				Items: expectedBulkItems,
 			}
@@ -192,7 +194,7 @@ var _ = Describe("elasticsearch client", func() {
 		})
 
 		JustBeforeEach(func() {
-			actualBulkCreateResponse, actualErr = client.BulkCreate(ctx, expectedBulkCreateRequest)
+			actualBulkCreateResponse, actualErr = client.Bulk(ctx, expectedBulkCreateRequest)
 		})
 
 		It("should send a bulk request to ES to create a document for each message", func() {
@@ -211,7 +213,7 @@ var _ = Describe("elasticsearch client", func() {
 				if i%2 == 0 { // index metadata
 					metadata := payload.(*EsBulkQueryFragment)
 					Expect(metadata.Index.Index).To(Equal(expectedIndex))
-					Expect(metadata.Create).To(BeNil()) // document ID is not set for this test
+					Expect(metadata.Create).To(BeNil()) // create is not used for this test
 				} else { // occurrence
 					occurrence := payload.(*pb.Occurrence)
 					expectedOccurrence := expectedOccurrences[(i-1)/2]
@@ -226,7 +228,7 @@ var _ = Describe("elasticsearch client", func() {
 			Expect(actualBulkCreateResponse).To(BeEquivalentTo(expectedBulkCreateResponse))
 		})
 
-		When("a document ID is specified for an item", func() {
+		When("the create operation is specified for an item", func() {
 			var (
 				randomItemIndex    int
 				expectedDocumentId string
@@ -236,6 +238,7 @@ var _ = Describe("elasticsearch client", func() {
 				expectedDocumentId = fake.LetterN(10)
 				randomItemIndex = fake.Number(0, len(expectedBulkItems)-1)
 				expectedBulkItems[randomItemIndex].DocumentId = expectedDocumentId
+				expectedBulkItems[randomItemIndex].Operation = BULK_CREATE
 			})
 
 			It("should use the provided document ID when indexing that item", func() {
@@ -655,7 +658,10 @@ var _ = Describe("elasticsearch client", func() {
 
 		It("should return the response and no error", func() {
 			Expect(actualErr).ToNot(HaveOccurred())
-			Expect(actualGetResponse).To(Equal(expectedGetResponse))
+			Expect(actualGetResponse.Found).To(Equal(expectedGetResponse.Found))
+			Expect(actualGetResponse.Id).To(Equal(expectedGetResponse.Id))
+
+			Expect(jsonpatch.Equal(actualGetResponse.Source, expectedGetResponse.Source)).To(BeTrue())
 		})
 
 		When("the get operation fails", func() {
@@ -680,7 +686,10 @@ var _ = Describe("elasticsearch client", func() {
 
 			It("should return the response and no error", func() {
 				Expect(actualErr).ToNot(HaveOccurred())
-				Expect(actualGetResponse).To(Equal(expectedGetResponse))
+				Expect(actualGetResponse.Found).To(Equal(expectedGetResponse.Found))
+				Expect(actualGetResponse.Id).To(Equal(expectedGetResponse.Id))
+
+				Expect(jsonpatch.Equal(actualGetResponse.Source, expectedGetResponse.Source)).To(BeTrue())
 			})
 		})
 

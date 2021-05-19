@@ -34,17 +34,27 @@ type CreateRequest struct {
 	Refresh    string // TODO: use RefreshOption type
 	Message    proto.Message
 	DocumentId string
+	Join       *EsJoin
 }
 
-type BulkCreateRequest struct {
+type BulkRequest struct {
 	Index   string
 	Refresh string // TODO: use RefreshOption type
-	Items   []*BulkCreateRequestItem
+	Items   []*BulkRequestItem
 }
 
-type BulkCreateRequestItem struct {
+type EsBulkOperation string
+
+const (
+	BULK_INDEX  EsBulkOperation = "INDEX"
+	BULK_CREATE EsBulkOperation = "CREATE"
+)
+
+type BulkRequestItem struct {
 	Message    proto.Message
 	DocumentId string
+	Join       *EsJoin
+	Operation  EsBulkOperation
 }
 
 type MultiSearchRequest struct {
@@ -97,7 +107,7 @@ const grafeasMaxPageSize = 1000
 
 type Client interface {
 	Create(ctx context.Context, request *CreateRequest) (string, error)
-	BulkCreate(ctx context.Context, request *BulkCreateRequest) (*EsBulkResponse, error)
+	Bulk(ctx context.Context, request *BulkRequest) (*EsBulkResponse, error)
 	Search(ctx context.Context, request *SearchRequest) (*SearchResponse, error)
 	MultiSearch(ctx context.Context, request *MultiSearchRequest) (*EsMultiSearchResponse, error)
 	Get(ctx context.Context, request *GetRequest) (*EsGetResponse, error)
@@ -120,10 +130,6 @@ func NewClient(logger *zap.Logger, esClient *elasticsearch.Client) Client {
 
 func (c *client) Create(ctx context.Context, request *CreateRequest) (string, error) {
 	log := c.logger.Named("Create")
-	str, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(request.Message)
-	if err != nil {
-		return "", err
-	}
 
 	if request.Refresh == "" {
 		request.Refresh = "true"
@@ -137,9 +143,32 @@ func (c *client) Create(ctx context.Context, request *CreateRequest) (string, er
 		indexOpts = append(indexOpts, c.esClient.Index.WithDocumentID(request.DocumentId))
 	}
 
+	var (
+		doc []byte
+		err error
+	)
+	if request.Join != nil {
+		doc, err = json.Marshal(&EsDocWithJoin{
+			Join:    request.Join,
+			Message: request.Message,
+		})
+		if err != nil {
+			return "", err
+		}
+
+		if request.Join.Parent != "" {
+			indexOpts = append(indexOpts, c.esClient.Index.WithRouting(url.QueryEscape(request.Join.Parent)))
+		}
+	} else {
+		doc, err = protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(request.Message)
+		if err != nil {
+			return "", err
+		}
+	}
+
 	res, err := c.esClient.Index(
 		request.Index,
-		bytes.NewReader(str),
+		bytes.NewReader(doc),
 		indexOpts...,
 	)
 	if err != nil {
@@ -159,8 +188,8 @@ func (c *client) Create(ctx context.Context, request *CreateRequest) (string, er
 	return esResponse.Id, nil
 }
 
-func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest) (*EsBulkResponse, error) {
-	log := c.logger.Named("BulkCreate")
+func (c *client) Bulk(ctx context.Context, request *BulkRequest) (*EsBulkResponse, error) {
+	log := c.logger.Named("Bulk")
 
 	// build the request body using newline delimited JSON (ndjson)
 	// each message is represented by two JSON structures:
@@ -171,23 +200,38 @@ func (c *client) BulkCreate(ctx context.Context, request *BulkCreateRequest) (*E
 	for _, item := range request.Items {
 		metadata := &EsBulkQueryFragment{}
 
-		if item.DocumentId != "" {
-			metadata.Create = &EsBulkQueryCreateFragment{
-				Id: item.DocumentId,
-			}
+		operationFragment := &EsBulkQueryOperationFragment{
+			Id:    item.DocumentId,
+			Index: request.Index,
+		}
+		if item.Operation == BULK_CREATE {
+			metadata.Create = operationFragment
+		} else if item.Operation == BULK_INDEX {
+			metadata.Index = operationFragment
 		} else {
-			metadata.Index = &EsBulkQueryIndexFragment{
-				Index: request.Index,
+			return nil, fmt.Errorf("expected valid bulk operation, got %s", item.Operation)
+		}
+
+		var (
+			data []byte
+			err  error
+		)
+		if item.Join != nil {
+			data, err = json.Marshal(&EsDocWithJoin{
+				Join:    item.Join,
+				Message: item.Message,
+			})
+
+			operationFragment.Routing = item.Join.Parent
+		} else {
+			data, err = protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(item.Message)
+			if err != nil {
+				return nil, err
 			}
 		}
 
 		metadataBytes, _ := json.Marshal(metadata)
 		metadataBytes = append(metadataBytes, '\n')
-
-		data, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(item.Message)
-		if err != nil {
-			return nil, err
-		}
 
 		dataBytes := append(data, '\n')
 		body.Grow(len(metadataBytes) + len(dataBytes))

@@ -3,9 +3,9 @@ module github.com/rode/grafeas-elasticsearch
 go 1.15
 
 require (
-	github.com/Jeffail/gabs/v2 v2.6.0
 	github.com/brianvoe/gofakeit/v6 v6.0.0
 	github.com/elastic/go-elasticsearch/v7 v7.10.0
+	github.com/evanphx/json-patch v0.5.2
 	github.com/golang/mock v1.4.4
 	github.com/golang/protobuf v1.4.2
 	github.com/google/cel-go v0.6.0

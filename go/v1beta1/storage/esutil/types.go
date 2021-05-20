@@ -152,111 +152,20 @@ type EsMultiSearchResponseHit struct {
 	Source json.RawMessage `json:"_source"`
 }
 
-// Elasticsearch /$INDEX/block/_write response
-
-type ESBlockIndex struct {
-	Name    string `json:"name"`
-	Blocked bool   `json:"blocked"`
-}
-
-type ESBlockResponse struct {
-	Acknowledged       bool           `json:"acknowledged"`
-	ShardsAcknowledged bool           `json:"shards_acknowledged"`
-	Indices            []ESBlockIndex `json:"indices"`
-}
-
-// Elasticsearch /$INDEX/_settings
-
-type ESSettingsResponse struct {
-	Settings *ESSettingsIndex `json:"settings"`
-}
-
-type ESSettingsIndex struct {
-	Index *ESSettingsBlocks `json:"index"`
-}
-
-type ESSettingsBlocks struct {
-	Blocks *ESSettingsWrite `json:"blocks"`
-}
-
-type ESSettingsWrite struct {
-	Write string `json:"write"`
-}
-
-// response for calls where wait_for_completion=false
-type ESTaskCreationResponse struct {
-	Task string `json:"task"`
-}
-
-// /_tasks/$TASK_ID response
-type ESTask struct {
-	Completed bool `json:"completed"`
-}
-
-// Elasticsearch /_aliases request
-type ESActions struct {
-	Add    *ESIndexAlias `json:"add,omitempty"`
-	Remove *ESIndexAlias `json:"remove,omitempty"`
-}
-
-type ESIndexAlias struct {
-	Index string `json:"index"`
-	Alias string `json:"alias"`
-}
-
-type ESIndexAliasRequest struct {
-	Actions []ESActions `json:"actions"`
-}
-
-// Elasticsearch /_reindex request
-
-type ESReindex struct {
-	Conflicts   string         `json:"conflicts"`
-	Source      *ReindexFields `json:"source"`
-	Destination *ReindexFields `json:"dest"`
-}
-
-type ReindexFields struct {
-	Index  string `json:"index"`
-	OpType string `json:"op_type,omitempty"`
-}
-
 // Elasticsearch /$INDEX/_pit response
 
 type ESPitResponse struct {
 	Id string `json:"id"`
 }
 
-// Elasticsearch 400 error response
-
-type ESErrorResponse struct {
-	Error ESError `json:"error"`
-}
-
-type ESError struct {
-	Type string `json:"type"`
-}
-
-type ESIndex struct {
-	Mappings *ESMappings `json:"mappings"`
-}
-
-type ESMappings struct {
-	Meta *ESMeta `json:"_meta,omitempty"`
-}
-
-type ESMeta struct {
-	Type string `json:"type,omitempty"`
+type EsMultiGetRequest struct {
+	IDs []string `json:"ids"`
 }
 
 type EsGetResponse struct {
 	Id     string          `json:"_id"`
 	Found  bool            `json:"found"`
 	Source json.RawMessage `json:"_source"`
-}
-
-type EsMultiGetRequest struct {
-	IDs []string `json:"ids"`
 }
 
 type EsMultiGetResponse struct {

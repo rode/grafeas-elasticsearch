@@ -16,12 +16,14 @@ package storage
 
 import (
 	"fmt"
+
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil/esutilfakes"
 
 	"github.com/golang/mock/gomock"
 	grafeasConfig "github.com/grafeas/grafeas/go/config"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
+	immocks "github.com/rode/es-index-manager/mocks"
 	"github.com/rode/grafeas-elasticsearch/go/config"
 	"github.com/rode/grafeas-elasticsearch/go/mocks"
 )
@@ -31,17 +33,16 @@ var _ = Describe("Grafeas integration", func() {
 		elasticsearchStorage    *ElasticsearchStorage
 		mockCtrl                *gomock.Controller
 		filterer                *mocks.MockFilterer
-		indexManager            *mocks.MockIndexManager
+		indexManager            *immocks.FakeIndexManager
 		client                  *esutilfakes.FakeClient
 		esConfig                *config.ElasticsearchConfig
 		newElasticsearchStorage newElasticsearchStorageFunc
-		orchestrator            *mocks.MockOrchestrator
 	)
 
 	BeforeEach(func() {
 		mockCtrl = gomock.NewController(GinkgoT())
 		filterer = mocks.NewMockFilterer(mockCtrl)
-		indexManager = mocks.NewMockIndexManager(mockCtrl)
+		indexManager = &immocks.FakeIndexManager{}
 		client = &esutilfakes.FakeClient{}
 		esConfig = &config.ElasticsearchConfig{
 			URL:     fake.URL(),
@@ -50,9 +51,7 @@ var _ = Describe("Grafeas integration", func() {
 	})
 
 	JustBeforeEach(func() {
-		orchestrator = mocks.NewMockOrchestrator(mockCtrl)
-
-		elasticsearchStorage = NewElasticsearchStorage(logger, client, filterer, esConfig, indexManager, orchestrator)
+		elasticsearchStorage = NewElasticsearchStorage(logger, client, filterer, esConfig, indexManager)
 	})
 
 	AfterEach(func() {

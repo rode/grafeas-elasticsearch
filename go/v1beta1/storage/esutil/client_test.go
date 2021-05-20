@@ -95,6 +95,7 @@ var _ = Describe("elasticsearch client", func() {
 
 		It("should index the document in ES", func() {
 			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedCreateRequest.Index)))
+			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(BeEmpty())
 
 			requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
@@ -150,6 +151,69 @@ var _ = Describe("elasticsearch client", func() {
 
 			It("should not refresh the index after creating the document", func() {
 				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("false"))
+			})
+		})
+
+		When("a join field is used", func() {
+			var (
+				expectedJoinField string
+				expectedJoinName  string
+			)
+
+			BeforeEach(func() {
+				expectedJoinField = fake.LetterN(10)
+				expectedJoinName = fake.LetterN(10)
+
+				expectedCreateRequest.Join = &EsJoin{
+					Field: expectedJoinField,
+					Name:  expectedJoinName,
+				}
+			})
+
+			It("should marshal the join fields into the request body json", func() {
+				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				// the proto message should still be marshalled
+				indexedMessage := &pb.Occurrence{}
+				err = protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(requestBody, protov1.MessageV2(indexedMessage))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(indexedMessage).To(BeEquivalentTo(expectedOccurrence))
+
+				// and we should also see the join field
+				jsonMap := map[string]interface{}{}
+				err = json.Unmarshal(requestBody, &jsonMap)
+				Expect(err).ToNot(HaveOccurred())
+
+				joinField := jsonMap[expectedJoinField].(map[string]interface{})
+				Expect(joinField["name"]).To(BeEquivalentTo(expectedJoinName))
+			})
+
+			When("the parent is set", func() {
+				var expectedParent string
+
+				BeforeEach(func() {
+					expectedParent = fake.LetterN(10)
+
+					expectedCreateRequest.Join.Parent = expectedParent
+				})
+
+				It("should set the routing to the parent ID", func() {
+					Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedCreateRequest.Index)))
+					Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(Equal(expectedParent))
+				})
+
+				It("should include the parent info in the request body", func() {
+					requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
+					Expect(err).ToNot(HaveOccurred())
+
+					jsonMap := map[string]interface{}{}
+					err = json.Unmarshal(requestBody, &jsonMap)
+					Expect(err).ToNot(HaveOccurred())
+
+					joinField := jsonMap[expectedJoinField].(map[string]interface{})
+					Expect(joinField["parent"]).To(BeEquivalentTo(expectedParent))
+				})
 			})
 		})
 	})

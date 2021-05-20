@@ -27,7 +27,6 @@ import (
 
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
-	jsonpatch "github.com/evanphx/json-patch"
 	protov1 "github.com/golang/protobuf/proto"
 	"github.com/golang/protobuf/ptypes"
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
@@ -171,7 +170,7 @@ var _ = Describe("elasticsearch client", func() {
 			})
 
 			It("should marshal the join fields into the request body json", func() {
-				requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
+				requestBody, err := io.ReadAll(transport.ReceivedHttpRequests[0].Body)
 				Expect(err).ToNot(HaveOccurred())
 
 				// the proto message should still be marshalled
@@ -204,7 +203,7 @@ var _ = Describe("elasticsearch client", func() {
 				})
 
 				It("should include the parent info in the request body", func() {
-					requestBody, err := ioutil.ReadAll(transport.ReceivedHttpRequests[0].Body)
+					requestBody, err := io.ReadAll(transport.ReceivedHttpRequests[0].Body)
 					Expect(err).ToNot(HaveOccurred())
 
 					jsonMap := map[string]interface{}{}

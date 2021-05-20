@@ -29,6 +29,8 @@ import (
 	"net/url"
 )
 
+//go:generate counterfeiter -generate
+
 type CreateRequest struct {
 	Index      string
 	Refresh    string // TODO: use RefreshOption type
@@ -105,6 +107,7 @@ type DeleteRequest struct {
 const defaultPitKeepAlive = "5m"
 const grafeasMaxPageSize = 1000
 
+//counterfeiter:generate . Client
 type Client interface {
 	Create(ctx context.Context, request *CreateRequest) (string, error)
 	Bulk(ctx context.Context, request *BulkRequest) (*EsBulkResponse, error)

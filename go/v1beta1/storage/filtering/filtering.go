@@ -28,6 +28,9 @@ import (
 	expr "google.golang.org/genproto/googleapis/api/expr/v1alpha1"
 )
 
+//go:generate counterfeiter -generate
+
+//counterfeiter:generate . Filterer
 type Filterer interface {
 	ParseExpression(filter string) (*Query, error)
 }

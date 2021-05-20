@@ -352,9 +352,9 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 		errs               []error
 	)
 	for i, occurrence := range occurrences {
-		indexItem := response.Items[i].Index
-		if occErr := indexItem.Error; occErr != nil {
-			errs = append(errs, createError(log, "error creating occurrence in ES", fmt.Errorf("[%d] %s: %s", indexItem.Status, occErr.Type, occErr.Reason), zap.Any("occurrence", occurrence)))
+		createItem := response.Items[i].Create
+		if occErr := createItem.Error; occErr != nil {
+			errs = append(errs, createError(log, "error creating occurrence in ES", fmt.Errorf("[%d] %s: %s", createItem.Status, occErr.Type, occErr.Reason), zap.Any("occurrence", occurrence)))
 			continue
 		}
 
@@ -628,9 +628,9 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	// we need to iterate over each of the items in the response to know whether or not that particular note was created successfully
 	var createdNotes []*pb.Note
 	for i, note := range notesToCreate {
-		indexItem := bulkResponse.Items[i].Index
-		if indexDocError := indexItem.Error; indexDocError != nil {
-			errs = append(errs, createError(log, "error creating note in ES", fmt.Errorf("[%d] %s: %s", indexItem.Status, indexDocError.Type, indexDocError.Reason), zap.Any("note", note)))
+		createItem := bulkResponse.Items[i].Create
+		if createDocError := createItem.Error; createDocError != nil {
+			errs = append(errs, createError(log, "error creating note in ES", fmt.Errorf("[%d] %s: %s", createItem.Status, createDocError.Type, createDocError.Reason), zap.Any("note", note)))
 			continue
 		}
 

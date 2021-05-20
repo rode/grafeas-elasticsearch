@@ -949,7 +949,7 @@ var _ = Describe("elasticsearch storage", func() {
 			var expectedBulkResponseItems []*esutil.EsBulkResponseItem
 			for i := 0; i < len(expectedOccurrences); i++ {
 				expectedBulkResponseItems = append(expectedBulkResponseItems, &esutil.EsBulkResponseItem{
-					Index: &esutil.EsIndexDocResponse{
+					Create: &esutil.EsIndexDocResponse{
 						Error: nil,
 					},
 				})
@@ -1078,7 +1078,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 			BeforeEach(func() {
 				randomErrorIndex = fake.Number(0, len(expectedOccurrences)-1)
-				expectedBulkCreateResponse.Items[randomErrorIndex].Index.Error = &esutil.EsIndexDocError{
+				expectedBulkCreateResponse.Items[randomErrorIndex].Create.Error = &esutil.EsIndexDocError{
 					Type:   "error",
 					Reason: "error",
 				}
@@ -1803,7 +1803,7 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				})
 				expectedBulkCreateResponseItems = append(expectedBulkCreateResponseItems, &esutil.EsBulkResponseItem{
-					Index: &esutil.EsIndexDocResponse{
+					Create: &esutil.EsIndexDocResponse{
 						Id:    fake.LetterN(10),
 						Error: nil,
 					},
@@ -2071,7 +2071,7 @@ var _ = Describe("elasticsearch storage", func() {
 					var responses []*esutil.EsBulkResponseItem
 					for _, item := range request.Items {
 						response := &esutil.EsBulkResponseItem{
-							Index: &esutil.EsIndexDocResponse{
+							Create: &esutil.EsIndexDocResponse{
 								Id:    fake.LetterN(10),
 								Error: nil,
 							},
@@ -2079,8 +2079,8 @@ var _ = Describe("elasticsearch storage", func() {
 
 						note := proto.MessageV1(item.Message).(*pb.Note)
 						if note.Name == nameOfNoteThatFailedToCreate {
-							response.Index.Id = ""
-							response.Index.Error = &esutil.EsIndexDocError{
+							response.Create.Id = ""
+							response.Create.Error = &esutil.EsIndexDocError{
 								Type:   fake.LetterN(10),
 								Reason: fake.LetterN(10),
 							}

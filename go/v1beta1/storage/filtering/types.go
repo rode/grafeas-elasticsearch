@@ -22,6 +22,7 @@ type Query struct {
 	QueryString *QueryString `json:"query_string,omitempty"`
 	Nested      *Nested      `json:"nested,omitempty"`
 	Range       *Range       `json:"range,omitempty"`
+	HasParent   *HasParent   `json:"has_parent,omitempty"`
 }
 
 // Bool holds a general query that carries any number of
@@ -57,6 +58,12 @@ type Nested struct {
 
 // Holds an operator that evaluates a range for comparisons
 type Range map[string]*RangeOperator
+
+// HasParent is used to query for resources that use a join field and have a parent resource
+type HasParent struct {
+	ParentType string `json:"parent_type"`
+	Query      *Query `json:"query"`
+}
 
 type RangeOperator struct {
 	Greater       string `json:"gt,omitempty"`

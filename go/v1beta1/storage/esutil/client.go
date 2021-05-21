@@ -151,6 +151,8 @@ func (c *client) Create(ctx context.Context, request *CreateRequest) (string, er
 		err error
 	)
 	if request.Join != nil {
+		// marshal the protobuf message with the custom join patch.
+		// see the godoc for EsDocWithJoin for more details
 		doc, err = json.Marshal(&EsDocWithJoin{
 			Join:    request.Join,
 			Message: request.Message,
@@ -220,10 +222,15 @@ func (c *client) Bulk(ctx context.Context, request *BulkRequest) (*EsBulkRespons
 			err  error
 		)
 		if item.Join != nil {
+			// marshal the protobuf message with the custom join patch.
+			// see the godoc for EsDocWithJoin for more details
 			data, err = json.Marshal(&EsDocWithJoin{
 				Join:    item.Join,
 				Message: item.Message,
 			})
+			if err != nil {
+				return nil, err
+			}
 
 			operationFragment.Routing = item.Join.Parent
 		} else {

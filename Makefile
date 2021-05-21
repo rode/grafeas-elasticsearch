@@ -14,8 +14,6 @@ vet:
 
 mocks:
 	mockgen -package mocks -destination go/mocks/filtering.go github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering Filterer
-	mockgen -package mocks -destination go/mocks/index.go github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/esutil IndexManager
-	mockgen -package mocks -destination go/mocks/orchestrator.go github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/migration Orchestrator
 	go install github.com/maxbrunsfeld/counterfeiter/v6@v6.4.1
 	COUNTERFEITER_NO_GENERATE_WARNING="true" go generate ./...
 

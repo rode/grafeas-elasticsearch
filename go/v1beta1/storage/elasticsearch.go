@@ -321,22 +321,23 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 	}
 	log.Debug("creating occurrences")
 
-	var bulkCreateRequestItems []*esutil.BulkCreateRequestItem
+	var bulkRequestItems []*esutil.BulkRequestItem
 	for _, occurrence := range occurrences {
 		occurrence.Name = fmt.Sprintf("projects/%s/occurrences/%s", projectId, uuid.New().String())
 		if occurrence.CreateTime == nil {
 			occurrence.CreateTime = ptypes.TimestampNow()
 		}
 
-		bulkCreateRequestItems = append(bulkCreateRequestItems, &esutil.BulkCreateRequestItem{
-			Message: proto.MessageV2(occurrence),
+		bulkRequestItems = append(bulkRequestItems, &esutil.BulkRequestItem{
+			Operation: esutil.BULK_CREATE,
+			Message:   proto.MessageV2(occurrence),
 		})
 	}
 
-	response, err := es.client.BulkCreate(ctx, &esutil.BulkCreateRequest{
+	response, err := es.client.Bulk(ctx, &esutil.BulkRequest{
 		Index:   es.occurrencesAlias(projectId),
 		Refresh: string(es.config.Refresh),
-		Items:   bulkCreateRequestItems,
+		Items:   bulkRequestItems,
 	})
 	if err != nil {
 		return nil, []error{
@@ -351,9 +352,9 @@ func (es *ElasticsearchStorage) BatchCreateOccurrences(ctx context.Context, proj
 		errs               []error
 	)
 	for i, occurrence := range occurrences {
-		indexItem := response.Items[i].Index
-		if occErr := indexItem.Error; occErr != nil {
-			errs = append(errs, createError(log, "error creating occurrence in ES", fmt.Errorf("[%d] %s: %s", indexItem.Status, occErr.Type, occErr.Reason), zap.Any("occurrence", occurrence)))
+		createItem := response.Items[i].Create
+		if occErr := createItem.Error; occErr != nil {
+			errs = append(errs, createError(log, "error creating occurrence in ES", fmt.Errorf("[%d] %s: %s", createItem.Status, occErr.Type, occErr.Reason), zap.Any("occurrence", occurrence)))
 			continue
 		}
 
@@ -606,17 +607,18 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 		return nil, errs
 	}
 
-	var bulkCreateRequestItems []*esutil.BulkCreateRequestItem
+	var bulkRequestItems []*esutil.BulkRequestItem
 	for _, note := range notesToCreate {
-		bulkCreateRequestItems = append(bulkCreateRequestItems, &esutil.BulkCreateRequestItem{
-			Message: proto.MessageV2(note),
+		bulkRequestItems = append(bulkRequestItems, &esutil.BulkRequestItem{
+			Operation: esutil.BULK_CREATE,
+			Message:   proto.MessageV2(note),
 		})
 	}
 
-	bulkResponse, err := es.client.BulkCreate(ctx, &esutil.BulkCreateRequest{
+	bulkResponse, err := es.client.Bulk(ctx, &esutil.BulkRequest{
 		Index:   es.notesAlias(projectId),
 		Refresh: es.config.Refresh.String(),
-		Items:   bulkCreateRequestItems,
+		Items:   bulkRequestItems,
 	})
 	if err != nil {
 		return nil, append(errs, createError(log, "error bulk creating documents in elasticsearch", err))
@@ -626,9 +628,9 @@ func (es *ElasticsearchStorage) BatchCreateNotes(ctx context.Context, projectId,
 	// we need to iterate over each of the items in the response to know whether or not that particular note was created successfully
 	var createdNotes []*pb.Note
 	for i, note := range notesToCreate {
-		indexItem := bulkResponse.Items[i].Index
-		if indexDocError := indexItem.Error; indexDocError != nil {
-			errs = append(errs, createError(log, "error creating note in ES", fmt.Errorf("[%d] %s: %s", indexItem.Status, indexDocError.Type, indexDocError.Reason), zap.Any("note", note)))
+		createItem := bulkResponse.Items[i].Create
+		if createDocError := createItem.Error; createDocError != nil {
+			errs = append(errs, createError(log, "error creating note in ES", fmt.Errorf("[%d] %s: %s", createItem.Status, createDocError.Type, createDocError.Reason), zap.Any("note", note)))
 			continue
 		}
 

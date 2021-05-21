@@ -949,7 +949,7 @@ var _ = Describe("elasticsearch storage", func() {
 			var expectedBulkResponseItems []*esutil.EsBulkResponseItem
 			for i := 0; i < len(expectedOccurrences); i++ {
 				expectedBulkResponseItems = append(expectedBulkResponseItems, &esutil.EsBulkResponseItem{
-					Index: &esutil.EsIndexDocResponse{
+					Create: &esutil.EsIndexDocResponse{
 						Error: nil,
 					},
 				})
@@ -966,21 +966,22 @@ var _ = Describe("elasticsearch storage", func() {
 			occurrences := deepCopyOccurrences(expectedOccurrences)
 
 			client.SearchReturns(expectedSearchResponse, expectedSearchError)
-			client.BulkCreateReturns(expectedBulkCreateResponse, expectedBulkCreateError)
+			client.BulkReturns(expectedBulkCreateResponse, expectedBulkCreateError)
 
 			actualOccurrences, actualErrs = elasticsearchStorage.BatchCreateOccurrences(context.Background(), expectedProjectId, "", occurrences)
 		})
 
 		It("should send a bulk request to ES to index each occurrence", func() {
-			Expect(client.BulkCreateCallCount()).To(Equal(1))
+			Expect(client.BulkCallCount()).To(Equal(1))
 
-			_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+			_, bulkCreateRequest := client.BulkArgsForCall(0)
 			Expect(bulkCreateRequest.Index).To(Equal(expectedOccurrencesAlias))
 
-			for i, bulkCreateRequestItem := range bulkCreateRequest.Items {
-				occurrence := proto.MessageV1(bulkCreateRequestItem.Message).(*grafeas_go_proto.Occurrence)
+			for i, item := range bulkCreateRequest.Items {
+				occurrence := proto.MessageV1(item.Message).(*grafeas_go_proto.Occurrence)
 				expectedOccurrence := expectedOccurrences[i]
 				expectedOccurrence.Name = occurrence.Name
+				Expect(item.Operation).To(Equal(esutil.BULK_CREATE))
 
 				Expect(occurrence).To(Equal(expectedOccurrence))
 			}
@@ -1002,9 +1003,9 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should immediately refresh the index", func() {
-				Expect(client.BulkCreateCallCount()).To(Equal(1))
+				Expect(client.BulkCallCount()).To(Equal(1))
 
-				_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+				_, bulkCreateRequest := client.BulkArgsForCall(0)
 				Expect(bulkCreateRequest.Refresh).To(Equal("true"))
 			})
 		})
@@ -1015,9 +1016,9 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should wait for refresh of index", func() {
-				Expect(client.BulkCreateCallCount()).To(Equal(1))
+				Expect(client.BulkCallCount()).To(Equal(1))
 
-				_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+				_, bulkCreateRequest := client.BulkArgsForCall(0)
 				Expect(bulkCreateRequest.Refresh).To(Equal("wait_for"))
 			})
 		})
@@ -1028,9 +1029,9 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not wait or force refresh of index", func() {
-				Expect(client.BulkCreateCallCount()).To(Equal(1))
+				Expect(client.BulkCallCount()).To(Equal(1))
 
-				_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+				_, bulkCreateRequest := client.BulkArgsForCall(0)
 				Expect(bulkCreateRequest.Refresh).To(Equal("false"))
 			})
 		})
@@ -1077,7 +1078,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 			BeforeEach(func() {
 				randomErrorIndex = fake.Number(0, len(expectedOccurrences)-1)
-				expectedBulkCreateResponse.Items[randomErrorIndex].Index.Error = &esutil.EsIndexDocError{
+				expectedBulkCreateResponse.Items[randomErrorIndex].Create.Error = &esutil.EsIndexDocError{
 					Type:   "error",
 					Reason: "error",
 				}
@@ -1802,7 +1803,7 @@ var _ = Describe("elasticsearch storage", func() {
 					},
 				})
 				expectedBulkCreateResponseItems = append(expectedBulkCreateResponseItems, &esutil.EsBulkResponseItem{
-					Index: &esutil.EsIndexDocResponse{
+					Create: &esutil.EsIndexDocResponse{
 						Id:    fake.LetterN(10),
 						Error: nil,
 					},
@@ -1827,8 +1828,8 @@ var _ = Describe("elasticsearch storage", func() {
 				client.MultiSearchReturns(expectedNoteMultiSearchResponse, expectedNoteMultiSearchError)
 			}
 
-			if client.BulkCreateStub == nil {
-				client.BulkCreateReturns(expectedBulkCreateResponse, expectedBulkCreateError)
+			if client.BulkStub == nil {
+				client.BulkReturns(expectedBulkCreateResponse, expectedBulkCreateError)
 			}
 
 			actualNotes, actualErrs = elasticsearchStorage.BatchCreateNotes(context.Background(), expectedProjectId, "", deepCopyNotes(expectedNotesWithNoteIds))
@@ -1862,15 +1863,16 @@ var _ = Describe("elasticsearch storage", func() {
 		})
 
 		It("should send a bulk request to create each note", func() {
-			Expect(client.BulkCreateCallCount()).To(Equal(1))
+			Expect(client.BulkCallCount()).To(Equal(1))
 
-			_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+			_, bulkCreateRequest := client.BulkArgsForCall(0)
 
 			Expect(bulkCreateRequest.Index).To(Equal(expectedNotesAlias))
 
 			for _, item := range bulkCreateRequest.Items {
 				note := proto.MessageV1(item.Message).(*pb.Note)
 				Expect(expectedNotes).To(ContainElement(note))
+				Expect(item.Operation).To(Equal(esutil.BULK_CREATE))
 			}
 		})
 
@@ -1886,7 +1888,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should immediately refresh the index", func() {
-				_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+				_, bulkCreateRequest := client.BulkArgsForCall(0)
 
 				Expect(bulkCreateRequest.Refresh).To(Equal("true"))
 			})
@@ -1898,7 +1900,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should wait for refresh of index", func() {
-				_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+				_, bulkCreateRequest := client.BulkArgsForCall(0)
 
 				Expect(bulkCreateRequest.Refresh).To(Equal("wait_for"))
 			})
@@ -1910,7 +1912,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not wait or force refresh of index", func() {
-				_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+				_, bulkCreateRequest := client.BulkArgsForCall(0)
 
 				Expect(bulkCreateRequest.Refresh).To(Equal("false"))
 			})
@@ -1930,7 +1932,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 			It("should not attempt a multisearch or bulkcreate", func() {
 				Expect(client.MultiSearchCallCount()).To(Equal(0))
-				Expect(client.BulkCreateCallCount()).To(Equal(0))
+				Expect(client.BulkCallCount()).To(Equal(0))
 			})
 		})
 
@@ -1947,7 +1949,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 			It("should not attempt to search for the note or create the notes", func() {
 				Expect(client.MultiSearchCallCount()).To(Equal(0))
-				Expect(client.BulkCreateCallCount()).To(Equal(0))
+				Expect(client.BulkCallCount()).To(Equal(0))
 			})
 		})
 
@@ -1963,7 +1965,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not attempt to index any notes", func() {
-				Expect(client.BulkCreateCallCount()).To(Equal(0))
+				Expect(client.BulkCallCount()).To(Equal(0))
 			})
 		})
 
@@ -2012,14 +2014,15 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not include that note in the bulkcreate request", func() {
-				Expect(client.BulkCreateCallCount()).To(Equal(1))
+				Expect(client.BulkCallCount()).To(Equal(1))
 
-				_, bulkCreateRequest := client.BulkCreateArgsForCall(0)
+				_, bulkCreateRequest := client.BulkArgsForCall(0)
 
 				Expect(bulkCreateRequest.Items).To(HaveLen(len(expectedNotes) - 1))
 				for _, item := range bulkCreateRequest.Items {
 					note := proto.MessageV1(item.Message).(*pb.Note)
 					Expect(note.Name).ToNot(Equal(nameOfNoteThatAlreadyExists))
+					Expect(item.Operation).To(Equal(esutil.BULK_CREATE))
 				}
 			})
 
@@ -2041,7 +2044,7 @@ var _ = Describe("elasticsearch storage", func() {
 			})
 
 			It("should not attempt to create any notes", func() {
-				Expect(client.BulkCreateCallCount()).To(Equal(0))
+				Expect(client.BulkCallCount()).To(Equal(0))
 			})
 
 			It("should return an error for every note", func() {
@@ -2064,11 +2067,11 @@ var _ = Describe("elasticsearch storage", func() {
 				nameOfNoteThatFailedToCreate = expectedNotes[randomIndex].Name
 
 				// this is required due to the non-deterministic ordering of maps
-				client.BulkCreateStub = func(ctx context.Context, request *esutil.BulkCreateRequest) (*esutil.EsBulkResponse, error) {
+				client.BulkStub = func(ctx context.Context, request *esutil.BulkRequest) (*esutil.EsBulkResponse, error) {
 					var responses []*esutil.EsBulkResponseItem
 					for _, item := range request.Items {
 						response := &esutil.EsBulkResponseItem{
-							Index: &esutil.EsIndexDocResponse{
+							Create: &esutil.EsIndexDocResponse{
 								Id:    fake.LetterN(10),
 								Error: nil,
 							},
@@ -2076,8 +2079,8 @@ var _ = Describe("elasticsearch storage", func() {
 
 						note := proto.MessageV1(item.Message).(*pb.Note)
 						if note.Name == nameOfNoteThatFailedToCreate {
-							response.Index.Id = ""
-							response.Index.Error = &esutil.EsIndexDocError{
+							response.Create.Id = ""
+							response.Create.Error = &esutil.EsIndexDocError{
 								Type:   fake.LetterN(10),
 								Reason: fake.LetterN(10),
 							}

@@ -94,6 +94,7 @@ var _ = Describe("elasticsearch client", func() {
 
 		It("should index the document in ES", func() {
 			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedCreateRequest.Index)))
+			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(BeEmpty())
 
 			requestBody, err := io.ReadAll(transport.ReceivedHttpRequests[0].Body)
 			Expect(err).ToNot(HaveOccurred())
@@ -151,13 +152,76 @@ var _ = Describe("elasticsearch client", func() {
 				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("false"))
 			})
 		})
+
+		When("a join field is used", func() {
+			var (
+				expectedJoinField string
+				expectedJoinName  string
+			)
+
+			BeforeEach(func() {
+				expectedJoinField = fake.LetterN(10)
+				expectedJoinName = fake.LetterN(10)
+
+				expectedCreateRequest.Join = &EsJoin{
+					Field: expectedJoinField,
+					Name:  expectedJoinName,
+				}
+			})
+
+			It("should marshal the join fields into the request body json", func() {
+				requestBody, err := io.ReadAll(transport.ReceivedHttpRequests[0].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				// the proto message should still be marshalled
+				indexedMessage := &pb.Occurrence{}
+				err = protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal(requestBody, protov1.MessageV2(indexedMessage))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(indexedMessage).To(BeEquivalentTo(expectedOccurrence))
+
+				// and we should also see the join field
+				jsonMap := map[string]interface{}{}
+				err = json.Unmarshal(requestBody, &jsonMap)
+				Expect(err).ToNot(HaveOccurred())
+
+				joinField := jsonMap[expectedJoinField].(map[string]interface{})
+				Expect(joinField["name"]).To(BeEquivalentTo(expectedJoinName))
+			})
+
+			When("the parent is set", func() {
+				var expectedParent string
+
+				BeforeEach(func() {
+					expectedParent = fake.LetterN(10)
+
+					expectedCreateRequest.Join.Parent = expectedParent
+				})
+
+				It("should set the routing to the parent ID", func() {
+					Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc", expectedCreateRequest.Index)))
+					Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(Equal(expectedParent))
+				})
+
+				It("should include the parent info in the request body", func() {
+					requestBody, err := io.ReadAll(transport.ReceivedHttpRequests[0].Body)
+					Expect(err).ToNot(HaveOccurred())
+
+					jsonMap := map[string]interface{}{}
+					err = json.Unmarshal(requestBody, &jsonMap)
+					Expect(err).ToNot(HaveOccurred())
+
+					joinField := jsonMap[expectedJoinField].(map[string]interface{})
+					Expect(joinField["parent"]).To(BeEquivalentTo(expectedParent))
+				})
+			})
+		})
 	})
 
-	Context("BulkCreate", func() {
+	Context("Bulk", func() {
 		var (
-			expectedBulkCreateRequest  *BulkCreateRequest
+			expectedBulkCreateRequest  *BulkRequest
 			expectedBulkCreateResponse *EsBulkResponse
-			expectedBulkItems          []*BulkCreateRequestItem
+			expectedBulkItems          []*BulkRequestItem
 			expectedOccurrences        []*pb.Occurrence
 			expectedIndex              string
 			expectedErrs               []error
@@ -169,16 +233,17 @@ var _ = Describe("elasticsearch client", func() {
 		BeforeEach(func() {
 			expectedIndex = fake.LetterN(10)
 			expectedOccurrences = createRandomOccurrences(fake.Number(2, 5))
-			expectedBulkItems = []*BulkCreateRequestItem{}
+			expectedBulkItems = []*BulkRequestItem{}
 			for _, o := range expectedOccurrences {
-				expectedBulkItems = append(expectedBulkItems, &BulkCreateRequestItem{
-					Message: protov1.MessageV2(o),
+				expectedBulkItems = append(expectedBulkItems, &BulkRequestItem{
+					Message:   protov1.MessageV2(o),
+					Operation: BULK_INDEX,
 				})
 				expectedErrs = append(expectedErrs, nil)
 			}
 
 			expectedBulkCreateResponse = createEsBulkOccurrenceIndexResponse(expectedOccurrences, expectedErrs)
-			expectedBulkCreateRequest = &BulkCreateRequest{
+			expectedBulkCreateRequest = &BulkRequest{
 				Index: expectedIndex,
 				Items: expectedBulkItems,
 			}
@@ -192,7 +257,7 @@ var _ = Describe("elasticsearch client", func() {
 		})
 
 		JustBeforeEach(func() {
-			actualBulkCreateResponse, actualErr = client.BulkCreate(ctx, expectedBulkCreateRequest)
+			actualBulkCreateResponse, actualErr = client.Bulk(ctx, expectedBulkCreateRequest)
 		})
 
 		It("should send a bulk request to ES to create a document for each message", func() {
@@ -211,7 +276,7 @@ var _ = Describe("elasticsearch client", func() {
 				if i%2 == 0 { // index metadata
 					metadata := payload.(*EsBulkQueryFragment)
 					Expect(metadata.Index.Index).To(Equal(expectedIndex))
-					Expect(metadata.Create).To(BeNil()) // document ID is not set for this test
+					Expect(metadata.Create).To(BeNil()) // create is not used for this test
 				} else { // occurrence
 					occurrence := payload.(*pb.Occurrence)
 					expectedOccurrence := expectedOccurrences[(i-1)/2]
@@ -226,7 +291,7 @@ var _ = Describe("elasticsearch client", func() {
 			Expect(actualBulkCreateResponse).To(BeEquivalentTo(expectedBulkCreateResponse))
 		})
 
-		When("a document ID is specified for an item", func() {
+		When("the create operation is specified for an item", func() {
 			var (
 				randomItemIndex    int
 				expectedDocumentId string
@@ -236,6 +301,7 @@ var _ = Describe("elasticsearch client", func() {
 				expectedDocumentId = fake.LetterN(10)
 				randomItemIndex = fake.Number(0, len(expectedBulkItems)-1)
 				expectedBulkItems[randomItemIndex].DocumentId = expectedDocumentId
+				expectedBulkItems[randomItemIndex].Operation = BULK_CREATE
 			})
 
 			It("should use the provided document ID when indexing that item", func() {
@@ -282,6 +348,83 @@ var _ = Describe("elasticsearch client", func() {
 			It("should return an error", func() {
 				Expect(actualBulkCreateResponse).To(BeNil())
 				Expect(actualErr).To(HaveOccurred())
+			})
+		})
+
+		When("a join field is used", func() {
+			var (
+				expectedJoinField string
+				expectedJoinName  string
+				randomIndex       int
+				expectedPayloads  []string
+			)
+
+			BeforeEach(func() {
+				randomIndex = fake.Number(0, len(expectedOccurrences)-1)
+				expectedJoinField = fake.LetterN(10)
+				expectedJoinName = fake.LetterN(10)
+
+				expectedBulkItems[randomIndex].Join = &EsJoin{
+					Field: expectedJoinField,
+					Name:  expectedJoinName,
+				}
+			})
+
+			JustBeforeEach(func() {
+				buf := new(bytes.Buffer)
+				_, err := buf.ReadFrom(transport.ReceivedHttpRequests[0].Body)
+				Expect(err).ToNot(HaveOccurred())
+
+				requestPayload := strings.TrimSuffix(buf.String(), "\n") // _bulk requests need to end in a newline
+				expectedPayloads = strings.Split(requestPayload, "\n")
+			})
+
+			It("should marshal the join field into the payload that used it", func() {
+				payloadWithJoin := expectedPayloads[randomIndex*2+1]
+
+				// the proto message should still be marshalled
+				indexedMessage := &pb.Occurrence{}
+				err := protojson.UnmarshalOptions{DiscardUnknown: true}.Unmarshal([]byte(payloadWithJoin), protov1.MessageV2(indexedMessage))
+				Expect(err).ToNot(HaveOccurred())
+				Expect(indexedMessage).To(BeEquivalentTo(expectedOccurrences[randomIndex]))
+
+				// and we should also see the join field
+				jsonMap := map[string]interface{}{}
+				err = json.Unmarshal([]byte(payloadWithJoin), &jsonMap)
+				Expect(err).ToNot(HaveOccurred())
+
+				joinField := jsonMap[expectedJoinField].(map[string]interface{})
+				Expect(joinField["name"]).To(BeEquivalentTo(expectedJoinName))
+			})
+
+			When("the parent is set", func() {
+				var expectedParent string
+
+				BeforeEach(func() {
+					expectedParent = fake.LetterN(10)
+
+					expectedBulkItems[randomIndex].Join.Parent = expectedParent
+				})
+
+				It("should set the routing to the parent ID", func() {
+					payloadWithJoinOperation := expectedPayloads[randomIndex*2]
+					operation := &EsBulkQueryFragment{}
+
+					err := json.Unmarshal([]byte(payloadWithJoinOperation), operation)
+					Expect(err).ToNot(HaveOccurred())
+					Expect(operation.Index.Routing).To(Equal(expectedParent))
+				})
+
+				It("should include the parent info in the request body", func() {
+					payloadWithJoin := expectedPayloads[randomIndex*2+1]
+
+					jsonMap := map[string]interface{}{}
+					err := json.Unmarshal([]byte(payloadWithJoin), &jsonMap)
+					Expect(err).ToNot(HaveOccurred())
+
+					joinField := jsonMap[expectedJoinField].(map[string]interface{})
+					Expect(joinField["parent"]).To(BeEquivalentTo(expectedParent))
+				})
 			})
 		})
 	})

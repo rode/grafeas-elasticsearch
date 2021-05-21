@@ -5,6 +5,7 @@ go 1.16
 require (
 	github.com/brianvoe/gofakeit/v6 v6.4.1
 	github.com/elastic/go-elasticsearch/v7 v7.12.0
+	github.com/evanphx/json-patch v0.5.2
 	github.com/golang/mock v1.4.4
 	github.com/golang/protobuf v1.5.2
 	github.com/google/cel-go v0.6.0

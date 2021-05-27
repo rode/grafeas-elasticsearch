@@ -794,6 +794,7 @@ var _ = Describe("elasticsearch client", func() {
 		It("should send the get request to ES", func() {
 			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc/%s", expectedIndex, expectedDocumentId)))
+			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(BeEmpty())
 		})
 
 		It("should return the response and no error", func() {
@@ -848,6 +849,19 @@ var _ = Describe("elasticsearch client", func() {
 			It("should query escape the document id", func() {
 				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 				Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.QueryEscape(expectedDocumentId)))
+			})
+		})
+
+		When("the document routing is specified", func() {
+			var expectedRouting string
+
+			BeforeEach(func() {
+				expectedRouting = fake.UUID()
+				expectedGetRequest.Routing = expectedRouting
+			})
+
+			It("should route the query using the parent id", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(Equal(expectedRouting))
 			})
 		})
 	})
@@ -1048,6 +1062,7 @@ var _ = Describe("elasticsearch client", func() {
 
 		It("should delete the document in ES", func() {
 			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_delete_by_query", expectedDeleteRequest.Index)))
+			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(BeEmpty())
 
 			searchRequest := &EsSearch{}
 			ReadRequestBody(transport.ReceivedHttpRequests[0], &searchRequest)
@@ -1094,6 +1109,19 @@ var _ = Describe("elasticsearch client", func() {
 
 			It("should return an error", func() {
 				Expect(actualErr).To(HaveOccurred())
+			})
+		})
+
+		When("the document routing is specified", func() {
+			var expectedRouting string
+
+			BeforeEach(func() {
+				expectedRouting = fake.UUID()
+				expectedDeleteRequest.Routing = expectedRouting
+			})
+
+			It("should route the query using the parent id", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(Equal(expectedRouting))
 			})
 		})
 	})

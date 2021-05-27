@@ -28,7 +28,6 @@ import (
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	protov1 "github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
 	pb "github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	. "github.com/onsi/ginkgo"
@@ -36,6 +35,7 @@ import (
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var _ = Describe("elasticsearch client", func() {
@@ -1137,7 +1137,7 @@ func createRandomOccurrence() *pb.Occurrence {
 		Kind:        common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
 		Remediation: fake.LetterN(10),
 		Details:     nil,
-		CreateTime:  ptypes.TimestampNow(),
+		CreateTime:  timestamppb.Now(),
 	}
 }
 

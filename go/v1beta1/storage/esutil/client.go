@@ -20,13 +20,14 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
+
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	"go.uber.org/zap"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
-	"net/http"
-	"net/url"
 )
 
 //go:generate counterfeiter -generate
@@ -67,11 +68,13 @@ type MultiSearchRequest struct {
 type GetRequest struct {
 	Index      string
 	DocumentId string
+	Routing    string
 }
 
 type MultiGetRequest struct {
 	Index       string
 	DocumentIds []string
+	Items       []*EsMultiGetItem
 }
 
 type SearchRequest struct {
@@ -102,6 +105,7 @@ type DeleteRequest struct {
 	Index   string
 	Search  *EsSearch
 	Refresh string // TODO: use RefreshOption type
+	Routing string
 }
 
 const defaultPitKeepAlive = "5m"
@@ -414,11 +418,18 @@ func (c *client) MultiSearch(ctx context.Context, request *MultiSearchRequest) (
 
 func (c *client) Get(ctx context.Context, request *GetRequest) (*EsGetResponse, error) {
 	log := c.logger.Named("Get").With(zap.String("index", request.Index), zap.String("documentId", request.DocumentId))
+	getOpts := []func(*esapi.GetRequest){
+		c.esClient.Get.WithContext(ctx),
+	}
+
+	if request.Routing != "" {
+		getOpts = append(getOpts, c.esClient.Get.WithRouting(url.QueryEscape(request.Routing)))
+	}
 
 	res, err := c.esClient.Get(
 		request.Index,
 		url.QueryEscape(request.DocumentId),
-		c.esClient.Get.WithContext(ctx),
+		getOpts...,
 	)
 	if err != nil {
 		return nil, err
@@ -439,9 +450,9 @@ func (c *client) Get(ctx context.Context, request *GetRequest) (*EsGetResponse, 
 
 func (c *client) MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error) {
 	log := c.logger.Named("MultiGet")
-
 	encodedBody, requestJson := EncodeRequest(&EsMultiGetRequest{
-		IDs: request.DocumentIds,
+		IDs:  request.DocumentIds,
+		Docs: request.Items,
 	})
 	log = log.With(zap.String("request", requestJson))
 
@@ -511,11 +522,19 @@ func (c *client) Delete(ctx context.Context, request *DeleteRequest) error {
 		request.Refresh = "true"
 	}
 
+	deleteOpts := []func(queryRequest *esapi.DeleteByQueryRequest){
+		c.esClient.DeleteByQuery.WithContext(ctx),
+		c.esClient.DeleteByQuery.WithRefresh(withRefreshBool(request.Refresh)),
+	}
+
+	if request.Routing != "" {
+		deleteOpts = append(deleteOpts, c.esClient.DeleteByQuery.WithRouting(request.Routing))
+	}
+
 	res, err := c.esClient.DeleteByQuery(
 		[]string{request.Index},
 		encodedBody,
-		c.esClient.DeleteByQuery.WithContext(ctx),
-		c.esClient.DeleteByQuery.WithRefresh(withRefreshBool(request.Refresh)),
+		deleteOpts...,
 	)
 	if err != nil {
 		return err

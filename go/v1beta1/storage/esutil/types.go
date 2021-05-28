@@ -16,6 +16,7 @@ package esutil
 
 import (
 	"encoding/json"
+
 	jsonpatch "github.com/evanphx/json-patch"
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -158,8 +159,14 @@ type ESPitResponse struct {
 	Id string `json:"id"`
 }
 
+type EsMultiGetItem struct {
+	Id      string `json:"_id"`
+	Routing string `json:"routing,omitempty"`
+}
+
 type EsMultiGetRequest struct {
-	IDs []string `json:"ids"`
+	IDs  []string          `json:"ids,omitempty"`
+	Docs []*EsMultiGetItem `json:"docs,omitempty"`
 }
 
 type EsGetResponse struct {

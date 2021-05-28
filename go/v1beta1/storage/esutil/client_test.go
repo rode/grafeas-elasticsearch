@@ -28,7 +28,6 @@ import (
 	"github.com/elastic/go-elasticsearch/v7"
 	"github.com/elastic/go-elasticsearch/v7/esapi"
 	protov1 "github.com/golang/protobuf/proto"
-	"github.com/golang/protobuf/ptypes"
 	"github.com/grafeas/grafeas/proto/v1beta1/common_go_proto"
 	pb "github.com/grafeas/grafeas/proto/v1beta1/grafeas_go_proto"
 	. "github.com/onsi/ginkgo"
@@ -36,6 +35,7 @@ import (
 	"github.com/rode/grafeas-elasticsearch/go/v1beta1/storage/filtering"
 	"google.golang.org/protobuf/encoding/protojson"
 	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/timestamppb"
 )
 
 var _ = Describe("elasticsearch client", func() {
@@ -794,6 +794,7 @@ var _ = Describe("elasticsearch client", func() {
 		It("should send the get request to ES", func() {
 			Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc/%s", expectedIndex, expectedDocumentId)))
+			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(BeEmpty())
 		})
 
 		It("should return the response and no error", func() {
@@ -848,6 +849,19 @@ var _ = Describe("elasticsearch client", func() {
 			It("should query escape the document id", func() {
 				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
 				Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.QueryEscape(expectedDocumentId)))
+			})
+		})
+
+		When("the document routing is specified", func() {
+			var expectedRouting string
+
+			BeforeEach(func() {
+				expectedRouting = fake.UUID()
+				expectedGetRequest.Routing = expectedRouting
+			})
+
+			It("should include the routing value", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(Equal(expectedRouting))
 			})
 		})
 	})
@@ -906,6 +920,30 @@ var _ = Describe("elasticsearch client", func() {
 		It("should return the response from the multiget operation", func() {
 			Expect(actualErr).ToNot(HaveOccurred())
 			Expect(actualMultiGetResponse).To(BeEquivalentTo(expectedMultiGetResponse))
+		})
+
+		When("multiget items are specified", func() {
+			var expectedItems []*EsMultiGetItem
+
+			BeforeEach(func() {
+				expectedItems = []*EsMultiGetItem{}
+				for i := 0; i < len(expectedDocumentIds); i++ {
+					expectedItems = append(expectedItems, &EsMultiGetItem{
+						Id:      expectedDocumentIds[i],
+						Routing: fake.LetterN(10),
+					})
+				}
+				expectedMultiGetRequest.DocumentIds = nil
+				expectedMultiGetRequest.Items = expectedItems
+			})
+
+			It("should send the items instead of document ids", func() {
+				requestBody := &EsMultiGetRequest{}
+				ReadRequestBody(transport.ReceivedHttpRequests[0], &requestBody)
+
+				Expect(requestBody.IDs).To(BeNil())
+				Expect(requestBody.Docs).To(ConsistOf(expectedItems))
+			})
 		})
 
 		When("the multiget operation fails", func() {
@@ -1048,6 +1086,7 @@ var _ = Describe("elasticsearch client", func() {
 
 		It("should delete the document in ES", func() {
 			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_delete_by_query", expectedDeleteRequest.Index)))
+			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(BeEmpty())
 
 			searchRequest := &EsSearch{}
 			ReadRequestBody(transport.ReceivedHttpRequests[0], &searchRequest)
@@ -1096,6 +1135,19 @@ var _ = Describe("elasticsearch client", func() {
 				Expect(actualErr).To(HaveOccurred())
 			})
 		})
+
+		When("the document routing is specified", func() {
+			var expectedRouting string
+
+			BeforeEach(func() {
+				expectedRouting = fake.UUID()
+				expectedDeleteRequest.Routing = expectedRouting
+			})
+
+			It("should include the routing value", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(Equal(expectedRouting))
+			})
+		})
 	})
 })
 
@@ -1109,7 +1161,7 @@ func createRandomOccurrence() *pb.Occurrence {
 		Kind:        common_go_proto.NoteKind_NOTE_KIND_UNSPECIFIED,
 		Remediation: fake.LetterN(10),
 		Details:     nil,
-		CreateTime:  ptypes.TimestampNow(),
+		CreateTime:  timestamppb.Now(),
 	}
 }
 

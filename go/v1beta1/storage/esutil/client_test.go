@@ -860,7 +860,7 @@ var _ = Describe("elasticsearch client", func() {
 				expectedGetRequest.Routing = expectedRouting
 			})
 
-			It("should route the query using the parent id", func() {
+			It("should include the routing value", func() {
 				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(Equal(expectedRouting))
 			})
 		})
@@ -1144,7 +1144,7 @@ var _ = Describe("elasticsearch client", func() {
 				expectedDeleteRequest.Routing = expectedRouting
 			})
 
-			It("should route the query using the parent id", func() {
+			It("should include the routing value", func() {
 				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(Equal(expectedRouting))
 			})
 		})

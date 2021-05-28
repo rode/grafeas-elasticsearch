@@ -922,6 +922,30 @@ var _ = Describe("elasticsearch client", func() {
 			Expect(actualMultiGetResponse).To(BeEquivalentTo(expectedMultiGetResponse))
 		})
 
+		When("multiget items are specified", func() {
+			var expectedItems []*EsMultiGetItem
+
+			BeforeEach(func() {
+				expectedItems = []*EsMultiGetItem{}
+				for i := 0; i < len(expectedDocumentIds); i++ {
+					expectedItems = append(expectedItems, &EsMultiGetItem{
+						Id:      expectedDocumentIds[i],
+						Routing: fake.LetterN(10),
+					})
+				}
+				expectedMultiGetRequest.DocumentIds = nil
+				expectedMultiGetRequest.Items = expectedItems
+			})
+
+			It("should send the items instead of document ids", func() {
+				requestBody := &EsMultiGetRequest{}
+				ReadRequestBody(transport.ReceivedHttpRequests[0], &requestBody)
+
+				Expect(requestBody.IDs).To(BeNil())
+				Expect(requestBody.Docs).To(ConsistOf(expectedItems))
+			})
+		})
+
 		When("the multiget operation fails", func() {
 			BeforeEach(func() {
 				transport.PreparedHttpResponses = []*http.Response{

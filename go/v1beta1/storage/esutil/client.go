@@ -74,6 +74,7 @@ type GetRequest struct {
 type MultiGetRequest struct {
 	Index       string
 	DocumentIds []string
+	Items       []*EsMultiGetItem
 }
 
 type SearchRequest struct {
@@ -449,9 +450,9 @@ func (c *client) Get(ctx context.Context, request *GetRequest) (*EsGetResponse, 
 
 func (c *client) MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error) {
 	log := c.logger.Named("MultiGet")
-
 	encodedBody, requestJson := EncodeRequest(&EsMultiGetRequest{
-		IDs: request.DocumentIds,
+		IDs:  request.DocumentIds,
+		Docs: request.Items,
 	})
 	log = log.With(zap.String("request", requestJson))
 

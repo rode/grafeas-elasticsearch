@@ -405,7 +405,7 @@ func (es *ElasticsearchStorage) UpdateOccurrence(ctx context.Context, projectId,
 	}
 	fieldmask_utils.StructToStruct(m, o, occurrence)
 
-	err = es.client.Update(ctx, &esutil.UpdateRequest{
+	_, err = es.client.Update(ctx, &esutil.UpdateRequest{
 		Index:      es.occurrencesAlias(projectId),
 		DocumentId: targetDocumentID,
 		Message:    proto.MessageV2(occurrence),

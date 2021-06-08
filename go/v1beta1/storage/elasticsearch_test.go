@@ -1161,7 +1161,7 @@ var _ = Describe("elasticsearch storage", func() {
 
 		JustBeforeEach(func() {
 			client.SearchReturns(expectedSearchResponse, expectedSearchError)
-			client.UpdateReturns(expectedUpdateError)
+			client.UpdateReturns(nil, expectedUpdateError)
 			actualOccurrence, actualErr = elasticsearchStorage.UpdateOccurrence(context.Background(), expectedProjectId, expectedOccurrenceId, occurrencePatchData, fieldMask)
 		})
 

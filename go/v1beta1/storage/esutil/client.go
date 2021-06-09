@@ -119,7 +119,7 @@ type Client interface {
 	MultiSearch(ctx context.Context, request *MultiSearchRequest) (*EsMultiSearchResponse, error)
 	Get(ctx context.Context, request *GetRequest) (*EsGetResponse, error)
 	MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error)
-	Update(ctx context.Context, request *UpdateRequest) error
+	Update(ctx context.Context, request *UpdateRequest) (*EsIndexDocResponse, error)
 	Delete(ctx context.Context, request *DeleteRequest) error
 }
 
@@ -478,11 +478,11 @@ func (c *client) MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMul
 	return &response, nil
 }
 
-func (c *client) Update(ctx context.Context, request *UpdateRequest) error {
+func (c *client) Update(ctx context.Context, request *UpdateRequest) (*EsIndexDocResponse, error) {
 	log := c.logger.Named("Update")
 	str, err := protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(request.Message)
 	if err != nil {
-		return err
+		return nil, err
 	}
 
 	if request.Refresh == "" {
@@ -497,20 +497,20 @@ func (c *client) Update(ctx context.Context, request *UpdateRequest) error {
 		c.esClient.Index.WithRefresh(request.Refresh),
 	)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if res.IsError() {
-		return fmt.Errorf("unexpected response from elasticsearch: %s", res.String())
+		return nil, fmt.Errorf("unexpected response from elasticsearch: %s", res.String())
 	}
 
 	esResponse := EsIndexDocResponse{}
 	if err := DecodeResponse(res.Body, &esResponse); err != nil {
-		return err
+		return nil, err
 	}
 
 	log.Debug("elasticsearch response", zap.Any("response", esResponse))
 
-	return nil
+	return &esResponse, nil
 }
 
 func (c *client) Delete(ctx context.Context, request *DeleteRequest) error {

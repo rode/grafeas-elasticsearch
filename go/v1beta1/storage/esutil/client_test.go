@@ -964,7 +964,8 @@ var _ = Describe("elasticsearch client", func() {
 
 	Context("Update", func() {
 		var (
-			actualErr error
+			actualResponse *EsIndexDocResponse
+			actualErr      error
 
 			expectedUpdateRequest *UpdateRequest
 			expectedDocumentId    string
@@ -995,7 +996,7 @@ var _ = Describe("elasticsearch client", func() {
 		})
 
 		JustBeforeEach(func() {
-			actualErr = client.Update(ctx, expectedUpdateRequest)
+			actualResponse, actualErr = client.Update(ctx, expectedUpdateRequest)
 		})
 
 		It("should index (update) the document in ES", func() {
@@ -1012,6 +1013,10 @@ var _ = Describe("elasticsearch client", func() {
 
 		It("should refresh the index by default", func() {
 			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("true"))
+		})
+
+		It("should return the response from Elasticsearch", func() {
+			Expect(actualResponse.Id).To(Equal(expectedDocumentId))
 		})
 
 		It("should return no error", func() {

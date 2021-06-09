@@ -105,17 +105,19 @@ type FakeClient struct {
 		result1 *esutil.SearchResponse
 		result2 error
 	}
-	UpdateStub        func(context.Context, *esutil.UpdateRequest) error
+	UpdateStub        func(context.Context, *esutil.UpdateRequest) (*esutil.EsIndexDocResponse, error)
 	updateMutex       sync.RWMutex
 	updateArgsForCall []struct {
 		arg1 context.Context
 		arg2 *esutil.UpdateRequest
 	}
 	updateReturns struct {
-		result1 error
+		result1 *esutil.EsIndexDocResponse
+		result2 error
 	}
 	updateReturnsOnCall map[int]struct {
-		result1 error
+		result1 *esutil.EsIndexDocResponse
+		result2 error
 	}
 	invocations      map[string][][]interface{}
 	invocationsMutex sync.RWMutex
@@ -573,7 +575,7 @@ func (fake *FakeClient) SearchReturnsOnCall(i int, result1 *esutil.SearchRespons
 	}{result1, result2}
 }
 
-func (fake *FakeClient) Update(arg1 context.Context, arg2 *esutil.UpdateRequest) error {
+func (fake *FakeClient) Update(arg1 context.Context, arg2 *esutil.UpdateRequest) (*esutil.EsIndexDocResponse, error) {
 	fake.updateMutex.Lock()
 	ret, specificReturn := fake.updateReturnsOnCall[len(fake.updateArgsForCall)]
 	fake.updateArgsForCall = append(fake.updateArgsForCall, struct {
@@ -588,9 +590,9 @@ func (fake *FakeClient) Update(arg1 context.Context, arg2 *esutil.UpdateRequest)
 		return stub(arg1, arg2)
 	}
 	if specificReturn {
-		return ret.result1
+		return ret.result1, ret.result2
 	}
-	return fakeReturns.result1
+	return fakeReturns.result1, fakeReturns.result2
 }
 
 func (fake *FakeClient) UpdateCallCount() int {
@@ -599,7 +601,7 @@ func (fake *FakeClient) UpdateCallCount() int {
 	return len(fake.updateArgsForCall)
 }
 
-func (fake *FakeClient) UpdateCalls(stub func(context.Context, *esutil.UpdateRequest) error) {
+func (fake *FakeClient) UpdateCalls(stub func(context.Context, *esutil.UpdateRequest) (*esutil.EsIndexDocResponse, error)) {
 	fake.updateMutex.Lock()
 	defer fake.updateMutex.Unlock()
 	fake.UpdateStub = stub
@@ -612,27 +614,30 @@ func (fake *FakeClient) UpdateArgsForCall(i int) (context.Context, *esutil.Updat
 	return argsForCall.arg1, argsForCall.arg2
 }
 
-func (fake *FakeClient) UpdateReturns(result1 error) {
+func (fake *FakeClient) UpdateReturns(result1 *esutil.EsIndexDocResponse, result2 error) {
 	fake.updateMutex.Lock()
 	defer fake.updateMutex.Unlock()
 	fake.UpdateStub = nil
 	fake.updateReturns = struct {
-		result1 error
-	}{result1}
+		result1 *esutil.EsIndexDocResponse
+		result2 error
+	}{result1, result2}
 }
 
-func (fake *FakeClient) UpdateReturnsOnCall(i int, result1 error) {
+func (fake *FakeClient) UpdateReturnsOnCall(i int, result1 *esutil.EsIndexDocResponse, result2 error) {
 	fake.updateMutex.Lock()
 	defer fake.updateMutex.Unlock()
 	fake.UpdateStub = nil
 	if fake.updateReturnsOnCall == nil {
 		fake.updateReturnsOnCall = make(map[int]struct {
-			result1 error
+			result1 *esutil.EsIndexDocResponse
+			result2 error
 		})
 	}
 	fake.updateReturnsOnCall[i] = struct {
-		result1 error
-	}{result1}
+		result1 *esutil.EsIndexDocResponse
+		result2 error
+	}{result1, result2}
 }
 
 func (fake *FakeClient) Invocations() map[string][][]interface{} {

@@ -332,6 +332,48 @@ var _ = Describe("elasticsearch client", func() {
 			})
 		})
 
+		When("one of the bulk items specifies a routing", func() {
+			var (
+				expectedRouting string
+				randomItemIndex int
+			)
+
+			BeforeEach(func() {
+				expectedRouting = fake.UUID()
+				randomItemIndex = fake.Number(0, len(expectedBulkItems)-1)
+				expectedBulkItems[randomItemIndex].Routing = expectedRouting
+			})
+
+			It("should set the routing value for that item", func() {
+				var expectedPayloads []interface{}
+
+				for i := 0; i < len(expectedOccurrences); i++ {
+					expectedPayloads = append(expectedPayloads, &EsBulkQueryFragment{}, &pb.Occurrence{})
+				}
+
+				parseNDJSONRequestBodyWithProtobufs(transport.ReceivedHttpRequests[0].Body, expectedPayloads)
+
+				metadataIndex := randomItemIndex * 2
+				metadata := expectedPayloads[metadataIndex].(*EsBulkQueryFragment)
+
+				Expect(metadata.Index.Routing).To(Equal(expectedRouting))
+			})
+		})
+
+		When("one of the item specifies a join and a routing value", func() {
+			BeforeEach(func() {
+				randomItemIndex := fake.Number(0, len(expectedBulkItems)-1)
+				expectedBulkItems[randomItemIndex].Routing = fake.UUID()
+				expectedBulkItems[randomItemIndex].Join = &EsJoin{
+					Parent: fake.UUID(),
+				}
+			})
+
+			It("should return an error", func() {
+				Expect(actualErr).To(HaveOccurred())
+			})
+		})
+
 		When("the bulk operation fails", func() {
 			BeforeEach(func() {
 				transport.PreparedHttpResponses[0] = &http.Response{
@@ -1048,6 +1090,19 @@ var _ = Describe("elasticsearch client", func() {
 
 			It("should not refresh the index after updating the document", func() {
 				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("refresh")).To(Equal("false"))
+			})
+		})
+
+		When("a routing key is specified", func() {
+			var expectedRouting string
+
+			BeforeEach(func() {
+				expectedRouting = fake.UUID()
+				expectedUpdateRequest.Routing = expectedRouting
+			})
+
+			It("should include the routing value", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(Equal(expectedRouting))
 			})
 		})
 	})

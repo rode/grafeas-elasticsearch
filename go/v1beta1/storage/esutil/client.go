@@ -58,6 +58,7 @@ type BulkRequestItem struct {
 	DocumentId string
 	Join       *EsJoin
 	Operation  EsBulkOperation
+	Routing    string
 }
 
 type MultiSearchRequest struct {
@@ -99,6 +100,7 @@ type UpdateRequest struct {
 	DocumentId string
 	Refresh    string // TODO: use RefreshOption type
 	Message    proto.Message
+	Routing    string
 }
 
 type DeleteRequest struct {
@@ -226,6 +228,10 @@ func (c *client) Bulk(ctx context.Context, request *BulkRequest) (*EsBulkRespons
 			err  error
 		)
 		if item.Join != nil {
+			if item.Routing != "" {
+				return nil, errors.New("cannot specify a routing key when using a join")
+			}
+
 			// marshal the protobuf message with the custom join patch.
 			// see the godoc for EsDocWithJoin for more details
 			data, err = json.Marshal(&EsDocWithJoin{
@@ -238,6 +244,7 @@ func (c *client) Bulk(ctx context.Context, request *BulkRequest) (*EsBulkRespons
 
 			operationFragment.Routing = item.Join.Parent
 		} else {
+			operationFragment.Routing = item.Routing
 			data, err = protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(item.Message)
 			if err != nil {
 				return nil, err
@@ -489,12 +496,20 @@ func (c *client) Update(ctx context.Context, request *UpdateRequest) (*EsIndexDo
 		request.Refresh = "true"
 	}
 
-	res, err := c.esClient.Index(
-		request.Index,
-		bytes.NewReader(str),
+	indexOpts := []func(*esapi.IndexRequest){
 		c.esClient.Index.WithDocumentID(request.DocumentId),
 		c.esClient.Index.WithContext(ctx),
 		c.esClient.Index.WithRefresh(request.Refresh),
+	}
+
+	if request.Routing != "" {
+		indexOpts = append(indexOpts, c.esClient.Index.WithRouting(request.Routing))
+	}
+
+	res, err := c.esClient.Index(
+		request.Index,
+		bytes.NewReader(str),
+		indexOpts...,
 	)
 	if err != nil {
 		return nil, err

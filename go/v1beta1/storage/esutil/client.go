@@ -430,7 +430,7 @@ func (c *client) Get(ctx context.Context, request *GetRequest) (*EsGetResponse, 
 	}
 
 	if request.Routing != "" {
-		getOpts = append(getOpts, c.esClient.Get.WithRouting(url.QueryEscape(request.Routing)))
+		getOpts = append(getOpts, c.esClient.Get.WithRouting(request.Routing))
 	}
 
 	res, err := c.esClient.Get(

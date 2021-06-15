@@ -497,7 +497,7 @@ func (c *client) Update(ctx context.Context, request *UpdateRequest) (*EsIndexDo
 	}
 
 	indexOpts := []func(*esapi.IndexRequest){
-		c.esClient.Index.WithDocumentID(request.DocumentId),
+		c.esClient.Index.WithDocumentID(url.QueryEscape(request.DocumentId)),
 		c.esClient.Index.WithContext(ctx),
 		c.esClient.Index.WithRefresh(request.Refresh),
 	}

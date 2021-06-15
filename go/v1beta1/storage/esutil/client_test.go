@@ -1076,6 +1076,17 @@ var _ = Describe("elasticsearch client", func() {
 			Expect(actualErr).ToNot(HaveOccurred())
 		})
 
+		When("the document id contains url-unsafe characters", func() {
+			BeforeEach(func() {
+				expectedDocumentId = fake.URL()
+				expectedUpdateRequest.DocumentId = expectedDocumentId
+			})
+
+			It("should query escape the document id", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.QueryEscape(expectedDocumentId)))
+			})
+		})
+
 		When("indexing the document fails", func() {
 			BeforeEach(func() {
 				transport.PreparedHttpResponses[0] = &http.Response{

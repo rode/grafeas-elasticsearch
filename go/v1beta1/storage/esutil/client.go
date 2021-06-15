@@ -212,7 +212,7 @@ func (c *client) Bulk(ctx context.Context, request *BulkRequest) (*EsBulkRespons
 		metadata := &EsBulkQueryFragment{}
 
 		operationFragment := &EsBulkQueryOperationFragment{
-			Id:    item.DocumentId,
+			Id:    url.QueryEscape(item.DocumentId),
 			Index: request.Index,
 		}
 		if item.Operation == BULK_CREATE {

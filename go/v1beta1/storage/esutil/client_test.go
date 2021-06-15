@@ -371,7 +371,35 @@ var _ = Describe("elasticsearch client", func() {
 			})
 		})
 
-		When("one of the item specifies a join and a routing value", func() {
+		When("one of the items has a document id with non-url safe characters", func() {
+			var (
+				expectedDocumentId string
+				randomItemIndex int
+			)
+
+			BeforeEach(func() {
+				expectedDocumentId = fake.URL()
+				randomItemIndex = fake.Number(0, len(expectedBulkItems)-1)
+				expectedBulkItems[randomItemIndex].DocumentId = expectedDocumentId
+			})
+
+			FIt("should query escape the document id", func() {
+				var expectedPayloads []interface{}
+
+				for i := 0; i < len(expectedOccurrences); i++ {
+					expectedPayloads = append(expectedPayloads, &EsBulkQueryFragment{}, &pb.Occurrence{})
+				}
+
+				parseNDJSONRequestBodyWithProtobufs(transport.ReceivedHttpRequests[0].Body, expectedPayloads)
+
+				metadataIndex := randomItemIndex * 2
+				metadata := expectedPayloads[metadataIndex].(*EsBulkQueryFragment)
+
+				Expect(metadata.Index.Id).To(Equal(url.QueryEscape(expectedDocumentId)))
+			})
+		})
+
+		When("one of the item specifi", func() {
 			BeforeEach(func() {
 				randomItemIndex := fake.Number(0, len(expectedBulkItems)-1)
 				expectedBulkItems[randomItemIndex].Routing = fake.UUID()

@@ -122,6 +122,17 @@ var _ = Describe("elasticsearch client", func() {
 			It("should index the document using the provided ID", func() {
 				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc/%s", expectedCreateRequest.Index, expectedCreateRequest.DocumentId)))
 			})
+
+			When("the document id contains url-unsafe characters", func() {
+				BeforeEach(func() {
+					expectedDocumentId = fake.URL()
+					expectedCreateRequest.DocumentId = expectedDocumentId
+				})
+
+				It("should query escape the document id", func() {
+					Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.QueryEscape(expectedDocumentId)))
+				})
+			})
 		})
 
 		When("indexing the document fails", func() {

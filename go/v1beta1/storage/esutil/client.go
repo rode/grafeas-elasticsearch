@@ -149,7 +149,7 @@ func (c *client) Create(ctx context.Context, request *CreateRequest) (string, er
 		c.esClient.Index.WithRefresh(request.Refresh),
 	}
 	if request.DocumentId != "" {
-		indexOpts = append(indexOpts, c.esClient.Index.WithDocumentID(request.DocumentId))
+		indexOpts = append(indexOpts, c.esClient.Index.WithDocumentID(url.QueryEscape(request.DocumentId)))
 	}
 
 	var (

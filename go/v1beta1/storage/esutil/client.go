@@ -111,7 +111,7 @@ type DeleteRequest struct {
 }
 
 const defaultPitKeepAlive = "5m"
-const grafeasMaxPageSize = 1000
+const maxPageSize = 1000
 
 //counterfeiter:generate . Client
 type Client interface {
@@ -349,7 +349,7 @@ func (c *client) Search(ctx context.Context, request *SearchRequest) (*SearchRes
 	} else {
 		searchOptions = append(searchOptions,
 			c.esClient.Search.WithIndex(request.Index),
-			c.esClient.Search.WithSize(grafeasMaxPageSize),
+			c.esClient.Search.WithSize(maxPageSize),
 		)
 	}
 

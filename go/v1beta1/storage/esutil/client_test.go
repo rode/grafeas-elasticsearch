@@ -516,7 +516,7 @@ var _ = Describe("elasticsearch client", func() {
 		It("should send a search request to ES", func() {
 			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedIndex)))
 			// page size should be 1000 by default
-			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(grafeasMaxPageSize)))
+			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(maxPageSize)))
 
 			searchRequest := &EsSearch{}
 			ReadRequestBody(transport.ReceivedHttpRequests[0], &searchRequest)

@@ -457,10 +457,21 @@ func (c *client) Get(ctx context.Context, request *GetRequest) (*EsGetResponse, 
 
 func (c *client) MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error) {
 	log := c.logger.Named("MultiGet")
-	encodedBody, requestJson := EncodeRequest(&EsMultiGetRequest{
+
+	esRequest := &EsMultiGetRequest{
 		IDs:  request.DocumentIds,
 		Docs: request.Items,
-	})
+	}
+
+	for i, id := range esRequest.IDs {
+		esRequest.IDs[i] = url.QueryEscape(id)
+	}
+
+	for i, item := range esRequest.Docs {
+		esRequest.Docs[i].Id = url.QueryEscape(item.Id)
+	}
+
+	encodedBody, requestJson := EncodeRequest(esRequest)
 	log = log.With(zap.String("request", requestJson))
 
 	res, err := c.esClient.Mget(

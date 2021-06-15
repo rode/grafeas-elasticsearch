@@ -374,7 +374,7 @@ var _ = Describe("elasticsearch client", func() {
 		When("one of the items has a document id with non-url safe characters", func() {
 			var (
 				expectedDocumentId string
-				randomItemIndex int
+				randomItemIndex    int
 			)
 
 			BeforeEach(func() {
@@ -383,7 +383,7 @@ var _ = Describe("elasticsearch client", func() {
 				expectedBulkItems[randomItemIndex].DocumentId = expectedDocumentId
 			})
 
-			FIt("should query escape the document id", func() {
+			It("should query escape the document id", func() {
 				var expectedPayloads []interface{}
 
 				for i := 0; i < len(expectedOccurrences); i++ {
@@ -949,10 +949,11 @@ var _ = Describe("elasticsearch client", func() {
 
 	Context("MultiGet", func() {
 		var (
-			expectedDocumentIds      []string
-			expectedIndex            string
-			expectedMultiGetRequest  *MultiGetRequest
-			expectedMultiGetResponse *EsMultiGetResponse
+			expectedDocumentIds        []string
+			expectedEscapedDocumentIds []string
+			expectedIndex              string
+			expectedMultiGetRequest    *MultiGetRequest
+			expectedMultiGetResponse   *EsMultiGetResponse
 
 			actualMultiGetResponse *EsMultiGetResponse
 			actualErr              error
@@ -961,6 +962,10 @@ var _ = Describe("elasticsearch client", func() {
 		BeforeEach(func() {
 			expectedIndex = fake.LetterN(10)
 			expectedDocumentIds = createRandomDocumentIds(fake.Number(2, 5))
+			expectedEscapedDocumentIds = []string{}
+			for _, id := range expectedDocumentIds {
+				expectedEscapedDocumentIds = append(expectedEscapedDocumentIds, url.QueryEscape(id))
+			}
 			expectedMultiGetRequest = &MultiGetRequest{
 				Index:       expectedIndex,
 				DocumentIds: expectedDocumentIds,
@@ -995,7 +1000,7 @@ var _ = Describe("elasticsearch client", func() {
 
 			requestBody := &EsMultiGetRequest{}
 			ReadRequestBody(transport.ReceivedHttpRequests[0], &requestBody)
-			Expect(requestBody.IDs).To(BeEquivalentTo(expectedMultiGetRequest.DocumentIds))
+			Expect(requestBody.IDs).To(BeEquivalentTo(expectedEscapedDocumentIds))
 		})
 
 		It("should return the response from the multiget operation", func() {
@@ -1008,14 +1013,20 @@ var _ = Describe("elasticsearch client", func() {
 
 			BeforeEach(func() {
 				expectedItems = []*EsMultiGetItem{}
+				var requestItems []*EsMultiGetItem
 				for i := 0; i < len(expectedDocumentIds); i++ {
+					routing := fake.LetterN(10)
 					expectedItems = append(expectedItems, &EsMultiGetItem{
+						Id:      expectedEscapedDocumentIds[i],
+						Routing: routing,
+					})
+					requestItems = append(requestItems, &EsMultiGetItem{
 						Id:      expectedDocumentIds[i],
-						Routing: fake.LetterN(10),
+						Routing: routing,
 					})
 				}
 				expectedMultiGetRequest.DocumentIds = nil
-				expectedMultiGetRequest.Items = expectedItems
+				expectedMultiGetRequest.Items = requestItems
 			})
 
 			It("should send the items instead of document ids", func() {
@@ -1312,7 +1323,7 @@ func createRandomSearches(l int) []*EsSearch {
 func createRandomDocumentIds(l int) []string {
 	var result []string
 	for i := 0; i < l; i++ {
-		result = append(result, fake.LetterN(10))
+		result = append(result, fake.URL())
 	}
 
 	return result

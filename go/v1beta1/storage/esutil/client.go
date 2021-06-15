@@ -168,7 +168,7 @@ func (c *client) Create(ctx context.Context, request *CreateRequest) (string, er
 		}
 
 		if request.Join.Parent != "" {
-			indexOpts = append(indexOpts, c.esClient.Index.WithRouting(url.QueryEscape(request.Join.Parent)))
+			indexOpts = append(indexOpts, c.esClient.Index.WithRouting(request.Join.Parent))
 		}
 	} else {
 		doc, err = protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(request.Message)

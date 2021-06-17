@@ -1285,7 +1285,7 @@ func createRandomSearches(l int) []*EsSearch {
 func createRandomDocumentIds(l int) []string {
 	var result []string
 	for i := 0; i < l; i++ {
-		result = append(result, fake.URL())
+		result = append(result, fake.LetterN(10))
 	}
 
 	return result

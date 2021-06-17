@@ -149,7 +149,7 @@ func (c *client) Create(ctx context.Context, request *CreateRequest) (string, er
 		c.esClient.Index.WithRefresh(request.Refresh),
 	}
 	if request.DocumentId != "" {
-		indexOpts = append(indexOpts, c.esClient.Index.WithDocumentID(url.QueryEscape(request.DocumentId)))
+		indexOpts = append(indexOpts, c.esClient.Index.WithDocumentID(escapeDocumentId(request.DocumentId)))
 	}
 
 	var (
@@ -212,7 +212,7 @@ func (c *client) Bulk(ctx context.Context, request *BulkRequest) (*EsBulkRespons
 		metadata := &EsBulkQueryFragment{}
 
 		operationFragment := &EsBulkQueryOperationFragment{
-			Id:    url.QueryEscape(item.DocumentId),
+			Id:    item.DocumentId,
 			Index: request.Index,
 		}
 		if item.Operation == BULK_CREATE {
@@ -435,7 +435,7 @@ func (c *client) Get(ctx context.Context, request *GetRequest) (*EsGetResponse, 
 
 	res, err := c.esClient.Get(
 		request.Index,
-		url.QueryEscape(request.DocumentId),
+		escapeDocumentId(request.DocumentId),
 		getOpts...,
 	)
 	if err != nil {
@@ -458,20 +458,10 @@ func (c *client) Get(ctx context.Context, request *GetRequest) (*EsGetResponse, 
 func (c *client) MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error) {
 	log := c.logger.Named("MultiGet")
 
-	esRequest := &EsMultiGetRequest{
+	encodedBody, requestJson := EncodeRequest(&EsMultiGetRequest{
 		IDs:  request.DocumentIds,
 		Docs: request.Items,
-	}
-
-	for i, id := range esRequest.IDs {
-		esRequest.IDs[i] = url.QueryEscape(id)
-	}
-
-	for i, item := range esRequest.Docs {
-		esRequest.Docs[i].Id = url.QueryEscape(item.Id)
-	}
-
-	encodedBody, requestJson := EncodeRequest(esRequest)
+	})
 	log = log.With(zap.String("request", requestJson))
 
 	res, err := c.esClient.Mget(
@@ -508,7 +498,7 @@ func (c *client) Update(ctx context.Context, request *UpdateRequest) (*EsIndexDo
 	}
 
 	indexOpts := []func(*esapi.IndexRequest){
-		c.esClient.Index.WithDocumentID(url.QueryEscape(request.DocumentId)),
+		c.esClient.Index.WithDocumentID(escapeDocumentId(request.DocumentId)),
 		c.esClient.Index.WithContext(ctx),
 		c.esClient.Index.WithRefresh(request.Refresh),
 	}
@@ -589,4 +579,8 @@ func withRefreshBool(o string) bool {
 		return false
 	}
 	return true
+}
+
+func escapeDocumentId(id string) string {
+	return url.PathEscape(id)
 }

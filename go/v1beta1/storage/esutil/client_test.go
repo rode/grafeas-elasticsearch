@@ -130,7 +130,7 @@ var _ = Describe("elasticsearch client", func() {
 				})
 
 				It("should query escape the document id", func() {
-					Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.QueryEscape(expectedDocumentId)))
+					Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.PathEscape(expectedDocumentId)))
 				})
 			})
 		})
@@ -371,35 +371,7 @@ var _ = Describe("elasticsearch client", func() {
 			})
 		})
 
-		When("one of the items has a document id with non-url safe characters", func() {
-			var (
-				expectedDocumentId string
-				randomItemIndex    int
-			)
-
-			BeforeEach(func() {
-				expectedDocumentId = fake.URL()
-				randomItemIndex = fake.Number(0, len(expectedBulkItems)-1)
-				expectedBulkItems[randomItemIndex].DocumentId = expectedDocumentId
-			})
-
-			It("should query escape the document id", func() {
-				var expectedPayloads []interface{}
-
-				for i := 0; i < len(expectedOccurrences); i++ {
-					expectedPayloads = append(expectedPayloads, &EsBulkQueryFragment{}, &pb.Occurrence{})
-				}
-
-				parseNDJSONRequestBodyWithProtobufs(transport.ReceivedHttpRequests[0].Body, expectedPayloads)
-
-				metadataIndex := randomItemIndex * 2
-				metadata := expectedPayloads[metadataIndex].(*EsBulkQueryFragment)
-
-				Expect(metadata.Index.Id).To(Equal(url.QueryEscape(expectedDocumentId)))
-			})
-		})
-
-		When("one of the item specifi", func() {
+		When("one of the item specifies a join and a routing value", func() {
 			BeforeEach(func() {
 				randomItemIndex := fake.Number(0, len(expectedBulkItems)-1)
 				expectedBulkItems[randomItemIndex].Routing = fake.UUID()
@@ -929,7 +901,7 @@ var _ = Describe("elasticsearch client", func() {
 
 			It("should query escape the document id", func() {
 				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
-				Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.QueryEscape(expectedDocumentId)))
+				Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.PathEscape(expectedDocumentId)))
 			})
 		})
 
@@ -949,11 +921,10 @@ var _ = Describe("elasticsearch client", func() {
 
 	Context("MultiGet", func() {
 		var (
-			expectedDocumentIds        []string
-			expectedEscapedDocumentIds []string
-			expectedIndex              string
-			expectedMultiGetRequest    *MultiGetRequest
-			expectedMultiGetResponse   *EsMultiGetResponse
+			expectedDocumentIds      []string
+			expectedIndex            string
+			expectedMultiGetRequest  *MultiGetRequest
+			expectedMultiGetResponse *EsMultiGetResponse
 
 			actualMultiGetResponse *EsMultiGetResponse
 			actualErr              error
@@ -962,10 +933,6 @@ var _ = Describe("elasticsearch client", func() {
 		BeforeEach(func() {
 			expectedIndex = fake.LetterN(10)
 			expectedDocumentIds = createRandomDocumentIds(fake.Number(2, 5))
-			expectedEscapedDocumentIds = []string{}
-			for _, id := range expectedDocumentIds {
-				expectedEscapedDocumentIds = append(expectedEscapedDocumentIds, url.QueryEscape(id))
-			}
 			expectedMultiGetRequest = &MultiGetRequest{
 				Index:       expectedIndex,
 				DocumentIds: expectedDocumentIds,
@@ -1000,7 +967,7 @@ var _ = Describe("elasticsearch client", func() {
 
 			requestBody := &EsMultiGetRequest{}
 			ReadRequestBody(transport.ReceivedHttpRequests[0], &requestBody)
-			Expect(requestBody.IDs).To(BeEquivalentTo(expectedEscapedDocumentIds))
+			Expect(requestBody.IDs).To(BeEquivalentTo(expectedDocumentIds))
 		})
 
 		It("should return the response from the multiget operation", func() {
@@ -1013,20 +980,15 @@ var _ = Describe("elasticsearch client", func() {
 
 			BeforeEach(func() {
 				expectedItems = []*EsMultiGetItem{}
-				var requestItems []*EsMultiGetItem
 				for i := 0; i < len(expectedDocumentIds); i++ {
 					routing := fake.LetterN(10)
 					expectedItems = append(expectedItems, &EsMultiGetItem{
-						Id:      expectedEscapedDocumentIds[i],
-						Routing: routing,
-					})
-					requestItems = append(requestItems, &EsMultiGetItem{
 						Id:      expectedDocumentIds[i],
 						Routing: routing,
 					})
 				}
 				expectedMultiGetRequest.DocumentIds = nil
-				expectedMultiGetRequest.Items = requestItems
+				expectedMultiGetRequest.Items = expectedItems
 			})
 
 			It("should send the items instead of document ids", func() {
@@ -1122,7 +1084,7 @@ var _ = Describe("elasticsearch client", func() {
 			})
 
 			It("should query escape the document id", func() {
-				Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.QueryEscape(expectedDocumentId)))
+				Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.PathEscape(expectedDocumentId)))
 			})
 		})
 

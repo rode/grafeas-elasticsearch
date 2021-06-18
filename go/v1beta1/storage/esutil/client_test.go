@@ -122,6 +122,17 @@ var _ = Describe("elasticsearch client", func() {
 			It("should index the document using the provided ID", func() {
 				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_doc/%s", expectedCreateRequest.Index, expectedCreateRequest.DocumentId)))
 			})
+
+			When("the document id contains url-unsafe characters", func() {
+				BeforeEach(func() {
+					expectedDocumentId = fake.URL()
+					expectedCreateRequest.DocumentId = expectedDocumentId
+				})
+
+				It("should query escape the document id", func() {
+					Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.PathEscape(expectedDocumentId)))
+				})
+			})
 		})
 
 		When("indexing the document fails", func() {
@@ -516,7 +527,7 @@ var _ = Describe("elasticsearch client", func() {
 		It("should send a search request to ES", func() {
 			Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal(fmt.Sprintf("/%s/_search", expectedIndex)))
 			// page size should be 1000 by default
-			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(grafeasMaxPageSize)))
+			Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("size")).To(Equal(strconv.Itoa(maxPageSize)))
 
 			searchRequest := &EsSearch{}
 			ReadRequestBody(transport.ReceivedHttpRequests[0], &searchRequest)
@@ -890,7 +901,7 @@ var _ = Describe("elasticsearch client", func() {
 
 			It("should query escape the document id", func() {
 				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
-				Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.QueryEscape(expectedDocumentId)))
+				Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.PathEscape(expectedDocumentId)))
 			})
 		})
 
@@ -956,7 +967,7 @@ var _ = Describe("elasticsearch client", func() {
 
 			requestBody := &EsMultiGetRequest{}
 			ReadRequestBody(transport.ReceivedHttpRequests[0], &requestBody)
-			Expect(requestBody.IDs).To(BeEquivalentTo(expectedMultiGetRequest.DocumentIds))
+			Expect(requestBody.IDs).To(BeEquivalentTo(expectedDocumentIds))
 		})
 
 		It("should return the response from the multiget operation", func() {
@@ -970,9 +981,10 @@ var _ = Describe("elasticsearch client", func() {
 			BeforeEach(func() {
 				expectedItems = []*EsMultiGetItem{}
 				for i := 0; i < len(expectedDocumentIds); i++ {
+					routing := fake.LetterN(10)
 					expectedItems = append(expectedItems, &EsMultiGetItem{
 						Id:      expectedDocumentIds[i],
-						Routing: fake.LetterN(10),
+						Routing: routing,
 					})
 				}
 				expectedMultiGetRequest.DocumentIds = nil
@@ -1063,6 +1075,17 @@ var _ = Describe("elasticsearch client", func() {
 
 		It("should return no error", func() {
 			Expect(actualErr).ToNot(HaveOccurred())
+		})
+
+		When("the document id contains url-unsafe characters", func() {
+			BeforeEach(func() {
+				expectedDocumentId = fake.URL()
+				expectedUpdateRequest.DocumentId = expectedDocumentId
+			})
+
+			It("should query escape the document id", func() {
+				Expect(transport.ReceivedHttpRequests[0].URL.RawPath).To(ContainSubstring(url.PathEscape(expectedDocumentId)))
+			})
 		})
 
 		When("indexing the document fails", func() {

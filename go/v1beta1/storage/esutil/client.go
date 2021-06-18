@@ -111,7 +111,7 @@ type DeleteRequest struct {
 }
 
 const defaultPitKeepAlive = "5m"
-const grafeasMaxPageSize = 1000
+const maxPageSize = 1000
 
 //counterfeiter:generate . Client
 type Client interface {
@@ -149,7 +149,7 @@ func (c *client) Create(ctx context.Context, request *CreateRequest) (string, er
 		c.esClient.Index.WithRefresh(request.Refresh),
 	}
 	if request.DocumentId != "" {
-		indexOpts = append(indexOpts, c.esClient.Index.WithDocumentID(request.DocumentId))
+		indexOpts = append(indexOpts, c.esClient.Index.WithDocumentID(escapeDocumentId(request.DocumentId)))
 	}
 
 	var (
@@ -168,7 +168,7 @@ func (c *client) Create(ctx context.Context, request *CreateRequest) (string, er
 		}
 
 		if request.Join.Parent != "" {
-			indexOpts = append(indexOpts, c.esClient.Index.WithRouting(url.QueryEscape(request.Join.Parent)))
+			indexOpts = append(indexOpts, c.esClient.Index.WithRouting(request.Join.Parent))
 		}
 	} else {
 		doc, err = protojson.MarshalOptions{EmitUnpopulated: true}.Marshal(request.Message)
@@ -349,7 +349,7 @@ func (c *client) Search(ctx context.Context, request *SearchRequest) (*SearchRes
 	} else {
 		searchOptions = append(searchOptions,
 			c.esClient.Search.WithIndex(request.Index),
-			c.esClient.Search.WithSize(grafeasMaxPageSize),
+			c.esClient.Search.WithSize(maxPageSize),
 		)
 	}
 
@@ -430,12 +430,12 @@ func (c *client) Get(ctx context.Context, request *GetRequest) (*EsGetResponse, 
 	}
 
 	if request.Routing != "" {
-		getOpts = append(getOpts, c.esClient.Get.WithRouting(url.QueryEscape(request.Routing)))
+		getOpts = append(getOpts, c.esClient.Get.WithRouting(request.Routing))
 	}
 
 	res, err := c.esClient.Get(
 		request.Index,
-		url.QueryEscape(request.DocumentId),
+		escapeDocumentId(request.DocumentId),
 		getOpts...,
 	)
 	if err != nil {
@@ -457,6 +457,7 @@ func (c *client) Get(ctx context.Context, request *GetRequest) (*EsGetResponse, 
 
 func (c *client) MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMultiGetResponse, error) {
 	log := c.logger.Named("MultiGet")
+
 	encodedBody, requestJson := EncodeRequest(&EsMultiGetRequest{
 		IDs:  request.DocumentIds,
 		Docs: request.Items,
@@ -497,7 +498,7 @@ func (c *client) Update(ctx context.Context, request *UpdateRequest) (*EsIndexDo
 	}
 
 	indexOpts := []func(*esapi.IndexRequest){
-		c.esClient.Index.WithDocumentID(request.DocumentId),
+		c.esClient.Index.WithDocumentID(escapeDocumentId(request.DocumentId)),
 		c.esClient.Index.WithContext(ctx),
 		c.esClient.Index.WithRefresh(request.Refresh),
 	}
@@ -578,4 +579,8 @@ func withRefreshBool(o string) bool {
 		return false
 	}
 	return true
+}
+
+func escapeDocumentId(id string) string {
+	return url.PathEscape(id)
 }

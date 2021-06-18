@@ -464,10 +464,17 @@ func (c *client) MultiGet(ctx context.Context, request *MultiGetRequest) (*EsMul
 	})
 	log = log.With(zap.String("request", requestJson))
 
+	mgetOpts := []func(mgetRequest *esapi.MgetRequest){
+		c.esClient.Mget.WithContext(ctx),
+	}
+
+	if request.Index != "" {
+		mgetOpts = append(mgetOpts, c.esClient.Mget.WithIndex(request.Index))
+	}
+
 	res, err := c.esClient.Mget(
 		encodedBody,
-		c.esClient.Mget.WithContext(ctx),
-		c.esClient.Mget.WithIndex(request.Index),
+		mgetOpts...,
 	)
 	if err != nil {
 		return nil, err

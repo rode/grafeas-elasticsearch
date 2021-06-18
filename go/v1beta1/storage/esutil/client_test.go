@@ -1000,6 +1000,17 @@ var _ = Describe("elasticsearch client", func() {
 			})
 		})
 
+		When("no index is specified", func() {
+			BeforeEach(func() {
+				expectedMultiGetRequest.Index = ""
+			})
+
+			It("should use the generic mget path", func() {
+				Expect(transport.ReceivedHttpRequests[0].Method).To(Equal(http.MethodGet))
+				Expect(transport.ReceivedHttpRequests[0].URL.Path).To(Equal("/_mget"))
+			})
+		})
+
 		When("the multiget operation fails", func() {
 			BeforeEach(func() {
 				transport.PreparedHttpResponses = []*http.Response{

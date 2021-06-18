@@ -161,6 +161,7 @@ type ESPitResponse struct {
 
 type EsMultiGetItem struct {
 	Id      string `json:"_id"`
+	Index   string `json:"_index,omitempty"`
 	Routing string `json:"routing,omitempty"`
 }
 

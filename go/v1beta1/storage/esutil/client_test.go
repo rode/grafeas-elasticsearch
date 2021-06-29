@@ -566,6 +566,19 @@ var _ = Describe("elasticsearch client", func() {
 
 				Expect(searchRequest).To(BeEquivalentTo(expectedSearch))
 			})
+
+			When("routing is specified", func() {
+				var expectedRouting string
+
+				BeforeEach(func() {
+					expectedRouting = fake.LetterN(10)
+					expectedSearchRequest.Search.Routing = expectedRouting
+				})
+
+				It("should specify the routing value during the search", func() {
+					Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(Equal(expectedRouting))
+				})
+			})
 		})
 
 		When("the search operation fails", func() {
@@ -840,6 +853,7 @@ var _ = Describe("elasticsearch client", func() {
 					} else { // search
 						search := payload.(*EsSearch)
 						expectedSearch := expectedSearches[index]
+						expectedSearch.Routing = ""
 
 						Expect(search).To(Equal(expectedSearch))
 					}

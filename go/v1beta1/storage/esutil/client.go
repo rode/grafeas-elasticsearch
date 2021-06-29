@@ -296,6 +296,10 @@ func (c *client) Search(ctx context.Context, request *SearchRequest) (*SearchRes
 		c.esClient.Search.WithContext(ctx),
 	}
 
+	if body.Routing != "" {
+		searchOptions = append(searchOptions, c.esClient.Search.WithRouting(body.Routing))
+	}
+
 	var (
 		searchFrom int
 		pitId      string

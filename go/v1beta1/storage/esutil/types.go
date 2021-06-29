@@ -54,7 +54,7 @@ type EsSearch struct {
 	Sort     map[string]EsSortOrder `json:"sort,omitempty"`
 	Collapse *EsSearchCollapse      `json:"collapse,omitempty"`
 	Pit      *EsSearchPit           `json:"pit,omitempty"`
-	Routing  string
+	Routing  string                 `json:"-"`
 }
 
 type EsSortOrder string

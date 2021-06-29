@@ -63,6 +63,7 @@ type BulkRequestItem struct {
 
 type MultiSearchRequest struct {
 	Index    string
+	Routing  string
 	Searches []*EsSearch
 }
 
@@ -388,7 +389,8 @@ func (c *client) MultiSearch(ctx context.Context, request *MultiSearchRequest) (
 	log := c.logger.Named("MultiSearch")
 
 	searchMetadata, _ := json.Marshal(&EsMultiSearchQueryFragment{
-		Index: request.Index,
+		Index:   request.Index,
+		Routing: request.Routing,
 	})
 	searchMetadata = append(searchMetadata, '\n')
 

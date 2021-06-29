@@ -131,7 +131,8 @@ type EsBulkResponseItem struct {
 // Elasticsearch /_msearch query fragments
 
 type EsMultiSearchQueryFragment struct {
-	Index string `json:"index"`
+	Index   string `json:"index"`
+	Routing string `json:"routing,omitempty"`
 }
 
 // Elasticsearch /_msearch response

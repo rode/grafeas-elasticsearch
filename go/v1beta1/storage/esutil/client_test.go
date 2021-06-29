@@ -774,6 +774,7 @@ var _ = Describe("elasticsearch client", func() {
 				if i%2 == 0 { // search metadata
 					metadata := payload.(*EsMultiSearchQueryFragment)
 					Expect(metadata.Index).To(Equal(expectedIndex))
+					Expect(metadata.Routing).To(BeEmpty())
 				} else { // search
 					search := payload.(*EsSearch)
 					expectedSearch := expectedSearches[(i-1)/2]
@@ -798,6 +799,38 @@ var _ = Describe("elasticsearch client", func() {
 			It("should return an error", func() {
 				Expect(actualMultiSearchResponse).To(BeNil())
 				Expect(actualErr).To(HaveOccurred())
+			})
+		})
+
+		When("routing is specified", func() {
+			var expectedRouting string
+
+			BeforeEach(func() {
+				expectedRouting = fake.LetterN(10)
+				expectedMultiSearchRequest.Routing = expectedRouting
+			})
+
+			It("should include the routing value in each search header", func() {
+				var expectedPayloads []interface{}
+
+				for i := 0; i < len(expectedSearches); i++ {
+					expectedPayloads = append(expectedPayloads, &EsMultiSearchQueryFragment{}, &EsSearch{})
+				}
+
+				parseNDJSONRequestBody(transport.ReceivedHttpRequests[0].Body, expectedPayloads)
+
+				for i, payload := range expectedPayloads {
+					if i%2 == 0 { // search metadata
+						metadata := payload.(*EsMultiSearchQueryFragment)
+						Expect(metadata.Index).To(Equal(expectedIndex))
+						Expect(metadata.Routing).To(Equal(expectedRouting))
+					} else { // search
+						search := payload.(*EsSearch)
+						expectedSearch := expectedSearches[(i-1)/2]
+
+						Expect(search).To(Equal(expectedSearch))
+					}
+				}
 			})
 		})
 	})

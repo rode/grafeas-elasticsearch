@@ -566,6 +566,19 @@ var _ = Describe("elasticsearch client", func() {
 
 				Expect(searchRequest).To(BeEquivalentTo(expectedSearch))
 			})
+
+			When("routing is specified", func() {
+				var expectedRouting string
+
+				BeforeEach(func() {
+					expectedRouting = fake.LetterN(10)
+					expectedSearchRequest.Search.Routing = expectedRouting
+				})
+
+				It("should specify the routing value during the search", func() {
+					Expect(transport.ReceivedHttpRequests[0].URL.Query().Get("routing")).To(Equal(expectedRouting))
+				})
+			})
 		})
 
 		When("the search operation fails", func() {
@@ -802,15 +815,20 @@ var _ = Describe("elasticsearch client", func() {
 			})
 		})
 
-		When("routing is specified", func() {
-			var expectedRouting string
+		When("routing is specified for a search", func() {
+			var (
+				expectedRouting   string
+				randomSearchIndex int
+			)
 
 			BeforeEach(func() {
 				expectedRouting = fake.LetterN(10)
-				expectedMultiSearchRequest.Routing = expectedRouting
+				randomSearchIndex = fake.Number(0, len(expectedSearches)-1)
+
+				expectedMultiSearchRequest.Searches[randomSearchIndex].Routing = expectedRouting
 			})
 
-			It("should include the routing value in each search header", func() {
+			It("should include the routing value in the specified search header", func() {
 				var expectedPayloads []interface{}
 
 				for i := 0; i < len(expectedSearches); i++ {
@@ -820,13 +838,22 @@ var _ = Describe("elasticsearch client", func() {
 				parseNDJSONRequestBody(transport.ReceivedHttpRequests[0].Body, expectedPayloads)
 
 				for i, payload := range expectedPayloads {
-					if i%2 == 0 { // search metadata
+					modulus := i % 2
+					index := (i - modulus) / 2
+
+					if modulus == 0 { // search metadata
 						metadata := payload.(*EsMultiSearchQueryFragment)
 						Expect(metadata.Index).To(Equal(expectedIndex))
-						Expect(metadata.Routing).To(Equal(expectedRouting))
+
+						if index == randomSearchIndex {
+							Expect(metadata.Routing).To(Equal(expectedRouting))
+						} else {
+							Expect(metadata.Routing).To(BeEmpty())
+						}
 					} else { // search
 						search := payload.(*EsSearch)
-						expectedSearch := expectedSearches[(i-1)/2]
+						expectedSearch := expectedSearches[index]
+						expectedSearch.Routing = ""
 
 						Expect(search).To(Equal(expectedSearch))
 					}

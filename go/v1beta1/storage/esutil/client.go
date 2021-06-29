@@ -63,7 +63,6 @@ type BulkRequestItem struct {
 
 type MultiSearchRequest struct {
 	Index    string
-	Routing  string
 	Searches []*EsSearch
 }
 
@@ -388,19 +387,30 @@ func (c *client) Search(ctx context.Context, request *SearchRequest) (*SearchRes
 func (c *client) MultiSearch(ctx context.Context, request *MultiSearchRequest) (*EsMultiSearchResponse, error) {
 	log := c.logger.Named("MultiSearch")
 
-	searchMetadata, _ := json.Marshal(&EsMultiSearchQueryFragment{
-		Index:   request.Index,
-		Routing: request.Routing,
+	searchMetadataWithoutRouting, _ := json.Marshal(&EsMultiSearchQueryFragment{
+		Index: request.Index,
 	})
-	searchMetadata = append(searchMetadata, '\n')
+	searchMetadataWithoutRouting = append(searchMetadataWithoutRouting, '\n')
 
 	var searchRequestBody bytes.Buffer
 	for _, search := range request.Searches {
 		data, _ := json.Marshal(search)
 		dataBytes := append(data, '\n')
 
-		searchRequestBody.Grow(len(searchMetadata) + len(dataBytes))
-		searchRequestBody.Write(searchMetadata)
+		if search.Routing != "" {
+			searchMetadataWithRouting, _ := json.Marshal(&EsMultiSearchQueryFragment{
+				Index:   request.Index,
+				Routing: search.Routing,
+			})
+			searchMetadataWithRouting = append(searchMetadataWithRouting, '\n')
+
+			searchRequestBody.Grow(len(searchMetadataWithRouting) + len(dataBytes))
+			searchRequestBody.Write(searchMetadataWithRouting)
+		} else {
+			searchRequestBody.Grow(len(searchMetadataWithoutRouting) + len(dataBytes))
+			searchRequestBody.Write(searchMetadataWithoutRouting)
+		}
+
 		searchRequestBody.Write(dataBytes)
 	}
 
